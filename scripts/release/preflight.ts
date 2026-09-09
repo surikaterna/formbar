@@ -1,5 +1,11 @@
 import type { Candidate, GithubReleaseState, ReleaseReader, TagState, WorkspaceRelease } from "./types";
 
+const FINAL_RELEASE_DELAYS = [1_000, 2_000, 4_000, 8_000] as const;
+const FINAL_RELEASE_ATTEMPTS = FINAL_RELEASE_DELAYS.length + 1;
+const FINAL_RELEASE_TOTAL_BACKOFF = FINAL_RELEASE_DELAYS.reduce((total, milliseconds) => total + milliseconds, 0);
+
+export type Wait = (milliseconds: number) => Promise<void>;
+
 const normalize = (value: string) => value.replaceAll("\r\n", "\n").trim();
 
 function compatibleHistoricalBody(candidate: Candidate, body: string): boolean {
@@ -54,4 +60,25 @@ export async function selectCandidates(
 
 export async function preflightAll(candidates: Candidate[], reader: ReleaseReader): Promise<Candidate[]> {
 	return Promise.all(candidates.map((candidate) => preflightCandidate(candidate, reader)));
+}
+
+export async function awaitFinalReleases(candidates: Candidate[], reader: ReleaseReader, wait: Wait): Promise<void> {
+	let missing = candidates.filter((candidate) => candidate.releaseAction === "create");
+	for (const milliseconds of FINAL_RELEASE_DELAYS) {
+		if (missing.length === 0) return;
+		await wait(milliseconds);
+		const checked = await Promise.all(
+			missing.map(async (candidate) => ({
+				candidate,
+				action: validateRelease(candidate, await reader.release(candidate.tag)),
+			})),
+		);
+		missing = checked.filter(({ action }) => action === "create").map(({ candidate }) => candidate);
+	}
+	if (missing.length === 0) return;
+	throw new Error(
+		`GitHub Releases remained missing after ${FINAL_RELEASE_ATTEMPTS} attempts and ${FINAL_RELEASE_TOTAL_BACKOFF}ms total backoff: ${missing
+			.map((candidate) => candidate.tag)
+			.join(", ")}`,
+	);
 }
