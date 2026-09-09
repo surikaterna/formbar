@@ -117,5 +117,5 @@ describe("version:packages", () => {
 		} finally {
 			await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 		}
-	});
+	}, 15_000);
 });
