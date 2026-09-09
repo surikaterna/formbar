@@ -1,5 +1,14 @@
 # @formbar/from-schema
 
+## 0.3.1
+
+### Patch Changes
+
+- 29a10d4: Prefer Standard Schema validation when a schema also resembles JSON Schema, preserving Zod 4 validation in generated forms.
+- e827864: Validate JSON Schema `format: "date"` strings as canonical real calendar dates.
+- Updated dependencies [40e0d87]
+  - @formbar/core@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes

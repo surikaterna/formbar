@@ -1,5 +1,12 @@
 # @formbar/core
 
+## 0.3.1
+
+### Patch Changes
+
+- 40e0d87: Warn outside production when form creation receives unknown option keys, including targeted guidance for migrating
+  the removed `arbiterRules` option. Keep React-only options out of core diagnostics.
+
 ## 0.3.0
 
 ### Patch Changes

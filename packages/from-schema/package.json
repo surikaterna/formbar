@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/from-schema",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"type": "module",
 	"description": "Schema-to-form ingestion for JSON Schema and Zod with layout compilation",
 	"license": "MIT",
@@ -27,7 +27,7 @@
 		"test": "vitest run --root ../.. packages/from-schema/src/__tests__"
 	},
 	"dependencies": {
-		"@formbar/core": "^0.3.0",
+		"@formbar/core": "^0.3.1",
 		"@scheman/core": "^1.0.0"
 	},
 	"peerDependencies": {

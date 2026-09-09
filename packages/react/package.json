@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/react",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"type": "module",
 	"description": "React hooks and a11y utilities for @formbar/core",
 	"license": "MIT",
@@ -27,7 +27,7 @@
 		"test": "vitest run --root ../.. packages/react/src/__tests__"
 	},
 	"dependencies": {
-		"@formbar/core": "^0.3.0"
+		"@formbar/core": "^0.3.1"
 	},
 	"peerDependencies": {
 		"react": ">=18.0.0"
