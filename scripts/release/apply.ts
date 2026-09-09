@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 import { LiveServices } from "./adapters";
 import { isPrerelease } from "./changelog";
 import { awaitFinalReleases, preflightAll } from "./preflight";
+import type { Wait } from "./preflight";
 import type { Candidate, ReleasePlan, ReleaseReader, ReleaseWriter } from "./types";
 import { parseReleasePlan } from "./validation";
 
-const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const delay: Wait = (milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 export function validatePlan(plan: ReleasePlan, repository: string, releaseCommit: string): void {
 	if (plan.schemaVersion !== 1 || plan.repository !== repository || plan.releaseCommit !== releaseCommit) {
@@ -29,12 +30,7 @@ export function validatePlan(plan: ReleasePlan, repository: string, releaseCommi
 	}
 }
 
-async function awaitNpm(
-	candidate: Candidate,
-	reader: ReleaseReader,
-	attempts: number,
-	wait: typeof delay,
-): Promise<void> {
+async function awaitNpm(candidate: Candidate, reader: ReleaseReader, attempts: number, wait: Wait): Promise<void> {
 	for (let attempt = 1; attempt <= attempts; attempt += 1) {
 		const npm = await reader.npmVersion(candidate.name, candidate.version);
 		if (npm.exists && npm.gitHead === candidate.releaseCommit) return;
@@ -50,7 +46,7 @@ export async function applyPlan(
 	plan: ReleasePlan,
 	reader: ReleaseReader,
 	writer: ReleaseWriter,
-	options: { dryRun?: boolean; attempts?: number; wait?: typeof delay } = {},
+	options: { dryRun?: boolean; attempts?: number; wait?: Wait } = {},
 ): Promise<void> {
 	for (const candidate of plan.candidates) {
 		await awaitNpm(candidate, reader, options.attempts ?? 6, options.wait ?? delay);

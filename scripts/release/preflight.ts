@@ -1,6 +1,8 @@
 import type { Candidate, GithubReleaseState, ReleaseReader, TagState, WorkspaceRelease } from "./types";
 
 const FINAL_RELEASE_DELAYS = [1_000, 2_000, 4_000, 8_000] as const;
+const FINAL_RELEASE_ATTEMPTS = FINAL_RELEASE_DELAYS.length + 1;
+const FINAL_RELEASE_TOTAL_BACKOFF = FINAL_RELEASE_DELAYS.reduce((total, milliseconds) => total + milliseconds, 0);
 
 export type Wait = (milliseconds: number) => Promise<void>;
 
@@ -75,7 +77,7 @@ export async function awaitFinalReleases(candidates: Candidate[], reader: Releas
 	}
 	if (missing.length === 0) return;
 	throw new Error(
-		`GitHub Releases remained missing after 5 attempts and 15000ms total backoff: ${missing
+		`GitHub Releases remained missing after ${FINAL_RELEASE_ATTEMPTS} attempts and ${FINAL_RELEASE_TOTAL_BACKOFF}ms total backoff: ${missing
 			.map((candidate) => candidate.tag)
 			.join(", ")}`,
 	);
