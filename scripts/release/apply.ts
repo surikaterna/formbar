@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LiveServices } from "./adapters";
 import { isPrerelease } from "./changelog";
-import { preflightAll } from "./preflight";
+import { awaitFinalReleases, preflightAll } from "./preflight";
 import type { Candidate, ReleasePlan, ReleaseReader, ReleaseWriter } from "./types";
 import { parseReleasePlan } from "./validation";
 
@@ -76,9 +76,10 @@ export async function applyPlan(
 		if (candidate.releaseAction === "create") await writer.createRelease(candidate);
 	}
 	const final = await preflightAll(candidates, reader);
-	if (final.some((candidate) => candidate.tagAction !== "none" || candidate.releaseAction !== "none")) {
+	if (final.some((candidate) => candidate.tagAction !== "none")) {
 		throw new Error("Final release artifact verification failed");
 	}
+	await awaitFinalReleases(final, reader, options.wait ?? delay);
 }
 
 async function main(): Promise<void> {
