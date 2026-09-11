@@ -27,6 +27,7 @@
 		"test": "vitest run --root ../.. packages/arbiter/src/__tests__"
 	},
 	"dependencies": {
+		"@formbar/expressions": "^0.0.0",
 		"@formbar/core": "^0.3.0"
 	},
 	"peerDependencies": {

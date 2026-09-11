@@ -2,7 +2,49 @@
 
 React hooks and accessibility helpers for forms created with `@formbar/core`.
 
-## Install
+## Reactive ordinary expression props (#90)
+
+`useExpressionProps(service, definitions)` observes **all** expression props,
+not only values/visibility. It returns `{ values, setters, diagnostics }`.
+Direct `mode: "write"` refs have authorized setters; derived/read expressions do
+not. Services use host-supplied backends and namespaces. Keep definitions stable.
+
+```tsx
+import { useExpressionProps } from "@formbar/react";
+import type { ExpressionService, PropDefinitions } from "@formbar/expressions";
+
+const quantity = { kind: "ref", ref: { namespace: "data", segments: ["quantity"] } } as const;
+const props: PropDefinitions = {
+  value: { mode: "write", expression: quantity },
+  disabled: { mode: "read", expression: {
+    kind: "op", op: "lte", args: [quantity, { kind: "literal", value: 0 }],
+  } },
+  total: { mode: "read", expression: {
+    kind: "op", op: "mul", args: [quantity, {
+      kind: "ref", ref: { namespace: "data", segments: ["unitPrice"] },
+    }],
+  } },
+};
+export function Quantity({ service }: { service: ExpressionService }) {
+  const { values, setters } = useExpressionProps(service, props);
+  return <>
+    <input aria-label="Quantity" type="number" value={String(values.value ?? "")}
+      onChange={event => setters.value?.(Number(event.currentTarget.value))} />
+    <output>{String(values.total ?? "")}</output>
+    <button type="button" disabled={Boolean(values.disabled)}>Buy</button>
+  </>;
+}
+```
+
+The host constructs/disposes the service outside render and registers core using
+`createCoreExpressionNamespaces(form)`. No provider dependency is imposed on this
+hook. `useSyncExternalStore` handles StrictMode/unmount/rebinding; resource-free
+observation construction does not leak on abandoned renders. Replacement releases
+old subscriptions and invalidates retained binding setters. Use the neutral
+`forwardExpressionProp` helper with a host type guard for typed custom-widget
+forwarding rather than unchecked casts. This is not a full declarative renderer.
+
+## Package installation
 
 ```bash
 bun add @formbar/react @formbar/core react

@@ -3,8 +3,8 @@
 	"private": true,
 	"workspaces": ["packages/*", "apps/*"],
 	"scripts": {
-		"build": "bun run --filter @formbar/core build:dist && bun run --filter @formbar/from-schema build:dist && bun run --filter @formbar/react build:dist && bun run --filter @formbar/arbiter build:dist && bun run --filter @formbar/react-schema build:dist",
-		"test": "vitest run",
+		"build": "bun run --filter @formbar/expressions prepare:kuery && bun run --filter @formbar/expressions build:dist && bun run --filter @formbar/core build:dist && bun run --filter @formbar/from-schema build:dist && bun run --filter @formbar/react build:dist && bun run --filter @formbar/arbiter build:dist && bun run --filter @formbar/react-schema build:dist",
+		"test": "bun run --filter @formbar/expressions prepare:kuery && vitest run",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"version:packages": "changeset version && biome format --write packages/*/package.json",

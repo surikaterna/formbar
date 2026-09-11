@@ -273,5 +273,10 @@ export interface FormApi<TData, TUi> {
 	isSubmitting(): boolean;
 	/** True when at least one field has been touched */
 	isTouched(): boolean;
+	isDisposed(): boolean;
+	/** Observe disposal without acquiring a state subscription. */
+	onDispose(listener: () => void): () => void;
+	/** Bounded, code-only failures contained during disposal callbacks. */
+	getDisposalDiagnostics(): readonly import("@formbar/expressions").Diagnostic[];
 	dispose(): void;
 }

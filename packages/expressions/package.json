@@ -1,0 +1,27 @@
+{
+	"name": "@formbar/expressions",
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Authorized reactive Formbar expressions powered by Kuery",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/surikaterna/formbar.git",
+		"directory": "packages/expressions"
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" } },
+	"files": ["dist", "src", "docs"],
+	"sideEffects": false,
+	"scripts": {
+		"build": "tsc --noEmit",
+		"build:dist": "tsup",
+		"prepare:kuery": "node ../../scripts/prepare-kuery-expression.mjs",
+		"test": "bun run prepare:kuery && vitest run --root ../.. packages/expressions/src/__tests__"
+	},
+	"dependencies": {
+		"kuery": "github:surikaterna/kuery#e446db3bb55444390945741dd75bfd351a604fe2"
+	}
+}
