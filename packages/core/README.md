@@ -2,7 +2,48 @@
 
 Headless form state engine with validation, transforms, middleware, typed field APIs, and plugin support. It has no UI framework dependency.
 
-## Install
+## Expression namespace adapter (#90)
+
+`createCoreExpressionNamespaces(form)` exposes actual `data` and `ui` state as
+capabilities for `@formbar/expressions`. Core depends on the neutral contracts,
+never a backend. Reads are own-property segment reads; writes go through
+`form.dispatch({ type: "set-value", ... })`, preserving transforms, vetoes and
+dispatch results. Core's namespace union is unchanged. Add named external
+providers to the expression service, not to core.
+
+```ts
+import { createCoreExpressionNamespaces, createForm } from "@formbar/core";
+import { createExpressionService } from "@formbar/expressions";
+import { createKueryBackend } from "@formbar/expressions-kuery";
+
+const form = createForm({ initialData: { quantity: 2 } });
+const runtime = createExpressionService({
+  backend: createKueryBackend(),
+  namespaces: createCoreExpressionNamespaces(form),
+});
+// form.onDispose(listener) / form.isDisposed() support adapter lifetime checks.
+runtime.dispose();
+form.dispose();
+```
+
+The adapter acquires subscriptions only when the service is observed. Disposal
+invalidates retained setters and clears rendered values. Root reads are supported;
+use `form.reset` for root replacement, not a writable root expression. See the
+[expression ADR](../expressions/docs/adr/0001-expression-service-and-reactive-props.md)
+for safe paths, authorization and stale-parent semantics.
+
+Disposal observers cannot interrupt other observers or core teardown. All plugin,
+plugin-owned, middleware, field-cache and store cleanup steps are attempted;
+reentrant/repeated disposal is idempotent. Thrown errors and ordinary native
+Promise callback results are contained, with fixed-code diagnostics available from
+`form.getDisposalDiagnostics()` (`[]` or `[{ code: "adapter" }]`). Host error text
+is not retained. A failed host cleanup still owns any external resource it failed
+to release; its exception cannot prevent the remaining cleanup steps.
+Suspicious Promise species/constructor shapes are rejected without observing
+them; a trusted callback owns any hostile rejection it returns. See the expression
+ADR for the exact callback trust boundary.
+
+## Package installation
 
 ```bash
 bun add @formbar/core

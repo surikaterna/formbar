@@ -3,7 +3,17 @@
 	"changelog": "@changesets/cli/changelog",
 	"commit": false,
 	"fixed": [],
-	"linked": [["@formbar/core", "@formbar/from-schema", "@formbar/react", "@formbar/react-schema", "@formbar/arbiter"]],
+	"linked": [
+		[
+			"@formbar/core",
+			"@formbar/from-schema",
+			"@formbar/react",
+			"@formbar/react-schema",
+			"@formbar/arbiter",
+			"@formbar/expressions",
+			"@formbar/expressions-kuery"
+		]
+	],
 	"access": "public",
 	"baseBranch": "main",
 	"updateInternalDependencies": "patch",

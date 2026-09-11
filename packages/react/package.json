@@ -27,12 +27,17 @@
 		"test": "vitest run --root ../.. packages/react/src/__tests__"
 	},
 	"dependencies": {
+		"@formbar/expressions": "^0.0.0",
 		"@formbar/core": "^0.3.1"
 	},
 	"peerDependencies": {
 		"react": ">=18.0.0"
 	},
 	"devDependencies": {
+		"@formbar/expressions-kuery": "^0.0.0",
+		"@types/react-dom": "^19.0.0",
+		"react-dom": "^19.0.0",
+		"jsdom": "^26.0.0",
 		"@types/react": "^19.0.0",
 		"react": "^19.0.0"
 	}

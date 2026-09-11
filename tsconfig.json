@@ -12,5 +12,11 @@
 		"sourceMap": true,
 		"composite": true
 	},
-	"references": [{ "path": "packages/core" }, { "path": "packages/from-schema" }, { "path": "packages/react" }]
+	"references": [
+		{ "path": "packages/expressions" },
+		{ "path": "packages/expressions-kuery" },
+		{ "path": "packages/core" },
+		{ "path": "packages/from-schema" },
+		{ "path": "packages/react" }
+	]
 }

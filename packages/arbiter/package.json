@@ -27,6 +27,7 @@
 		"test": "vitest run --root ../.. packages/arbiter/src/__tests__"
 	},
 	"dependencies": {
+		"@formbar/expressions": "^0.0.0",
 		"@formbar/core": "^0.3.0"
 	},
 	"peerDependencies": {
@@ -34,6 +35,7 @@
 		"kuery": ">=2.0.0"
 	},
 	"devDependencies": {
+		"@formbar/expressions-kuery": "^0.0.0",
 		"@arbitre/core": "^0.2.0",
 		"kuery": "^2.0.0"
 	}

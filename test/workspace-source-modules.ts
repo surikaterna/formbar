@@ -1,10 +1,15 @@
 import { mock } from "bun:test";
 
-import * as core from "../packages/core/src/index.ts";
 import * as corePath from "../packages/core/src/path.entry.ts";
 import * as coreTransforms from "../packages/core/src/transforms.entry.ts";
 import * as coreValidation from "../packages/core/src/validation.entry.ts";
+import * as expressions from "../packages/expressions/src/index.ts";
 
+mock.module("@formbar/expressions", () => expressions);
+const kueryExpressions = await import("../packages/expressions-kuery/src/index.ts");
+mock.module("@formbar/expressions-kuery", () => kueryExpressions);
+
+const core = await import("../packages/core/src/index.ts");
 mock.module("@formbar/core", () => core);
 mock.module("@formbar/core/path", () => corePath);
 mock.module("@formbar/core/transforms", () => coreTransforms);
