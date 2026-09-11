@@ -114,6 +114,9 @@ scope); the service's authorization still applies. This is a trusted-host API,
 not an expression feature. There is no global registry or per-expression engine.
 Shape, operator names, and arity are compile-time checks. Operand and result types
 are runtime checks unless a custom profile performs additional static analysis.
+Standard `if` evaluates only its selected branch, but Formbar still preauthorizes
+and frames all static branch dependencies first. Missing data in an unselected
+branch is not evaluated; denied access in either branch fails closed before selection.
 
 ## Limits and non-goals
 

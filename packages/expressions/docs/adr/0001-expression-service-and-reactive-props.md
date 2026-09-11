@@ -236,7 +236,11 @@ ESM/CJS/declarations and builds before dependent packages. Its initial-release m
 changeset starts at 0.0.0 and joins the existing linked family.
 
 The current dependency is reproducibly pinned to Kuery commit
-`43154e85b532bab10be26de3604956b7e31c019f` from PR #34. Formbar PR #91 must remain
+`e446db3bb55444390945741dd75bfd351a604fe2` from PR #34. This verified revision also
+provides immutable profile extension and lazy standard `if` semantics. Formbar still
+preauthorizes and captures every static dependency before Kuery selects an `if`
+branch: a missing unselected dependency is framed as missing and remains unevaluated,
+while a denied unselected dependency fails closed before evaluation. Formbar PR #91 must remain
 draft and is release-blocked until that API is merged and published, at which point
 the git pin must be replaced with the released semver before final review/publish.
 Because Bun does not run dependency lifecycle scripts for this git checkout, the

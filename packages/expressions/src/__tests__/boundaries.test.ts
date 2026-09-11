@@ -38,7 +38,7 @@ const newFiles = [
 
 describe("expression ownership and source principles", () => {
 	it("pins Kuery only in the expressions package and keeps integrations decoupled", () => {
-		expect(manifest("expressions").dependencies.kuery).toContain("43154e85b532bab10be26de3604956b7e31c019f");
+		expect(manifest("expressions").dependencies.kuery).toContain("e446db3bb55444390945741dd75bfd351a604fe2");
 		for (const name of ["core", "react", "arbiter"]) {
 			expect(manifest(name).dependencies["@formbar/expressions"]).toBeDefined();
 			expect(manifest(name).dependencies["@formbar/expressions-kuery"]).toBeUndefined();

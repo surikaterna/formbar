@@ -83,6 +83,28 @@ describe("Kuery whole-AST integration", () => {
 		expect(authorize).toHaveBeenCalledTimes(2);
 	});
 
+	it("uses lazy standard if after eagerly framing and authorizing both branches", () => {
+		const state = namespace({ condition: true, selected: "yes" });
+		const authorize = vi.fn(() => true);
+		const service = createExpressionService({ namespaces: { data: state.provider }, authorize });
+		const compiled = service.compile(op("if", ref("condition"), ref("selected"), ref("missing")));
+		if (!compiled.ok) throw new Error("compile");
+		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: "yes" });
+		expect(authorize).toHaveBeenCalledTimes(3);
+	});
+
+	it("rejects a denied unselected if branch before selection", () => {
+		const state = namespace({ condition: true, selected: "yes", secret: "no" });
+		const authorize = vi.fn(
+			(reference: { readonly segments: readonly (string | number)[] }) => reference.segments[0] !== "secret",
+		);
+		const service = createExpressionService({ namespaces: { data: state.provider }, authorize });
+		const compiled = service.compile(op("if", ref("condition"), ref("selected"), ref("secret")));
+		if (!compiled.ok) throw new Error("compile");
+		expect(service.evaluate(compiled.value)).toEqual({ ok: false, diagnostics: [{ code: "denied" }] });
+		expect(authorize).toHaveBeenCalledTimes(3);
+	});
+
 	it.each([undefined, null])("fails closed before snapshots and operators when authorization throws %s", (thrown) => {
 		const snapshot = vi.fn(() => [7]);
 		const execute = vi.fn(([left, right]) => (left as number) + (right as number));

@@ -22,6 +22,6 @@
 		"test": "bun run prepare:kuery && vitest run --root ../.. packages/expressions/src/__tests__"
 	},
 	"dependencies": {
-		"kuery": "github:surikaterna/kuery#43154e85b532bab10be26de3604956b7e31c019f"
+		"kuery": "github:surikaterna/kuery#e446db3bb55444390945741dd75bfd351a604fe2"
 	}
 }

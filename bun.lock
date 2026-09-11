@@ -64,7 +64,7 @@
       "name": "@formbar/expressions",
       "version": "0.0.0",
       "dependencies": {
-        "kuery": "github:surikaterna/kuery#43154e85b532bab10be26de3604956b7e31c019f",
+        "kuery": "github:surikaterna/kuery#e446db3bb55444390945741dd75bfd351a604fe2",
       },
     },
     "packages/from-schema": {
@@ -854,7 +854,7 @@
 
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
-    "@formbar/expressions/kuery": ["kuery@github:surikaterna/kuery#43154e8", {}, "surikaterna-kuery-43154e8"],
+    "@formbar/expressions/kuery": ["kuery@github:surikaterna/kuery#e446db3", {}, "surikaterna-kuery-e446db3"],
 
     "@manypkg/find-root/fs-extra": ["fs-extra@8.1.0", "", { "dependencies": { "graceful-fs": "^4.2.0", "jsonfile": "^4.0.0", "universalify": "^0.1.0" } }, "sha512-yhlQgA6mnOJUKOsRUFsgJdQCvkKhcz8tlZG5HBQfReYZy46OwLcY+Zia0mtdHsOo9y/hP+CxMN0TU9QxoOtG4g=="],
 
