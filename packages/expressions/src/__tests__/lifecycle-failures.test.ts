@@ -1,18 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { namespace, ref } from "../../../../test/expression-fixtures.js";
 import { createExpressionService, failure } from "../index.js";
-import type { ExpressionBackend, NamespaceProvider } from "../index.js";
+import type { NamespaceProvider } from "../index.js";
 import { createObservation } from "../observation.js";
-
-const identity: ExpressionBackend = {
-	id: "identity",
-	compile: (expression) => ({
-		ok: true,
-		value: {
-			evaluate: (read) => (expression.kind === "ref" ? read(expression.ref) : null),
-		},
-	}),
-};
 
 function resource(log: string[], name: string, fail = false) {
 	const listeners = new Set<() => void>();
@@ -37,7 +27,6 @@ describe("R2 contained lifecycle failures", () => {
 		const state = namespace({ x: 1 });
 		let first = true;
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: {
 				data: {
 					...state.provider,
@@ -64,7 +53,6 @@ describe("R2 contained lifecycle failures", () => {
 		const first = resource(log, "secret", true);
 		const second = resource(log, "other");
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: { data: first.provider, other: second.provider },
 		});
 		const binding = service.resolveProps({ value: { mode: "write", expression: ref("x") } });
@@ -97,7 +85,6 @@ describe("R2 contained lifecycle failures", () => {
 		const other = resource(log, "other");
 		const next = resource(log, "next");
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: { data: old.provider, other: other.provider },
 		});
 		const binding = service.resolveProps({ value: { mode: "write", expression: ref("x") } });
@@ -123,7 +110,6 @@ describe("R2 contained lifecycle failures", () => {
 		const first = resource(log, "first", true);
 		const second = resource(log, "second");
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: { data: first.provider, other: second.provider },
 		});
 		const binding = service.resolveProps({ value: { mode: "write", expression: ref("x") } });
@@ -167,7 +153,7 @@ describe("R2 contained lifecycle failures", () => {
 	});
 	it("disposal wins during subscribe and replacement, without retaining late cleanup handles", () => {
 		let cleanupCount = 0;
-		const service = createExpressionService({ backend: identity });
+		const service = createExpressionService({});
 		service.registerNamespace("data", {
 			...namespace({ x: 1 }).provider,
 			subscribe() {
@@ -181,7 +167,7 @@ describe("R2 contained lifecycle failures", () => {
 		binding.subscribe(() => {});
 		expect(binding.getSnapshot().values.value).toBeUndefined();
 		expect(cleanupCount).toBe(1);
-		const another = createExpressionService({ backend: identity });
+		const another = createExpressionService({});
 		another.registerNamespace("data", { ...namespace({ x: 1 }).provider, subscribe: () => () => another.dispose() });
 		another.resolveProps({ value: { mode: "read", expression: ref("x") } }).subscribe(() => {});
 		another.registerNamespace("data", namespace({ x: 2 }).provider);
@@ -191,7 +177,6 @@ describe("R2 contained lifecycle failures", () => {
 	it("notifies all bindings on revocation even when the first consumer throws", () => {
 		let allowed = true;
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: { data: namespace({ x: "secret" }).provider },
 			authorize: () => allowed,
 		});

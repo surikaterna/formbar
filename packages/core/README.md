@@ -14,12 +14,10 @@ providers to the expression service, not to core.
 ```ts
 import { createCoreExpressionNamespaces, createForm } from "@formbar/core";
 import { createExpressionService } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 
 const form = createForm({ initialData: { quantity: 2 } });
 const runtime = createExpressionService({
-  backend: createKueryBackend(),
-  namespaces: createCoreExpressionNamespaces(form),
+	namespaces: createCoreExpressionNamespaces(form),
 });
 // form.onDispose(listener) / form.isDisposed() support adapter lifetime checks.
 runtime.dispose();

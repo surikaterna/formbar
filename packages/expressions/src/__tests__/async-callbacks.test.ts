@@ -1,17 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { namespace, ref } from "../../../../test/expression-fixtures.js";
 import { createExpressionService, failure, forwardExpressionProp } from "../index.js";
-import type { Authorization, ExpressionBackend, JsonValue, NamespaceProvider } from "../index.js";
-
-const identity: ExpressionBackend = {
-	id: "identity",
-	compile: (expression) => ({
-		ok: true,
-		value: {
-			evaluate: (read) => (expression.kind === "ref" ? read(expression.ref) : null),
-		},
-	}),
-};
+import type { Authorization, JsonValue, NamespaceProvider } from "../index.js";
 const rejected = () => Promise.reject(new Error("SECRET async callback"));
 
 async function noUnhandledRejections(run: () => void): Promise<void> {
@@ -30,7 +20,7 @@ async function noUnhandledRejections(run: () => void): Promise<void> {
 }
 
 function serviceWith(provider: NamespaceProvider) {
-	const service = createExpressionService({ backend: identity, namespaces: { data: provider } });
+	const service = createExpressionService({ namespaces: { data: provider } });
 	const program = service.compile(ref("x"));
 	if (!program.ok) throw new Error("compile");
 	return { service, program: program.value };
@@ -89,7 +79,6 @@ describe("R3 synchronous callback boundaries contain native rejected promises", 
 	it("consumes async authorization instead of granting a truthy Promise", async () => {
 		await noUnhandledRejections(() => {
 			const service = createExpressionService({
-				backend: identity,
 				namespaces: { data: namespace({ x: 1 }).provider },
 				authorize: rejected as unknown as Authorization,
 			});

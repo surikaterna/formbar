@@ -10,8 +10,7 @@
 			"@formbar/react",
 			"@formbar/react-schema",
 			"@formbar/arbiter",
-			"@formbar/expressions",
-			"@formbar/expressions-kuery"
+			"@formbar/expressions"
 		]
 	],
 	"access": "public",

@@ -6,8 +6,6 @@ import * as coreValidation from "../packages/core/src/validation.entry.ts";
 import * as expressions from "../packages/expressions/src/index.ts";
 
 mock.module("@formbar/expressions", () => expressions);
-const kueryExpressions = await import("../packages/expressions-kuery/src/index.ts");
-mock.module("@formbar/expressions-kuery", () => kueryExpressions);
 
 const core = await import("../packages/core/src/index.ts");
 mock.module("@formbar/core", () => core);

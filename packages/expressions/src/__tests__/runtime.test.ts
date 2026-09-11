@@ -1,21 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { literal, namespace, op, ref } from "../../../../test/expression-fixtures.js";
-import { createExpressionService, dependencyKey, failure, resolveRef } from "../index.js";
-import type { ExpressionBackend, Program } from "../index.js";
-
-const backend: ExpressionBackend = {
-	id: "host-identity",
-	compile: (expression) => ({
-		ok: true,
-		value: {
-			evaluate: (read) => {
-				if (expression.kind === "literal") return expression.value;
-				if (expression.kind === "ref") return read(expression.ref);
-				return "host-owned-op";
-			},
-		},
-	}),
-};
+import { ExpressionProfile, createExpressionService, dependencyKey, failure, resolveRef } from "../index.js";
+import type { Program } from "../index.js";
 const compile = (service: ReturnType<typeof createExpressionService>, input: unknown): Program => {
 	const result = service.compile(input);
 	if (!result.ok) throw new Error(JSON.stringify(result));
@@ -23,11 +9,14 @@ const compile = (service: ReturnType<typeof createExpressionService>, input: unk
 };
 
 describe("neutral runtime and capabilities", () => {
-	it("accepts host plugins without a Kuery dependency and owns program identity", () => {
-		const service = createExpressionService({ backend });
-		const program = compile(service, op("host"));
+	it("accepts an immutable custom Kuery profile and owns program identity", () => {
+		const profile = new ExpressionProfile("host-profile", [
+			{ name: "host:value", arity: 0, execute: () => "host-owned-op" },
+		]);
+		const service = createExpressionService({ profile });
+		const program = compile(service, op("host:value"));
 		expect(service.evaluate(program)).toEqual({ ok: true, value: "host-owned-op" });
-		expect(createExpressionService({ backend }).evaluate(program)).toEqual(failure("unknown-program"));
+		expect(createExpressionService({ profile }).evaluate(program)).toEqual(failure("unknown-program"));
 		expect(Object.isFrozen(program.expression)).toBe(true);
 	});
 	it("resolves nested scopes, canonical numeric identity, and rejects cycles", () => {
@@ -52,7 +41,6 @@ describe("neutral runtime and capabilities", () => {
 		const state = namespace({ secret: "previous-secret" });
 		let allowed = true;
 		const service = createExpressionService({
-			backend,
 			namespaces: { data: state.provider },
 			authorize: () => allowed,
 		});
@@ -74,7 +62,7 @@ describe("neutral runtime and capabilities", () => {
 	});
 	it("invalidates setters on parent/provider replacement, generation changes, and disposal", () => {
 		const state = namespace({ x: 1 });
-		const service = createExpressionService({ backend, namespaces: { data: state.provider } });
+		const service = createExpressionService({ namespaces: { data: state.provider } });
 		const program = compile(service, ref("x"));
 		const setter = () => {
 			const result = service.resolveWritable(program);
@@ -97,7 +85,7 @@ describe("neutral runtime and capabilities", () => {
 	});
 	it("constructs lazy stable snapshots and releases subscriptions and retained setters", () => {
 		const state = namespace({ x: 1 });
-		const service = createExpressionService({ backend, namespaces: { data: state.provider } });
+		const service = createExpressionService({ namespaces: { data: state.provider } });
 		const binding = service.resolveProps({
 			custom: { mode: "write", expression: ref("x") },
 			label: { mode: "literal", value: "Text" },
@@ -120,7 +108,7 @@ describe("neutral runtime and capabilities", () => {
 	});
 	it("removes namespace registrations and disposes live observers without leaking values", () => {
 		const state = namespace({ x: "secret" });
-		const service = createExpressionService({ backend, namespaces: { external: state.provider } });
+		const service = createExpressionService({ namespaces: { external: state.provider } });
 		const observed = service.observe(compile(service, ref("x", "external")));
 		const listener = vi.fn();
 		observed.getSnapshot();
@@ -150,12 +138,12 @@ describe("bounded untrusted JSON", () => {
 		{ kind: "ref", ref: { namespace: "data", segments: ["prototype"] } },
 		{ kind: "op", op: "x", args: [], engine: "evil" },
 	])("rejects malformed input %#", (input) => {
-		expect(createExpressionService({ backend }).compile(input).ok).toBe(false);
+		expect(createExpressionService({}).compile(input).ok).toBe(false);
 	});
 	it("rejects deep/cyclic/oversized input, symbols and accessors without invoking code", () => {
-		const service = createExpressionService({ backend });
+		const service = createExpressionService({});
 		let deep = literal(1);
-		for (let i = 0; i < 100; i++) deep = op("x", deep);
+		for (let i = 0; i < 100; i++) deep = op("not", deep);
 		const cyclic: unknown[] = [];
 		cyclic.push(cyclic);
 		const getter = vi.fn(() => "secret");
@@ -165,7 +153,7 @@ describe("bounded untrusted JSON", () => {
 			{ kind: "literal", value: cyclic },
 			literal("x".repeat(16385)),
 			literal(Array(1025).fill(1)),
-			op("x", ...Array(33).fill(literal(1))),
+			op("and", ...Array(33).fill(literal(true))),
 			{ kind: "literal", value: accessor },
 			{ kind: "literal", value: { [Symbol()]: 1 } },
 		]) {
@@ -177,37 +165,23 @@ describe("bounded untrusted JSON", () => {
 		const getter = vi.fn(() => "secret");
 		const root = Object.create({ inherited: "secret" });
 		Object.defineProperty(root, "accessor", { get: getter });
-		const service = createExpressionService({ backend, namespaces: { data: namespace(root).provider } });
+		const service = createExpressionService({ namespaces: { data: namespace(root).provider } });
 		expect(service.evaluate(compile(service, ref("inherited")))).toEqual(failure("missing"));
 		expect(service.evaluate(compile(service, ref("accessor")))).toEqual(failure("denied"));
 		expect(getter).not.toHaveBeenCalled();
 	});
-	it("sanitizes backend failures, rejects async and unauthorized backend reads", () => {
-		const variants: ExpressionBackend[] = [
-			{
-				id: "throw",
-				compile() {
-					throw new Error("secret");
-				},
+	it("sanitizes throwing and asynchronous custom operator failures", () => {
+		for (const execute of [
+			() => {
+				throw new Error("secret");
 			},
-			{
-				id: "eval-throw",
-				compile: () => ({
-					ok: true,
-					value: {
-						evaluate() {
-							throw new Error("secret");
-						},
-					},
-				}),
-			},
-			{ id: "async", compile: () => ({ ok: true, value: { evaluate: async () => "secret" } }) },
-			{ id: "extra-read", compile: () => ({ ok: true, value: { evaluate: (read) => read(ref("secret").ref) } }) },
-		];
-		for (const backend of variants) {
-			const service = createExpressionService({ backend });
-			const compiled = service.compile(literal(1));
-			const result = compiled.ok ? service.evaluate(compiled.value) : compiled;
+			async () => "secret",
+		] as const) {
+			const profile = new ExpressionProfile("unsafe-profile", [{ name: "host:unsafe", arity: 0, execute }]);
+			const service = createExpressionService({ profile });
+			const compiled = service.compile(op("host:unsafe"));
+			if (!compiled.ok) throw new Error("compile");
+			const result = service.evaluate(compiled.value);
 			expect(result.ok).toBe(false);
 			expect(JSON.stringify(result)).not.toContain("secret");
 		}

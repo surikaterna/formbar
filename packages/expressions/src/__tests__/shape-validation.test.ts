@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createExpressionService, validateExpression } from "../index.js";
-import type { ExpressionBackend, PropDefinitions, Scopes } from "../index.js";
-
-const backend: ExpressionBackend = { id: "literal", compile: () => ({ ok: true, value: { evaluate: () => 1 } }) };
+import type { PropDefinitions, Scopes } from "../index.js";
 
 describe("Y1 parses JSON shapes before constructing typed contracts", () => {
 	it.each([
@@ -33,7 +31,7 @@ describe("Y1 parses JSON shapes before constructing typed contracts", () => {
 		{ value: { mode: "unknown", expression: {} } },
 		{ value: { mode: "write", expression: null } },
 	])("rejects malformed prop map/spec %#", (input) => {
-		const service = createExpressionService({ backend });
+		const service = createExpressionService({});
 		const snapshot = service.resolveProps(input as PropDefinitions).getSnapshot();
 		expect(Object.keys(snapshot.setters)).toEqual([]);
 		expect(Object.values(snapshot.values).every((value) => value === undefined)).toBe(true);
@@ -49,10 +47,8 @@ describe("Y1 parses JSON shapes before constructing typed contracts", () => {
 		{ item: { namespace: 1, segments: [] } },
 		{ item: { namespace: "data", segments: [null] } },
 		{ item: { namespace: "data", segments: [], extra: true } },
-	])("rejects malformed scopes %# before backend use", (input) => {
-		const compile = vi.fn(backend.compile);
-		expect(() => createExpressionService({ backend: { id: "spy", compile }, scopes: input as Scopes })).toThrow();
-		expect(compile).not.toHaveBeenCalled();
+	])("rejects malformed scopes %# during service construction", (input) => {
+		expect(() => createExpressionService({ scopes: input as Scopes })).toThrow();
 	});
 	it("never invokes shape accessors and constructs frozen canonical refs", () => {
 		const getter = vi.fn(() => "data");

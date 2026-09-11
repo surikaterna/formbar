@@ -1,20 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { literal, namespace, op, ref } from "../../../../test/expression-fixtures.js";
-import { createExpressionService, failure, forwardExpressionProp } from "../index.js";
-import type { ExpressionBackend, JsonValue, PropDefinitions } from "../index.js";
-
-const identity: ExpressionBackend = {
-	id: "identity",
-	compile: (node) => ({
-		ok: true,
-		value: { evaluate: (read) => (node.kind === "ref" ? read(node.ref) : node.kind === "literal" ? node.value : null) },
-	}),
-};
+import { ExpressionProfile, createExpressionService, failure, forwardExpressionProp } from "../index.js";
+import type { JsonValue, PropDefinitions } from "../index.js";
 
 describe("expression boundary hardening", () => {
 	it("clears prior mounted values if provider replacement cannot subscribe, then recovers", () => {
 		const state = namespace({ x: "secret" });
-		const service = createExpressionService({ backend: identity, namespaces: { data: state.provider } });
+		const service = createExpressionService({ namespaces: { data: state.provider } });
 		const binding = service.resolveProps({ value: { mode: "read", expression: ref("x") } });
 		const listener = vi.fn();
 		binding.subscribe(listener);
@@ -38,7 +30,6 @@ describe("expression boundary hardening", () => {
 	it("keeps read authorization separate from write authorization and rejects async writes", async () => {
 		const state = namespace({ x: 1 });
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: { data: state.provider },
 			authorize: (_, operation) => operation === "read",
 		});
@@ -53,7 +44,7 @@ describe("expression boundary hardening", () => {
 				throw new Error("secret");
 			},
 		} as unknown as typeof state.provider;
-		const asyncService = createExpressionService({ backend: identity, namespaces: { data: asyncProvider } });
+		const asyncService = createExpressionService({ namespaces: { data: asyncProvider } });
 		const asyncProgram = asyncService.compile(ref("x"));
 		if (!asyncProgram.ok) throw new Error("compile");
 		const writable = asyncService.resolveWritable(asyncProgram.value);
@@ -63,24 +54,16 @@ describe("expression boundary hardening", () => {
 	});
 	it("reads a stable root once for multiple dependencies and shares repeated authorized reads", () => {
 		const snapshot = vi.fn().mockReturnValueOnce({ a: 1, b: 2 }).mockReturnValue({ a: 10, b: 20 });
-		const backend: ExpressionBackend = {
-			id: "sum",
-			compile: () => ({
-				ok: true,
-				value: { evaluate: (read) => [read(ref("a").ref), read(ref("a").ref), read(ref("b").ref)] },
-			}),
-		};
 		const service = createExpressionService({
-			backend,
 			namespaces: { data: { getSnapshot: snapshot, subscribe: () => () => {} } },
 		});
-		const compiled = service.compile(op("sum", ref("a"), ref("b")));
+		const compiled = service.compile(op("add", ref("a"), op("add", ref("a"), ref("b"))));
 		if (!compiled.ok) throw new Error("compile");
-		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: [1, 1, 2] });
+		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: 4 });
 		expect(snapshot).toHaveBeenCalledTimes(1);
 	});
 	it("bounds bad paths, literal object keys and readonly derived prop contracts", () => {
-		const service = createExpressionService({ backend: identity });
+		const service = createExpressionService({});
 		for (const segments of [Array(65).fill("x"), [1.5], [Number.MAX_SAFE_INTEGER + 1], [""], [Symbol()]]) {
 			expect(service.compile({ kind: "ref", ref: { namespace: "data", segments } }).ok).toBe(false);
 		}
@@ -92,38 +75,25 @@ describe("expression boundary hardening", () => {
 		expect(binding.getSnapshot().setters.value).toBeUndefined();
 		expect(binding.getSnapshot().diagnostics.value).toEqual([{ code: "read-only" }]);
 	});
-	it("returns deterministic code-only errors from async compile/evaluate and backend diagnostics", async () => {
-		const variants = [
+	it("returns deterministic code-only errors from asynchronous custom operators", async () => {
+		const profile = new ExpressionProfile("async-profile", [
 			{
-				id: "compile",
-				compile: async () => {
+				name: "host:async",
+				arity: 0,
+				execute: async () => {
 					throw new Error("secret");
 				},
 			},
-			{
-				id: "evaluate",
-				compile: () => ({
-					ok: true,
-					value: {
-						evaluate: async () => {
-							throw new Error("secret");
-						},
-					},
-				}),
-			},
-			{ id: "diagnostic", compile: () => ({ ok: false, diagnostics: [{ code: "secret", message: "secret" }] }) },
-		] as unknown as ExpressionBackend[];
-		for (const backend of variants) {
-			const service = createExpressionService({ backend });
-			const compiled = service.compile(literal(1));
-			expect(compiled.ok ? service.evaluate(compiled.value) : compiled).toEqual(failure("backend"));
-		}
+		]);
+		const service = createExpressionService({ profile });
+		const compiled = service.compile(op("host:async"));
+		if (!compiled.ok) throw new Error("compile");
+		expect(service.evaluate(compiled.value)).toEqual(failure("backend"));
 		await Promise.resolve();
 	});
 	it("does not retain a half-connected subscription after adapter failure", () => {
 		const state = namespace({ x: 1 });
 		const service = createExpressionService({
-			backend: identity,
 			namespaces: {
 				data: state.provider,
 				broken: {
@@ -144,7 +114,7 @@ describe("expression boundary hardening", () => {
 		expect(state.listeners.size).toBe(0);
 	});
 	it("forwards typed ordinary props only after the host's guard, preserving readonly semantics", () => {
-		const service = createExpressionService({ backend: identity });
+		const service = createExpressionService({});
 		const binding = service.resolveProps({
 			min: { mode: "literal", value: 2 },
 			custom: { mode: "literal", value: "label" },
@@ -157,7 +127,7 @@ describe("expression boundary hardening", () => {
 	});
 	it("clones and freezes literals rather than accepting mutations after compilation", () => {
 		const source = { x: [1, 2] };
-		const service = createExpressionService({ backend: identity });
+		const service = createExpressionService({});
 		const compiled = service.compile(literal(source));
 		if (!compiled.ok) throw new Error("compile");
 		source.x.push(3);

@@ -2,45 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 import { holeWithProperty, invalidArrayKeys } from "../../../../test/expression-array-fixtures.js";
 import { namespace, ref } from "../../../../test/expression-fixtures.js";
 import { copyJson, createExpressionService, validateExpression } from "../index.js";
-import type { ExpressionBackend } from "../index.js";
-
-const identity: ExpressionBackend = {
-	id: "identity",
-	compile: (expression) => ({
-		ok: true,
-		value: {
-			evaluate: (read) =>
-				expression.kind === "literal" ? expression.value : expression.kind === "ref" ? read(expression.ref) : null,
-		},
-	}),
-};
 
 describe("R1 dense canonical arrays at every JSON boundary", () => {
-	it.each(invalidArrayKeys)("rejects a hole disguised by %s before invoking the backend", (key) => {
+	it.each(invalidArrayKeys)("rejects a hole disguised by %s during compilation", (key) => {
 		const bad = holeWithProperty(key);
-		const compile = vi.fn(identity.compile);
-		const service = createExpressionService({ backend: { id: "spy", compile } });
+		const service = createExpressionService({});
 		expect(() => copyJson(bad)).toThrow();
 		expect(() => validateExpression({ kind: "literal", value: bad })).toThrow();
 		expect(service.compile({ kind: "literal", value: bad }).ok).toBe(false);
-		expect(compile).not.toHaveBeenCalled();
 	});
-	it.each(invalidArrayKeys)("rejects namespace reads and backend results containing %s", (key) => {
+	it.each(invalidArrayKeys)("rejects namespace reads containing %s", (key) => {
 		const bad = holeWithProperty(key);
-		const rootService = createExpressionService({ backend: identity, namespaces: { data: namespace(bad).provider } });
+		const rootService = createExpressionService({ namespaces: { data: namespace(bad).provider } });
 		const root = rootService.compile({ kind: "ref", ref: { namespace: "data", segments: [] } });
 		if (!root.ok) throw new Error("compile");
 		expect(rootService.evaluate(root.value).ok).toBe(false);
-		const variants: ExpressionBackend[] = [
-			identity,
-			{ id: "bad-result", compile: () => ({ ok: true, value: { evaluate: () => bad } }) },
-		];
-		for (const backend of variants) {
-			const service = createExpressionService({ backend, namespaces: { data: namespace({ x: bad }).provider } });
-			const compiled = service.compile(backend === identity ? ref("x") : { kind: "literal", value: 1 });
-			if (!compiled.ok) throw new Error("compile");
-			expect(service.evaluate(compiled.value).ok).toBe(false);
-		}
+		const service = createExpressionService({ namespaces: { data: namespace({ x: bad }).provider } });
+		const compiled = service.compile(ref("x"));
+		if (!compiled.ok) throw new Error("compile");
+		expect(service.evaluate(compiled.value).ok).toBe(false);
 	});
 	it("rejects extra/accessor/symbol indices without getters or oversized allocation", () => {
 		const getter = vi.fn(() => 7);

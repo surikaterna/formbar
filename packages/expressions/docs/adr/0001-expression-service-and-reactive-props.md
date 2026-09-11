@@ -7,20 +7,19 @@
 ## Ownership and dependencies
 
 The approved #90 clarification supersedes expression ownership in the earlier
-#60/#61 sketches. `@formbar/expressions` owns JSON expressions, namespace references,
-backend interfaces, compilation/results, dependency identity, authorization, and
-reactive read/write bindings. It has **no dependencies**. Definitions/nodes and
-the complete declarative renderer remain downstream work, not this package.
+#60/#61 sketches. Kuery #33/#34 owns the generic JSON expression AST, canonical
+validation, limits, diagnostics, dependency extraction, operator semantics, and
+whole-AST compilation. `@formbar/expressions` depends directly on that public API
+and owns structured namespace/scope references, authorization, snapshots, reactive
+read/write bindings, and lifecycle.
 
-`@formbar/expressions-kuery` depends on the neutral package and the public `kuery`
-entry. Core depends only on the neutral package; its adapter reads actual
-`FormApi.getState()` data/UI and writes through `dispatch`, preserving transforms,
-middleware vetoes and dispatch results. Core `Namespace` remains `data | ui`.
-The React hook depends on the neutral service, not the provider. The optional
-Arbitre bridge accepts a backend; neither core nor React selects Kuery implicitly.
-Hosts explicitly instantiate the default provider once per service. There is no
-per-expression backend selector, global registry, or new reverse package dependency.
-Existing core/from-schema development coupling is not extended.
+The former `@formbar/expressions-kuery` package was removed because it added no
+meaningful boundary after Kuery gained the strict core. Core depends only on the
+expression package; its adapter reads actual `FormApi.getState()` data/UI and writes
+through `dispatch`, preserving transforms, middleware vetoes, and dispatch results.
+The React hook depends on the expression service. Kuery's immutable `standard-v1`
+profile is selected by default; a host may pass one immutable `ExpressionProfile`
+per service. There is no per-expression engine or global registry.
 
 ## JSON contract and execution bounds
 
@@ -28,7 +27,7 @@ Expressions have `kind: literal | ref | op`. A reference has `namespace: string`
 `segments: (string | number)[]`, and optional named `scope`. Named scopes reference
 other scopes in the same namespace; resolution prepends parent segments and freezes
 the absolute result at compilation. Cycles, absent scopes, and namespace mismatches
-are invalid. To replace scopes/backend, replace the service and recompile/rebind.
+are invalid. To replace scopes/profile, replace the service and recompile/rebind.
 
 Only finite, dense, plain JSON is accepted. Compilation copies and freezes inputs;
 evaluation similarly copies authorized read values and results. `undefined` is
@@ -57,14 +56,14 @@ document has the same JSON budget and at most 128 props. Each dependency/result
 copy has its own JSON budget. Thus evaluation work is bounded by the validated AST
 size times the bounded dependency/result size; there are no serialized loops,
 recursion operators, regular expressions, callbacks or source execution. Trusted
-backend/capability code must itself be synchronous and bounded: JavaScript cannot
+profile/capability code must itself be synchronous and bounded: JavaScript cannot
 preempt a hostile host callback or Proxy trap.
 
 Untrusted JSON/expression paths do **not** perform Promise or thenable detection.
 They first classify primitives, arrays, and plain objects through prototype and own
 data descriptors. A Promise is rejected as a non-JSON prototype without reading
 own/inherited `then`, `constructor`, or `Symbol.species`; nested values, expressions,
-props, scopes, namespace reads, backend results, and write payloads use that same
+props, scopes, namespace reads, operator results, and write payloads use that same
 rule. Proxy internal traps cannot be sandboxed; a thrown trap becomes code-only
 `invalid-input`, and proxy objects are outside the supported serialized input.
 
@@ -83,41 +82,38 @@ containment boundary, not asynchronous provider support or a sandbox claim.
 Promise-specific own-property hazard checks run only after the prototype chain is
 identified as a native Promise candidate. Consequently an ordinary JSON object may
 freely contain own data properties named `then` (including string, null, object, or
-other JSON values); those values survive literal compilation, backend results and
+other JSON values); those values survive literal compilation, operator results and
 namespace reads unchanged. Functions remain invalid JSON independently.
 
 Programs are frozen handles owned by their compiling service (WeakMap identity),
 not transferable serialized executable objects. Diagnostics expose fixed codes
-only: no source snippets, values, paths, backend exception messages, or secrets.
+only: no source snippets, values, paths, operator exception messages, or secrets.
 Core dispatch errors are deliberately returned unchanged to the calling writer;
 they are the existing host mutation API result, not expression diagnostics.
 
-## Pure backend and explicit arithmetic extension
+## Shared whole-AST semantics and extension
 
-Kuery's public `evaluate` supplies equality, ordered comparison, logical and
-membership evaluation. Only compiler-generated **private argument slots** reach
-that evaluator. It never receives a form/session object or user-controlled path.
+Kuery's public `compileExpression` validates and compiles the complete expression
+exactly once. Formbar passes a `StateRef` codec that resolves named scopes into
+canonical structured references. Kuery never receives a form/session object.
 All dependencies are eagerly authorized/read, including refs in logically unused
 branches; repeated canonical refs share one read value in an evaluation. A root
-snapshot is captured once per namespace per program evaluation. The backend can
-only request the compiled dependency set. JSON object equality is Kuery's native
-identity behavior, **not deep structural equality**. Independent object copies
-compare unequal; callers should compare scalar fields for portable predicates.
+snapshot is captured once per namespace per program evaluation. The evaluator can
+only request the compiled dependency set. Standard-v1 uses deep structural JSON equality.
 
 The default allowlist is `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `and`, `or`, `not`,
-`in`, `nin`, `add`, `subtract`, `multiply`, `divide`. Comparisons and membership are
+`in`, `nin`, `add`, `sub`, `mul`, `div`, `coalesce`, `exists`. Comparisons and membership are
 binary; `not` is unary; `and`/`or` accept 1–32 boolean arguments. Ordered comparisons
 require two numbers or two strings of the same type. Membership's second argument
 must be an array. Logical operators do not coerce truthiness.
 
-The four arithmetic operators are mandatory in #90. They are intentionally
-implemented as a **strict finite v1 profile**, registered through Kuery's public
-`OperatorRegistry.register`, with private `$formbar*` operator names. Each is
+The four arithmetic operators are mandatory in #90 and are implemented by Kuery's
+**strict finite standard-v1 profile**. Each is
 exactly binary; compose nested expressions for sums/products with more terms.
 Only finite numbers are accepted, without string/null/boolean coercion; nonfinite
-results and division by either sign of zero fail. Arity, known literal types, and
-unsupported operators are checked at compile time; dynamic types/results are
-checked at evaluation time. Overflow fails; finite IEEE-754 rounding/underflow is
+results and division by either sign of zero fail. Shape, operator names, and arity
+are checked at compile time; operand and result types are checked at evaluation
+time unless a custom profile implements additional static analysis. Overflow fails; finite IEEE-754 rounding/underflow is
 retained. This is **not a claim of native Arbitre arithmetic compatibility**.
 Arbitre 0.2's arithmetic handlers are not public runtime exports and have their own
 null/coercion semantics. No private import, copied upstream evaluator, temporary
@@ -197,7 +193,7 @@ but detached callbacks cannot resurrect disposed observations or setters.
 
 ## Optional Arbitre integration is not an effect scheduler
 
-`createExpressionOperator({ backend, programs, authorize?, namespaces? })` compiles
+`createExpressionOperator({ profile?, programs, authorize?, namespaces? })` compiles
 a host-registered ID map once. Register its `operator` through the public session
 `operators.custom` option, for example `$formbarValue`. IDs are strings in rule
 RHS expressions; arbitrary serialized programs cannot be registered from a rule.
@@ -228,17 +224,25 @@ retained operator fails rather than evaluating old programs.
 - Inferring setters through derived expressions: ambiguous inverse and authorization.
 - Eager observers/useEffect-only snapshots: render leaks or tearing/stale initial props.
 - Automatic output persistence: confuses pure projections with scheduled effects.
-- Global backend/operator registration: cross-form coupling and lifecycle ambiguity.
+- Global operator registration: cross-form coupling and lifecycle ambiguity.
 
 ## Verification, releases and principles
 
 Risk-based tests cover malformed/deep inputs, pollution/accessors, missing/null,
-provider injection/conformance, finite arithmetic, stable snapshots, vetoes,
+whole-AST compilation, custom profiles, preauthorization, finite arithmetic, stable snapshots, vetoes,
 revocation/stale setters, real core resets, mounted DOM edits, StrictMode/rebind/
-unmount, real Arbitre RHS evaluation and existing regressions. New packages expose
-ESM/CJS/declarations and build before dependent packages. Initial-release minor
-changesets start at 0.0.0; additive core/react/arbiter changes are minor. Both new
-packages join the existing linked family.
+unmount, real Arbitre RHS evaluation and existing regressions. The new package exposes
+ESM/CJS/declarations and builds before dependent packages. Its initial-release minor
+changeset starts at 0.0.0 and joins the existing linked family.
+
+The current dependency is reproducibly pinned to Kuery commit
+`43154e85b532bab10be26de3604956b7e31c019f` from PR #34. Formbar PR #91 must remain
+draft and is release-blocked until that API is merged and published, at which point
+the git pin must be replaced with the released semver before final review/publish.
+Because Bun does not run dependency lifecycle scripts for this git checkout, the
+temporary `prepare:kuery` step builds its public entry and declarations before
+Formbar build/test commands. Kuery is bundled into the expressions runtime build;
+this workaround is removed with the released package.
 
 New production responsibilities are cohesive, files remain below 400 lines and
 new functions below 50 lines with nesting at most three levels. **Builder approved

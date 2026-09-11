@@ -2,7 +2,6 @@
 import { createCoreExpressionNamespaces, createForm } from "@formbar/core";
 import { createExpressionService, failure } from "@formbar/expressions";
 import type { ExpressionService, PropDefinitions, ResolvedProps } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 import { StrictMode, act, createElement } from "react";
 import type { FormEvent } from "react";
 import { createRoot } from "react-dom/client";
@@ -36,11 +35,7 @@ const definitions: PropDefinitions = {
 	value: { mode: "write", expression: ref("quantity") },
 	total: {
 		mode: "read",
-		expression: op(
-			"add",
-			op("multiply", ref("quantity"), ref("unitPrice")),
-			op("subtract", ref("fee", "pricing"), literal(1)),
-		),
+		expression: op("add", op("mul", ref("quantity"), ref("unitPrice")), op("sub", ref("fee", "pricing"), literal(1))),
 	},
 	disabled: { mode: "read", expression: op("or", ref("locked", "ui"), op("lte", ref("quantity"), literal(0))) },
 	custom: { mode: "read", expression: ref("label", "pricing") },
@@ -75,7 +70,6 @@ describe("mounted expression props", () => {
 		});
 		const external = namespace({ fee: 3, label: "Secret" });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: {
 				...createCoreExpressionNamespaces(form),
 				pricing: {
@@ -109,7 +103,6 @@ describe("mounted expression props", () => {
 		const form = createForm({ initialData: { quantity: 2, unitPrice: 10 }, initialUiState: { locked: false } });
 		const external = namespace({ fee: 3, label: "Standard" });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: { ...createCoreExpressionNamespaces(form), pricing: external.provider },
 		});
 		render(service);
@@ -143,7 +136,6 @@ describe("mounted expression props", () => {
 		const form = createForm({ initialData: { quantity: 2, unitPrice: 10 }, initialUiState: { locked: false } });
 		const external = namespace({ fee: 3, label: "Secret" });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: { ...createCoreExpressionNamespaces(form), pricing: external.provider },
 			authorize: () => allowed,
 		});
@@ -175,11 +167,9 @@ describe("mounted expression props", () => {
 		const first = createForm({ initialData: { quantity: 2, unitPrice: 10 }, initialUiState: { locked: false } });
 		const second = createForm({ initialData: { quantity: 8, unitPrice: 10 }, initialUiState: { locked: false } });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: { ...createCoreExpressionNamespaces(first), pricing: external.provider },
 		});
 		const replacement = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: { ...createCoreExpressionNamespaces(second), pricing: external.provider },
 		});
 		render(service);

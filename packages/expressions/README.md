@@ -1,6 +1,7 @@
 # @formbar/expressions
 
-Dependency-free, framework-neutral JSON expressions and reactive prop capabilities.
+Framework-neutral authorized, reactive expression capabilities powered by Kuery's
+strict whole-AST expression core.
 Implemented by #90 (parent #60, contracts #61). See the
 [package ADR](docs/adr/0001-expression-service-and-reactive-props.md) for boundaries,
 limits, lifecycle, and the native Arbitre arithmetic/scheduling gap.
@@ -9,19 +10,17 @@ limits, lifecycle, and the native Arbitre arithmetic/scheduling gap.
 
 ```ts
 import { createExpressionService } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 import { createCoreExpressionNamespaces, createForm } from "@formbar/core";
 
 const form = createForm({ initialData: { quantity: 2, unitPrice: 12 } });
 const runtime = createExpressionService({
-  backend: createKueryBackend(),
   namespaces: createCoreExpressionNamespaces(form),
   // Omit to grant registered capabilities. Unregistered namespaces always deny.
   authorize: (ref, operation) => operation === "read" || ref.namespace === "data",
 });
 const quantity = { kind: "ref", ref: { namespace: "data", segments: ["quantity"] } } as const;
 const total = runtime.compile({
-  kind: "op", op: "multiply",
+  kind: "op", op: "mul",
   args: [quantity, { kind: "ref", ref: { namespace: "data", segments: ["unitPrice"] } }],
 });
 if (total.ok) {
@@ -80,7 +79,7 @@ of prop name. React hosts can use `useExpressionProps` from `@formbar/react`.
 `forwardExpressionProp(snapshot, "value", (v): v is number => typeof v === "number")`
 to obtain a typed `{ value, setValue? }` result. A read-only prop has no setter.
 
-## External namespaces and backend plugins
+## External namespaces and custom profiles
 
 ```ts
 let pricing = { rate: 1.2 };
@@ -101,17 +100,20 @@ views clear prior values. Writes also reauthorize synchronously. Setters become 
 after parent replacement (including immutable sibling edits), provider replacement,
 authorization invalidation or binding replacement, and reject disposal. Service
 construction/getSnapshot are resource-free; the last unsubscribe releases providers.
-Caller owns service/provider disposal. Backend and scope replacement require a new
+Caller owns service/provider disposal. Profile and scope replacement require a new
 service; React releases the old binding on replacement.
 
-Implement `ExpressionBackend` to replace Kuery. `compile` receives validated frozen
-JSON and returns a synchronous `BackendProgram.evaluate(read)` or diagnostics.
-`read` permits only compiled, authorized dependencies, not a broad namespace scope.
-No backend code is serialized. Backend code must be pure, bounded and synchronous;
-Promised evaluation is rejected. The host may explicitly override evaluation
+Kuery's immutable `standardExpressionProfile` is the default. Hosts can pass an
+explicit `ExpressionProfile`, built with Kuery's `ExpressionProfileBuilder`, to add
+namespaced custom operators. Formbar compiles the complete AST exactly once and
+preauthorizes/captures every static dependency before evaluation, including refs in
+short-circuited branches. Operator code must be pure, bounded and synchronous;
+Promise results are rejected. The host may explicitly override evaluation
 namespace providers using `evaluate(program, context)` (used for actual Arbitre RHS
 scope); the service's authorization still applies. This is a trusted-host API,
-not an expression feature. Reusable test fixtures live in `test/expression-conformance.ts`.
+not an expression feature. There is no global registry or per-expression engine.
+Shape, operator names, and arity are compile-time checks. Operand and result types
+are runtime checks unless a custom profile performs additional static analysis.
 
 ## Limits and non-goals
 

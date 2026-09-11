@@ -1,5 +1,4 @@
 import { createExpressionService } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 import { describe, expect, it, vi } from "vitest";
 import { holeWithProperty, invalidArrayKeys } from "../../../../test/expression-array-fixtures.js";
 import { ref } from "../../../../test/expression-fixtures.js";
@@ -12,7 +11,6 @@ describe("R1 rejects malformed authorized writes before core mutation", () => {
 		const listener = vi.fn();
 		form.subscribe(listener);
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 		});
 		const program = service.compile(ref("x"));

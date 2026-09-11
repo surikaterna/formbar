@@ -1,18 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { namespace, ref } from "../../../../test/expression-fixtures.js";
 import { copyJson, createExpressionService, failure } from "../index.js";
-import type { ExpressionBackend, PropDefinitions, Scopes } from "../index.js";
-
-const identity: ExpressionBackend = {
-	id: "identity",
-	compile: (expression) => ({
-		ok: true,
-		value: {
-			evaluate: (read) =>
-				expression.kind === "ref" ? read(expression.ref) : expression.kind === "literal" ? expression.value : null,
-		},
-	}),
-};
+import type { PropDefinitions, Scopes } from "../index.js";
 interface Poisoned {
 	readonly promise: Promise<never>;
 	readonly getter: ReturnType<typeof vi.fn>;
@@ -71,35 +60,24 @@ describe("R3 Promise accessor trust boundary", () => {
 		JSON.parse('{"then":null}'),
 		JSON.parse('{"then":{"status":"plain-json"}}'),
 		JSON.parse('{"nested":{"then":"plain-json","value":[{"then":null}]}}'),
-	])("preserves plain JSON then fields through literals, backend results and namespace reads: %j", (value) => {
+	])("preserves plain JSON then fields through literals and namespace reads: %j", (value) => {
 		expect(copyJson(value)).toEqual(value);
-		const literalService = createExpressionService({ backend: identity });
+		const literalService = createExpressionService({});
 		const literal = literalService.compile({ kind: "literal", value });
 		if (!literal.ok) throw new Error("compile");
 		expect(literalService.evaluate(literal.value)).toEqual({ ok: true, value });
-		const backend: ExpressionBackend = {
-			id: "result",
-			compile: () => ({ ok: true, value: { evaluate: () => value } }),
-		};
-		const backendService = createExpressionService({ backend });
-		const result = backendService.compile({ kind: "literal", value: 1 });
-		if (!result.ok) throw new Error("compile");
-		expect(backendService.evaluate(result.value)).toEqual({ ok: true, value });
 		const namespaceService = createExpressionService({
-			backend: identity,
 			namespaces: { data: namespace(value).provider },
 		});
 		const root = namespaceService.compile({ kind: "ref", ref: { namespace: "data", segments: [] } });
 		if (!root.ok) throw new Error("compile");
 		expect(namespaceService.evaluate(root.value)).toEqual({ ok: true, value });
 		literalService.dispose();
-		backendService.dispose();
 		namespaceService.dispose();
 	});
 	it("rejects safely handled Promise subclasses without intrinsic chaining", async () => {
 		await withoutUnhandled(() => {
 			const service = createExpressionService({
-				backend: identity,
 				namespaces: { data: { ...namespace({ x: 1 }).provider, getSnapshot: handledSubclass } },
 			});
 			const program = service.compile({ kind: "ref", ref: { namespace: "data", segments: [] } });
@@ -114,20 +92,18 @@ describe("R3 Promise accessor trust boundary", () => {
 			await withoutUnhandled(() => {
 				const values = Array.from({ length: 6 }, makePoisoned);
 				expect(() => copyJson(values[0].promise)).toThrow(/^invalid-input$/);
-				const compile = vi.fn(identity.compile);
-				const service = createExpressionService({ backend: { id: "spy", compile } });
+				const service = createExpressionService({});
 				expect(service.compile({ kind: "literal", value: values[1].promise }).ok).toBe(false);
-				expect(compile).not.toHaveBeenCalled();
 				const props = service
 					.resolveProps({ value: { mode: "literal", value: values[2].promise } } as unknown as PropDefinitions)
 					.getSnapshot();
 				expect(props.values["*"]).toBeUndefined();
 				expect(props.diagnostics["*"]).toEqual([{ code: "invalid-input" }]);
-				expect(() =>
-					createExpressionService({ backend: identity, scopes: { item: values[3].promise } as unknown as Scopes }),
-				).toThrow(/^invalid-input$/);
+				expect(() => createExpressionService({ scopes: { item: values[3].promise } as unknown as Scopes })).toThrow(
+					/^invalid-input$/,
+				);
 				const state = namespace({ x: 1 });
-				const writableService = createExpressionService({ backend: identity, namespaces: { data: state.provider } });
+				const writableService = createExpressionService({ namespaces: { data: state.provider } });
 				const program = writableService.compile(ref("x"));
 				if (!program.ok) throw new Error("compile");
 				const writable = writableService.resolveWritable(program.value);
@@ -135,7 +111,6 @@ describe("R3 Promise accessor trust boundary", () => {
 				expect(writable.value(values[4].promise as never)).toEqual(failure("invalid-input"));
 				expect(state.writes).toEqual([]);
 				const readService = createExpressionService({
-					backend: identity,
 					namespaces: { data: namespace({ x: values[5].promise }).provider },
 				});
 				const read = readService.compile(ref("x"));
@@ -154,7 +129,6 @@ describe("R3 Promise accessor trust boundary", () => {
 			await withoutUnhandled(() => {
 				const poisoned = makePoisoned();
 				const service = createExpressionService({
-					backend: identity,
 					namespaces: { data: { ...namespace({ x: 1 }).provider, getSnapshot: () => poisoned.promise } },
 				});
 				const program = service.compile({ kind: "ref", ref: { namespace: "data", segments: [] } });

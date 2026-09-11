@@ -11,6 +11,7 @@ Headless, schema-driven form tooling for TypeScript and React.
 | [`@formbar/react`](./packages/react) | React hooks and accessibility helpers for forms built with `@formbar/core`. |
 | [`@formbar/react-schema`](./packages/react-schema) | Schema-driven React form hook, layout rendering, and renderer registry. |
 | [`@formbar/arbiter`](./packages/arbiter) | Bridge from Arbitre production rules into the Formbar plugin pipeline. |
+| [`@formbar/expressions`](./packages/expressions) | Authorized reactive expressions using Kuery's strict whole-AST core. |
 
 Private workspace apps:
 

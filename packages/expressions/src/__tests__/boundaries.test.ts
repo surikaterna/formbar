@@ -29,9 +29,6 @@ const newFiles = [
 	...readdirSync(new URL("packages/expressions/src/", root))
 		.filter((name) => name.endsWith(".ts"))
 		.map((name) => `packages/expressions/src/${name}`),
-	...readdirSync(new URL("packages/expressions-kuery/src/", root))
-		.filter((name) => name.endsWith(".ts"))
-		.map((name) => `packages/expressions-kuery/src/${name}`),
 	"packages/core/src/disposal-signal.ts",
 	"packages/core/src/form-disposer.ts",
 	"packages/core/src/expression-namespaces.ts",
@@ -40,17 +37,16 @@ const newFiles = [
 ];
 
 describe("expression ownership and source principles", () => {
-	it("keeps the neutral package dependency-free and integrations backend-neutral", () => {
-		expect(manifest("expressions").dependencies ?? {}).toEqual({});
+	it("pins Kuery only in the expressions package and keeps integrations decoupled", () => {
+		expect(manifest("expressions").dependencies.kuery).toContain("43154e85b532bab10be26de3604956b7e31c019f");
 		for (const name of ["core", "react", "arbiter"]) {
 			expect(manifest(name).dependencies["@formbar/expressions"]).toBeDefined();
 			expect(manifest(name).dependencies["@formbar/expressions-kuery"]).toBeUndefined();
 		}
-		expect(Object.keys(manifest("expressions-kuery").dependencies).sort()).toEqual(["@formbar/expressions", "kuery"]);
 	});
-	it("declares separately consumable public builds and coordinated initial releases", () => {
+	it("declares a separately consumable public build and coordinated initial release", () => {
 		const linked = JSON.parse(read(".changeset/config.json")).linked.flat();
-		for (const name of ["expressions", "expressions-kuery"]) {
+		for (const name of ["expressions"]) {
 			const pkg = manifest(name);
 			expect(pkg.exports["."]).toEqual({
 				types: "./dist/index.d.ts",
@@ -64,7 +60,7 @@ describe("expression ownership and source principles", () => {
 	it.each(newFiles)("keeps %s cohesive and bounded without private imports", (path) => {
 		const source = read(path);
 		expect(source.split("\n").length).toBeLessThanOrEqual(400);
-		expect(source).not.toMatch(/from ["'](?:kuery|@arbitre\/core)\//);
+		expect(source).not.toMatch(/from ["'](?:kuery\/(?!expression)|@arbitre\/core)\//);
 		const tree = ts.createSourceFile(fileURLToPath(new URL(path, root)), source, ts.ScriptTarget.Latest, true);
 		expect(nesting(tree), `${path}: control-flow nesting`).toBeLessThanOrEqual(3);
 		const visit = (node: ts.Node): void => {

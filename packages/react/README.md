@@ -20,7 +20,7 @@ const props: PropDefinitions = {
     kind: "op", op: "lte", args: [quantity, { kind: "literal", value: 0 }],
   } },
   total: { mode: "read", expression: {
-    kind: "op", op: "multiply", args: [quantity, {
+    kind: "op", op: "mul", args: [quantity, {
       kind: "ref", ref: { namespace: "data", segments: ["unitPrice"] },
     }],
   } },

@@ -45,7 +45,6 @@
 		"@formbar/expressions": "^0.0.0"
 	},
 	"devDependencies": {
-		"@formbar/expressions-kuery": "^0.0.0",
 		"@formbar/from-schema": "^0.3.1"
 	}
 }

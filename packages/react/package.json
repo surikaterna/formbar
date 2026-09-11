@@ -34,7 +34,6 @@
 		"react": ">=18.0.0"
 	},
 	"devDependencies": {
-		"@formbar/expressions-kuery": "^0.0.0",
 		"@types/react-dom": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"jsdom": "^26.0.0",

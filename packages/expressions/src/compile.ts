@@ -1,38 +1,42 @@
-import type { Expression, JsonValue, Scopes, StateRef } from "./contracts.js";
-import { LIMITS, copyJson, safeName } from "./json.js";
-import { dependencyKey, parseRef, resolveRef } from "./references.js";
+import { canonicalizeExpression } from "kuery/expression";
+import type { Expression, Scopes, StateRef } from "./contracts.js";
+import { copyJson } from "./json.js";
+import { parseRef, resolveRef } from "./references.js";
 import { ExpressionError } from "./result.js";
-import { exactKeys, isJsonArray, jsonRecord } from "./shape.js";
 
 export function validateExpression(input: unknown, scopes: Scopes = {}): Expression {
-	return visit(copyJson(input), scopes);
+	// Preserve Formbar's stricter JSON-key and finite-number boundary before Kuery owns AST semantics.
+	const safeInput = copyJson(input);
+	const result = canonicalizeExpression<StateRef>(safeInput, {
+		reference: stateReferenceCodec(scopes),
+		limits: EXPRESSION_LIMITS,
+	});
+	if (!result.ok) throw new ExpressionError(diagnosticCode(result.diagnostic.code));
+	return result.value;
 }
 
-function visit(input: JsonValue, scopes: Scopes): Expression {
-	const node = jsonRecord(input);
-	if (node.kind === "literal") {
-		exactKeys(node, ["kind", "value"]);
-		if (!("value" in node)) throw new ExpressionError("invalid-input");
-		return Object.freeze({ kind: "literal", value: node.value });
-	}
-	if (node.kind === "ref") {
-		exactKeys(node, ["kind", "ref"]);
-		if (!Object.hasOwn(node, "ref")) throw new ExpressionError("invalid-input");
-		return Object.freeze({ kind: "ref", ref: resolveRef(parseRef(node.ref), scopes) });
-	}
-	if (node.kind !== "op" || !safeName(node.op) || !Object.hasOwn(node, "args") || !isJsonArray(node.args))
-		throw new ExpressionError("invalid-input");
-	exactKeys(node, ["kind", "op", "args"]);
-	if (node.args.length > LIMITS.args) throw new ExpressionError("limit");
-	return Object.freeze({ kind: "op", op: node.op, args: Object.freeze(node.args.map((arg) => visit(arg, scopes))) });
-}
+export const EXPRESSION_LIMITS = Object.freeze({
+	maxDepth: 32,
+	maxNodes: 1024,
+	maxArgs: 32,
+	maxStringLength: 16384,
+	maxReferenceLength: 16384,
+});
 
-export function collectDependencies(expression: Expression): readonly StateRef[] {
-	const refs = new Map<string, StateRef>();
-	const walk = (node: Expression): void => {
-		if (node.kind === "ref") refs.set(dependencyKey(node.ref), node.ref);
-		if (node.kind === "op") node.args.forEach(walk);
+export function stateReferenceCodec(scopes: Scopes = {}) {
+	return {
+		validate(input: unknown): input is StateRef {
+			try {
+				parseRef(input as never);
+				return true;
+			} catch {
+				return false;
+			}
+		},
+		canonicalize: (ref: StateRef): StateRef => resolveRef(parseRef(ref), scopes),
 	};
-	walk(expression);
-	return Object.freeze([...refs.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, ref]) => ref));
+}
+
+function diagnosticCode(code: string): "invalid-input" | "limit" {
+	return code === "EXPRESSION_LIMIT_EXCEEDED" ? "limit" : "invalid-input";
 }

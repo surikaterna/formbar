@@ -1,5 +1,4 @@
 import { createExpressionService, failure } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 import { describe, expect, it, vi } from "vitest";
 import { ref } from "../../../../test/expression-fixtures.js";
 import { createCoreExpressionNamespaces, createForm } from "../index.js";
@@ -84,7 +83,6 @@ describe("R2 core disposal cannot be interrupted by expression lifetime observer
 			log.push("observer-second");
 		});
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 		});
 		const binding = service.resolveProps({ value: { mode: "write", expression: ref("x") } });

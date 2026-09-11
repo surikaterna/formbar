@@ -1,9 +1,9 @@
 import type { OperatorFunction } from "@arbitre/core";
 import { ExpressionError, createExpressionService, synchronousValue } from "@formbar/expressions";
-import type { Authorization, Expression, ExpressionBackend, NamespaceProvider, Program } from "@formbar/expressions";
+import type { Authorization, Expression, ExpressionProfile, NamespaceProvider, Program } from "@formbar/expressions";
 
 export interface ExpressionOperatorOptions {
-	readonly backend: ExpressionBackend;
+	readonly profile?: ExpressionProfile;
 	readonly programs: Readonly<Record<string, Expression>>;
 	readonly authorize?: Authorization;
 	/** Explicit external roots selected from the actual current RHS scope by trusted host code. */
@@ -38,7 +38,7 @@ export function createExpressionOperator(options: ExpressionOperatorOptions): {
 } {
 	let disposed = false;
 	const service = createExpressionService({
-		backend: options.backend,
+		...(options.profile ? { profile: options.profile } : {}),
 		...(options.authorize ? { authorize: options.authorize } : {}),
 	});
 	const programs = new Map<string, Program>();

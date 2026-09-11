@@ -1,7 +1,6 @@
 import { createSession } from "@arbitre/core";
 import { createCoreExpressionNamespaces, createForm } from "@formbar/core";
 import { createExpressionService } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 import { describe, expect, it } from "vitest";
 import { literal, op, ref } from "../../../../test/expression-fixtures.js";
 import { createArbiterPlugin, createExpressionOperator } from "../index.js";
@@ -14,7 +13,6 @@ describe("public opt-in Arbitre expression operator", () => {
 		};
 		process.on("unhandledRejection", listener);
 		const bridge = createExpressionOperator({
-			backend: createKueryBackend(),
 			programs: { value: literal(1) },
 			namespaces: async () => {
 				throw new Error("SECRET selector");
@@ -31,7 +29,6 @@ describe("public opt-in Arbitre expression operator", () => {
 	});
 	it("does not expose host namespace-adapter exception messages", () => {
 		const bridge = createExpressionOperator({
-			backend: createKueryBackend(),
 			programs: { value: literal(1) },
 			namespaces() {
 				throw new Error("secret");
@@ -42,7 +39,6 @@ describe("public opt-in Arbitre expression operator", () => {
 	});
 	it("evaluates against actual rule RHS state after native arithmetic and reacts through core", () => {
 		const bridge = createExpressionOperator({
-			backend: createKueryBackend(),
 			programs: { projected: op("add", ref("native"), literal(1)) },
 		});
 		const session = createSession({
@@ -63,11 +59,10 @@ describe("public opt-in Arbitre expression operator", () => {
 			plugins: [createArbiterPlugin({ session })],
 		});
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 		});
 		const props = service.resolveProps({
-			value: { mode: "read", expression: op("multiply", ref("projected"), literal(2)) },
+			value: { mode: "read", expression: op("mul", ref("projected"), literal(2)) },
 		});
 		props.subscribe(() => {});
 		form.setValue("quantity", 3);
@@ -85,7 +80,6 @@ describe("public opt-in Arbitre expression operator", () => {
 	});
 	it("selects UI and explicit external roots from the current real session scope", () => {
 		const bridge = createExpressionOperator({
-			backend: createKueryBackend(),
 			namespaces: (scope) => ({ pricing: scope.$pricing }),
 			programs: { result: op("add", ref("fee", "ui"), ref("rate", "pricing")) },
 		});
@@ -105,7 +99,6 @@ describe("public opt-in Arbitre expression operator", () => {
 	it("enforces authorization, unknown IDs and disposal with code-only failures", () => {
 		let allowed = true;
 		const bridge = createExpressionOperator({
-			backend: createKueryBackend(),
 			authorize: () => allowed,
 			programs: { value: ref("secret") },
 		});

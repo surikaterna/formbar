@@ -1,14 +1,13 @@
-export type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+import type { ExpressionProfile, JsonValue, ValueExpression } from "kuery/expression";
+
+export type { JsonValue } from "kuery/expression";
 export type Segment = string | number;
-export interface StateRef {
+export type StateRef = Readonly<Record<string, JsonValue>> & {
 	readonly namespace: string;
 	readonly segments: readonly Segment[];
 	readonly scope?: string;
-}
-export type Expression =
-	| { readonly kind: "literal"; readonly value: JsonValue }
-	| { readonly kind: "ref"; readonly ref: StateRef }
-	| { readonly kind: "op"; readonly op: string; readonly args: readonly Expression[] };
+};
+export type Expression = ValueExpression<StateRef>;
 export type DiagnosticCode =
 	| "invalid-input"
 	| "limit"
@@ -31,13 +30,6 @@ export interface Diagnostic {
 export type Result<T> =
 	| { readonly ok: true; readonly value: T }
 	| { readonly ok: false; readonly diagnostics: readonly Diagnostic[] };
-export interface BackendProgram {
-	evaluate(read: (ref: StateRef) => JsonValue): unknown;
-}
-export interface ExpressionBackend {
-	readonly id: string;
-	compile(expression: Expression): Result<BackendProgram>;
-}
 export interface Program {
 	readonly expression: Expression;
 	readonly dependencies: readonly StateRef[];
@@ -60,7 +52,8 @@ export interface NamespaceProvider {
 export type Authorization = (ref: StateRef, operation: "read" | "write") => boolean;
 export type Scopes = Readonly<Record<string, StateRef>>;
 export interface ServiceOptions {
-	readonly backend: ExpressionBackend;
+	/** Immutable Kuery operator profile. Defaults to Kuery standard-v1. */
+	readonly profile?: ExpressionProfile;
 	readonly namespaces?: Readonly<Record<string, NamespaceProvider>>;
 	readonly scopes?: Scopes;
 	readonly authorize?: Authorization;
@@ -74,7 +67,7 @@ export interface Observation<T> {
 export type PropSpec<T extends JsonValue = JsonValue> =
 	| { readonly mode: "literal"; readonly value: T }
 	| { readonly mode: "read"; readonly expression: Expression }
-	| { readonly mode: "write"; readonly expression: Extract<Expression, { kind: "ref" }> };
+	| { readonly mode: "write"; readonly expression: { readonly kind: "ref"; readonly ref: StateRef } };
 export type PropDefinitions = Readonly<Record<string, PropSpec>>;
 export interface ResolvedProps {
 	readonly values: Readonly<Record<string, JsonValue | undefined>>;

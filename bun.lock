@@ -43,7 +43,6 @@
       },
       "devDependencies": {
         "@arbitre/core": "^0.2.0",
-        "@formbar/expressions-kuery": "^0.0.0",
         "kuery": "^2.0.0",
       },
       "peerDependencies": {
@@ -58,20 +57,14 @@
         "@formbar/expressions": "^0.0.0",
       },
       "devDependencies": {
-        "@formbar/expressions-kuery": "^0.0.0",
         "@formbar/from-schema": "^0.3.1",
       },
     },
     "packages/expressions": {
       "name": "@formbar/expressions",
       "version": "0.0.0",
-    },
-    "packages/expressions-kuery": {
-      "name": "@formbar/expressions-kuery",
-      "version": "0.0.0",
       "dependencies": {
-        "@formbar/expressions": "^0.0.0",
-        "kuery": "^2.0.0",
+        "kuery": "github:surikaterna/kuery#43154e85b532bab10be26de3604956b7e31c019f",
       },
     },
     "packages/from-schema": {
@@ -103,7 +96,6 @@
         "@formbar/expressions": "^0.0.0",
       },
       "devDependencies": {
-        "@formbar/expressions-kuery": "^0.0.0",
         "@types/react": "^19.0.0",
         "@types/react-dom": "^19.0.0",
         "jsdom": "^26.0.0",
@@ -118,9 +110,9 @@
       "name": "@formbar/react-schema",
       "version": "0.3.0",
       "dependencies": {
-        "@formbar/core": "^0.2.1",
-        "@formbar/from-schema": "^0.2.1",
-        "@formbar/react": "^0.2.1",
+        "@formbar/core": "^0.3.0",
+        "@formbar/from-schema": "^0.3.0",
+        "@formbar/react": "^0.3.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -297,8 +289,6 @@
     "@formbar/demos": ["@formbar/demos@workspace:apps/demos"],
 
     "@formbar/expressions": ["@formbar/expressions@workspace:packages/expressions"],
-
-    "@formbar/expressions-kuery": ["@formbar/expressions-kuery@workspace:packages/expressions-kuery"],
 
     "@formbar/from-schema": ["@formbar/from-schema@workspace:packages/from-schema"],
 
@@ -863,6 +853,8 @@
     "@babel/core/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
+
+    "@formbar/expressions/kuery": ["kuery@github:surikaterna/kuery#43154e8", {}, "surikaterna-kuery-43154e8"],
 
     "@manypkg/find-root/fs-extra": ["fs-extra@8.1.0", "", { "dependencies": { "graceful-fs": "^4.2.0", "jsonfile": "^4.0.0", "universalify": "^0.1.0" } }, "sha512-yhlQgA6mnOJUKOsRUFsgJdQCvkKhcz8tlZG5HBQfReYZy46OwLcY+Zia0mtdHsOo9y/hP+CxMN0TU9QxoOtG4g=="],
 

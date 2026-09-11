@@ -1,8 +1,10 @@
+import { compileExpression, standardV1 } from "kuery/expression";
+import type { CompiledExpression, ExpressionDiagnosticCode } from "kuery/expression";
 import { isAsync } from "./async.js";
 import { Capabilities, capabilityFailure } from "./capabilities.js";
-import { collectDependencies, validateExpression } from "./compile.js";
+import { EXPRESSION_LIMITS, stateReferenceCodec } from "./compile.js";
 import type {
-	BackendProgram,
+	DiagnosticCode,
 	JsonValue,
 	NamespaceProvider,
 	Observation,
@@ -12,15 +14,16 @@ import type {
 	Result,
 	ServiceOptions,
 	Setter,
+	StateRef,
 } from "./contracts.js";
 import { copyJson } from "./json.js";
 import { createObservation } from "./observation.js";
 import { createPropObservation } from "./props.js";
 import { dependencyKey, parseScopes } from "./references.js";
-import { ExpressionError, diagnosticCode, failure } from "./result.js";
+import { ExpressionError, failure } from "./result.js";
 
 export class ExpressionService {
-	private readonly programs = new WeakMap<Program, BackendProgram>();
+	private readonly programs = new WeakMap<Program, CompiledExpression<StateRef>>();
 	readonly capabilities: Capabilities;
 	private readonly options: ServiceOptions;
 
@@ -35,17 +38,19 @@ export class ExpressionService {
 	compile(input: unknown): Result<Program> {
 		if (this.capabilities.disposed) return failure("disposed");
 		try {
-			const expression = validateExpression(input, this.options.scopes);
-			const compiled = this.options.backend.compile(expression);
-			if (isAsync(compiled)) return failure("backend");
-			if (!compiled || typeof compiled.ok !== "boolean") return failure("backend");
-			if (!compiled.ok)
-				return {
-					ok: false,
-					diagnostics: compiled.diagnostics.slice(0, 32).map(({ code }) => ({ code: diagnosticCode(code) })),
-				};
-			if (typeof compiled.value?.evaluate !== "function") return failure("backend");
-			const program = Object.freeze({ expression, dependencies: collectDependencies(expression) });
+			const compiled = compileExpression<StateRef>(copyJson(input), {
+				profile: this.options.profile ?? standardV1,
+				reference: stateReferenceCodec(this.options.scopes),
+				limits: EXPRESSION_LIMITS,
+			});
+			if (!compiled.ok) return failure(kueryDiagnosticCode(compiled.diagnostic.code));
+			const dependencies = [...compiled.value.dependencies].sort((left, right) =>
+				dependencyKey(left).localeCompare(dependencyKey(right)),
+			);
+			const program = Object.freeze({
+				expression: compiled.value.expression,
+				dependencies: Object.freeze(dependencies),
+			});
 			this.programs.set(program, compiled.value);
 			return { ok: true, value: program };
 		} catch (error) {
@@ -56,19 +61,17 @@ export class ExpressionService {
 	/** A context override is trusted host input, still subject to this service's authorization. */
 	evaluate(program: Program, context?: Readonly<Record<string, NamespaceProvider>>): Result<JsonValue> {
 		if (this.capabilities.disposed) return failure("disposed");
-		const backend = this.programs.get(program);
-		if (!backend) return failure("unknown-program");
+		const compiled = this.programs.get(program);
+		if (!compiled) return failure("unknown-program");
 		try {
-			const read = this.capabilities.reader(context ? new Map(Object.entries(context)) : undefined);
-			const values = new Map(program.dependencies.map((ref) => [dependencyKey(ref), read(ref)]));
-			const value = backend.evaluate((ref) => {
-				const key = dependencyKey(ref);
-				const value = values.get(key);
-				if (value === undefined) throw new ExpressionError("denied");
-				return value;
+			const providers = context ? new Map(Object.entries(context)) : undefined;
+			const frame = this.capabilities.capture(program.dependencies, providers);
+			const result = compiled.evaluate((ref: StateRef) => {
+				return frame.get(dependencyKey(ref)) ?? { found: false, reason: "denied" };
 			});
-			if (isAsync(value)) return failure("backend");
-			return { ok: true, value: copyJson(value) };
+			if (isAsync(result)) return failure("backend");
+			if (!result.ok) return failure(kueryDiagnosticCode(result.diagnostic.code));
+			return { ok: true, value: copyJson(result.value) };
 		} catch (error) {
 			return failure(error instanceof ExpressionError ? error.code : "backend");
 		}
@@ -115,3 +118,24 @@ export class ExpressionService {
 }
 
 export const createExpressionService = (options: ServiceOptions): ExpressionService => new ExpressionService(options);
+
+function kueryDiagnosticCode(code: ExpressionDiagnosticCode): DiagnosticCode {
+	const codes: Partial<Record<ExpressionDiagnosticCode, DiagnosticCode>> = {
+		EXPRESSION_INVALID_INPUT: "invalid-input",
+		EXPRESSION_LIMIT_EXCEEDED: "limit",
+		EXPRESSION_INVALID_REFERENCE: "invalid-input",
+		EXPRESSION_UNKNOWN_OPERATOR: "unsupported-operator",
+		EXPRESSION_INVALID_ARITY: "arity",
+		EXPRESSION_TYPE_MISMATCH: "type",
+		EXPRESSION_DIVISION_BY_ZERO: "division-zero",
+		EXPRESSION_NON_FINITE_RESULT: "non-finite",
+		EXPRESSION_REFERENCE_ERROR: "backend",
+		EXPRESSION_REFERENCE_MISSING: "missing",
+		EXPRESSION_REFERENCE_DENIED: "denied",
+		EXPRESSION_OPERATOR_ERROR: "backend",
+		EXPRESSION_ASYNC_UNSUPPORTED: "backend",
+		EXPRESSION_EVALUATION_LIMIT: "limit",
+		EXPRESSION_INVALID_RESULT: "backend",
+	} as const;
+	return codes[code] ?? "backend";
+}

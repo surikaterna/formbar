@@ -35,7 +35,6 @@
 		"kuery": ">=2.0.0"
 	},
 	"devDependencies": {
-		"@formbar/expressions-kuery": "^0.0.0",
 		"@arbitre/core": "^0.2.0",
 		"kuery": "^2.0.0"
 	}

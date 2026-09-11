@@ -7,10 +7,8 @@ Formbar plugin bridge for Arbitre production rules. It syncs form data and `$ui`
 ```ts
 import { createSession } from "@arbitre/core";
 import { createExpressionOperator } from "@formbar/arbiter";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 
 const bridge = createExpressionOperator({
-  backend: createKueryBackend(),
   programs: {
     adjusted: { kind: "op", op: "add", args: [
       { kind: "ref", ref: { namespace: "data", segments: ["nativeTotal"] } },

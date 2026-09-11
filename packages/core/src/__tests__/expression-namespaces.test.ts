@@ -1,6 +1,5 @@
 import { createExpressionService, failure } from "@formbar/expressions";
 import type { Expression, Setter } from "@formbar/expressions";
-import { createKueryBackend } from "@formbar/expressions-kuery";
 import { describe, expect, it, vi } from "vitest";
 import { literal, namespace, op, ref } from "../../../../test/expression-fixtures.js";
 import { createCoreExpressionNamespaces, createForm } from "../index.js";
@@ -17,7 +16,6 @@ describe("core expression namespace adapter", () => {
 	it("resolves nested item scopes against real state and never retargets a disposed binding", () => {
 		const form = createForm({ initialData: { orders: [{ items: [{ price: 2 }, { price: 3 }] }] } });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 			scopes: {
 				order: { namespace: "data", segments: ["orders", 0] },
@@ -53,7 +51,6 @@ describe("core expression namespace adapter", () => {
 			],
 		});
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 		});
 		expect(writable(service, ref("x"))(3)).toEqual({ ok: true });
@@ -70,12 +67,11 @@ describe("core expression namespace adapter", () => {
 	it("tracks dependency edits, parent replacement and reset but not unrelated changes", () => {
 		const form = createForm({ initialData: { item: { quantity: 2 }, other: 0 } });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 			scopes: { item: { namespace: "data", segments: ["item"] } },
 		});
 		const expression = { kind: "ref", ref: { namespace: "data", segments: ["quantity"], scope: "item" } } as const;
-		const compiled = service.compile(op("multiply", expression, literal(5)));
+		const compiled = service.compile(op("mul", expression, literal(5)));
 		if (!compiled.ok) throw new Error("compile");
 		const observed = service.observe(compiled.value);
 		const listener = vi.fn();
@@ -103,7 +99,6 @@ describe("core expression namespace adapter", () => {
 			initialUiState: { "a.b": false },
 		});
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 		});
 		const expr = (namespace: string, segments: readonly (string | number)[]): Expression => ({
@@ -124,7 +119,6 @@ describe("core expression namespace adapter", () => {
 	it("invalidates mounted values and retained setters when the actual form is disposed", () => {
 		const form = createForm({ initialData: { x: "secret" } });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: createCoreExpressionNamespaces(form),
 		});
 		const binding = service.resolveProps({ value: { mode: "write", expression: ref("x") } });
@@ -142,7 +136,6 @@ describe("core expression namespace adapter", () => {
 		const form = createForm({ initialData: { x: 1 } });
 		const external = namespace({ rate: 2 });
 		const service = createExpressionService({
-			backend: createKueryBackend(),
 			namespaces: { ...createCoreExpressionNamespaces(form), pricing: { ...external.provider, write: undefined } },
 		});
 		const binding = service.resolveProps({ custom: { mode: "read", expression: ref("rate", "pricing") } });

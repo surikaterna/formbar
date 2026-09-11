@@ -41,7 +41,7 @@ function copyObject(input: object, depth: number, budget: { remaining: number })
 	const output: Record<string, JsonValue> = Object.create(null);
 	for (const key of keys) {
 		if (typeof key !== "string" || unsafe.has(key)) throw new ExpressionError("invalid-input");
-		if (key.length > LIMITS.string) throw new ExpressionError("limit");
+		if (key.length >= LIMITS.string) throw new ExpressionError("limit");
 		output[key] = copyValue(ownValue(input, key), depth + 1, budget);
 	}
 	return Object.freeze(output);

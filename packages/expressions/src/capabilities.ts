@@ -1,3 +1,4 @@
+import type { ReferenceResolution } from "kuery/expression";
 import { isAsync, synchronousValue } from "./async.js";
 import { CallbackBoundary } from "./callback-boundary.js";
 import type {
@@ -11,7 +12,7 @@ import type {
 	WriteResult,
 } from "./contracts.js";
 import { copyJson } from "./json.js";
-import { readOwn, validateRef } from "./references.js";
+import { dependencyKey, readOwn, validateRef } from "./references.js";
 import { ExpressionError, failure } from "./result.js";
 
 export class Capabilities {
@@ -41,13 +42,35 @@ export class Capabilities {
 		return provider;
 	}
 
-	reader(providers = this.namespaces): (ref: StateRef) => JsonValue {
+	capture(refs: readonly StateRef[], providers = this.namespaces): ReadonlyMap<string, ReferenceResolution> {
+		const authorized = new Map<string, NamespaceProvider>();
+		let failed = false;
+		let firstFailure: unknown;
+		for (const ref of refs) {
+			try {
+				authorized.set(dependencyKey(ref), this.check(ref, "read", providers));
+			} catch (error) {
+				if (!failed) firstFailure = error;
+				failed = true;
+			}
+		}
+		if (failed) throw firstFailure instanceof ExpressionError ? firstFailure : new ExpressionError("adapter");
+		return this.captureAuthorized(refs, authorized);
+	}
+
+	private captureAuthorized(
+		refs: readonly StateRef[],
+		providers: ReadonlyMap<string, NamespaceProvider>,
+	): ReadonlyMap<string, ReferenceResolution> {
 		const roots = new Map<string, unknown>();
-		return (ref) => {
-			const provider = this.check(ref, "read", providers);
+		const frame = new Map<string, ReferenceResolution>();
+		for (const ref of refs) {
+			const provider = providers.get(dependencyKey(ref));
+			if (!provider) throw new ExpressionError("denied");
 			if (!roots.has(ref.namespace)) roots.set(ref.namespace, synchronousValue(provider.getSnapshot()));
-			return copyJson(readOwn(roots.get(ref.namespace), ref.segments));
-		};
+			frame.set(dependencyKey(ref), captureValue(roots.get(ref.namespace), ref));
+		}
+		return frame;
 	}
 
 	target(ref: StateRef): readonly unknown[] {
@@ -155,6 +178,15 @@ export class Capabilities {
 		this.namespaces.clear();
 		this.disconnect();
 		this.lifecycle.runAll(listeners);
+	}
+}
+
+function captureValue(root: unknown, ref: StateRef): ReferenceResolution {
+	try {
+		return { found: true, value: copyJson(readOwn(root, ref.segments)) };
+	} catch (error) {
+		if (error instanceof ExpressionError && error.code === "missing") return { found: false };
+		throw error;
 	}
 }
 

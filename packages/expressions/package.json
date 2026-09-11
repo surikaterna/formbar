@@ -2,7 +2,7 @@
 	"name": "@formbar/expressions",
 	"version": "0.0.0",
 	"type": "module",
-	"description": "Neutral pure expressions and reactive prop capabilities",
+	"description": "Authorized reactive Formbar expressions powered by Kuery",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -18,6 +18,10 @@
 	"scripts": {
 		"build": "tsc --noEmit",
 		"build:dist": "tsup",
-		"test": "vitest run --root ../.. packages/expressions/src/__tests__"
+		"prepare:kuery": "node ../../scripts/prepare-kuery-expression.mjs",
+		"test": "bun run prepare:kuery && vitest run --root ../.. packages/expressions/src/__tests__"
+	},
+	"dependencies": {
+		"kuery": "github:surikaterna/kuery#43154e85b532bab10be26de3604956b7e31c019f"
 	}
 }
