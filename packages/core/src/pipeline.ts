@@ -1,6 +1,7 @@
 import type { FormAction, Middleware, ValidatorFn } from "./contracts.js";
 import { FormbarError } from "./errors.js";
 import { applyRuleWrites } from "./expression-integration.js";
+import { setImmutablePath } from "./immutable-path.js";
 import { runNotifyHooksSync, runVetoHooksSync } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
 import type {
@@ -10,37 +11,12 @@ import type {
 	PluginFieldMeta,
 	PluginWrite,
 } from "./plugin-types.js";
-import { assertSafeSegment } from "./safe-path.js";
 import type { CreateFormOptions, FieldMetaEntry, SubmitContext, ValidationIssue } from "./state.js";
 import type { FormStore } from "./store.js";
 import type { Transaction } from "./transaction.js";
 import type { TransformDefinition } from "./transforms.js";
 import { runTransforms } from "./transforms.js";
 import { normalizeIssues } from "./validation.js";
-
-/** Set a value at a dot/bracket path inside a nested object, returning a new root */
-function setAtPath(root: unknown, segments: readonly (string | number)[], value: unknown): unknown {
-	if (segments.length === 0) return value;
-	const [head, ...rest] = segments;
-	assertSafeSegment(String(head));
-	if (Array.isArray(root)) {
-		const result = [...root];
-		(result as unknown as Record<string | number, unknown>)[head] = setAtPath(result[head as number], rest, value);
-		return result;
-	}
-	const nextSeg = rest[0];
-	const nextIsNumeric =
-		nextSeg !== undefined && (typeof nextSeg === "number" || /^(?:0|[1-9]\d*)$/.test(String(nextSeg)));
-	const obj = (root ?? (typeof head === "number" ? [] : {})) as Record<string, unknown>;
-	if (Array.isArray(obj)) {
-		const result = [...obj];
-		(result as unknown as Record<string | number, unknown>)[head] = setAtPath(result[head as number], rest, value);
-		return result;
-	}
-	const child = obj[String(head)];
-	const childDefault = nextIsNumeric ? [] : {};
-	return { ...obj, [head]: setAtPath(child ?? (rest.length > 0 ? childDefault : undefined), rest, value) };
-}
 
 /** Resolve a value from a nested object by dot-path traversal */
 function getValueAtPath(root: unknown, path: string): unknown {
@@ -211,9 +187,9 @@ export function executePipeline(ctx: PipelineContext): PipelineResult {
 			const canonical = parsePath(action.path);
 			tx.mutate((draft) => {
 				if (canonical.namespace === "ui") {
-					return { ...draft, uiState: setAtPath(draft.uiState, canonical.segments, transformedValue) };
+					return { ...draft, uiState: setImmutablePath(draft.uiState, canonical.segments, transformedValue) };
 				}
-				return { ...draft, data: setAtPath(draft.data, canonical.segments, transformedValue) };
+				return { ...draft, data: setImmutablePath(draft.data, canonical.segments, transformedValue) };
 			});
 
 			// Mark field as touched for data-namespace paths (transactional — rolled back on failure)

@@ -127,4 +127,18 @@ describe("R2 core disposal cannot be interrupted by expression lifetime observer
 		expect(observer).toHaveBeenCalledTimes(1);
 		expect(form.getDisposalDiagnostics()).toEqual([{ code: "adapter" }]);
 	});
+	it("does not register state listeners after disposal and invalidates a mounted binding once", () => {
+		const form = createForm({ initialData: { x: 1 } });
+		const service = createExpressionService({ namespaces: createCoreExpressionNamespaces(form) });
+		const binding = service.resolveProps({ value: { mode: "write", expression: ref("x") } });
+		const listener = vi.fn();
+		binding.getSnapshot();
+		binding.subscribe(listener);
+		form.dispose();
+		form.subscribe(vi.fn());
+		form.setValue("x", 2);
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(binding.getSnapshot().values.value).toBeUndefined();
+		service.dispose();
+	});
 });

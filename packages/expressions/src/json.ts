@@ -6,6 +6,14 @@ const unsafe = new Set(["__proto__", "constructor", "prototype"]);
 export const safeName = (value: unknown): value is string =>
 	typeof value === "string" && value.length > 0 && value.length <= 256 && !unsafe.has(value);
 
+function exceedsCodePointLimit(value: string): boolean {
+	let count = 0;
+	for (const _codePoint of value) {
+		if (++count > LIMITS.string) return true;
+	}
+	return false;
+}
+
 /** Copy before trusting: rejects accessors, sparse arrays, cycles, and non-JSON prototypes. */
 export function copyJson(input: unknown): JsonValue {
 	try {
@@ -25,7 +33,7 @@ function copyValue(input: unknown, depth: number, budget: { remaining: number })
 		return input === 0 ? 0 : input;
 	}
 	if (typeof input === "string") {
-		if (input.length > LIMITS.string) throw new ExpressionError("limit");
+		if (exceedsCodePointLimit(input)) throw new ExpressionError("limit");
 		return input;
 	}
 	if (typeof input !== "object") throw new ExpressionError("invalid-input");
@@ -41,7 +49,7 @@ function copyObject(input: object, depth: number, budget: { remaining: number })
 	const output: Record<string, JsonValue> = Object.create(null);
 	for (const key of keys) {
 		if (typeof key !== "string" || unsafe.has(key)) throw new ExpressionError("invalid-input");
-		if (key.length >= LIMITS.string) throw new ExpressionError("limit");
+		if (exceedsCodePointLimit(key)) throw new ExpressionError("limit");
 		output[key] = copyValue(ownValue(input, key), depth + 1, budget);
 	}
 	return Object.freeze(output);

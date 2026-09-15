@@ -112,7 +112,9 @@ describe("core expression namespace adapter", () => {
 		expect(writable(service, expr("ui", ["a.b"]))(true).ok).toBe(true);
 		expect(form.getState().uiState["a.b"]).toBe(true);
 		expect(writable(service, expr("data", ["$ui", "hidden"]))("bad")).toEqual(failure("read-only"));
-		expect(writable(service, expr("data", []))({})).toEqual(failure("read-only"));
+		const root = service.compile(expr("data", []));
+		if (!root.ok) throw new Error("compile");
+		expect(service.resolveWritable(root.value)).toEqual(failure("read-only"));
 		expect(service.compile(expr("data", ["__proto__", "polluted"])).ok).toBe(false);
 		expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
 	});

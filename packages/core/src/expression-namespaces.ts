@@ -20,9 +20,26 @@ function provider<TData, TUi>(form: FormApi<TData, TUi>, namespace: Namespace): 
 		getSnapshot: () => (namespace === "data" ? form.getState().data : form.getState().uiState),
 		isDisposed: form.isDisposed,
 		subscribe(listener) {
-			const state = form.subscribe(listener);
-			const disposal = form.onDispose(listener);
+			if (form.isDisposed()) return () => {};
+			let active = true;
+			const notifyState = () => {
+				if (active && !form.isDisposed()) listener();
+			};
+			const notifyDisposal = () => {
+				if (!active) return;
+				active = false;
+				listener();
+			};
+			const state = form.subscribe(notifyState);
+			const disposal = form.onDispose(notifyDisposal);
+			if (form.isDisposed()) {
+				state();
+				disposal();
+				notifyDisposal();
+			}
 			return () => {
+				if (!active) return;
+				active = false;
 				const boundary = new CallbackBoundary();
 				boundary.runAll([state, disposal]);
 				if (boundary.getDiagnostics().length) throw new Error("adapter");

@@ -9,6 +9,7 @@ export class FormStore<TData, TUi> {
 	private _listeners: Set<StateListener<TData, TUi>> = new Set();
 	private _activeTransaction: Transaction<TData, TUi> | null = null;
 	private _strategy: StateStrategy;
+	private _disposed = false;
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy) {
 		this._state = initialState;
@@ -56,6 +57,7 @@ export class FormStore<TData, TUi> {
 
 	/** Register a listener called on each commit. Returns an unsubscribe function. */
 	subscribe(listener: StateListener<TData, TUi>): () => void {
+		if (this._disposed) return () => {};
 		this._listeners.add(listener);
 		return () => {
 			this._listeners.delete(listener);
@@ -64,6 +66,8 @@ export class FormStore<TData, TUi> {
 
 	/** Clear all subscriptions and roll back an active transaction. */
 	dispose(): void {
+		if (this._disposed) return;
+		this._disposed = true;
 		this._listeners.clear();
 		if (this._activeTransaction && this._activeTransaction.status === "active") {
 			this._activeTransaction.rollback();
@@ -72,6 +76,7 @@ export class FormStore<TData, TUi> {
 	}
 
 	private _notifyListeners(): void {
+		if (this._disposed) return;
 		const state = this._state;
 		for (const listener of this._listeners) {
 			try {

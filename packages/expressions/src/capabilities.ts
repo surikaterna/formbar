@@ -14,6 +14,7 @@ import type {
 import { copyJson } from "./json.js";
 import { dependencyKey, readOwn, validateRef } from "./references.js";
 import { ExpressionError, failure } from "./result.js";
+import { validateWriteTarget } from "./write-target.js";
 
 export class Capabilities {
 	readonly lifecycle = new CallbackBoundary();
@@ -76,8 +77,7 @@ export class Capabilities {
 	target(ref: StateRef): readonly unknown[] {
 		const provider = this.check(ref, "read");
 		this.check(ref, "write");
-		const parent = readOwn(synchronousValue(provider.getSnapshot()), ref.segments.slice(0, -1));
-		if (!parent || typeof parent !== "object") throw new ExpressionError("missing");
+		const parent = validateWriteTarget(synchronousValue(provider.getSnapshot()), ref.segments);
 		if (!this.identities.has(parent)) this.identities.set(parent, {});
 		return [provider, synchronousValue(provider.getVersion?.()), this.epoch, this.identities.get(parent)];
 	}
@@ -99,6 +99,10 @@ export class Capabilities {
 			const next = this.target(ref);
 			if (next.some((part, index) => !Object.is(part, target[index]))) return failure("stale");
 			const provider = this.check(ref, "write");
+			const final = this.target(ref);
+			if (final.some((part, index) => !Object.is(part, target[index])) || final[0] !== provider) {
+				return failure("stale");
+			}
 			const result = provider.write?.(ref.segments, nextValue);
 			if (isAsync(result)) return failure("adapter");
 			return result && typeof result.ok === "boolean" ? result : failure("adapter");
