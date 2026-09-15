@@ -7,7 +7,8 @@ React hooks and accessibility helpers for forms created with `@formbar/core`.
 `useExpressionProps(service, definitions)` observes **all** expression props,
 not only values/visibility. It returns `{ values, setters, diagnostics }`.
 Direct `mode: "write"` refs have authorized setters; derived/read expressions do
-not. Services use host-supplied backends and namespaces. Keep definitions stable.
+not. Services use one immutable Kuery expression profile and host namespaces. Keep
+definitions stable.
 
 ```tsx
 import { useExpressionProps } from "@formbar/react";

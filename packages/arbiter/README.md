@@ -34,8 +34,8 @@ bridge.dispose();
 
 The bridge compiles host-registered IDs once. It uses public `operators.custom`
 and `OperatorFunction`, never private/native arithmetic imports or temporary rule
-sessions. A host may inject another pure backend. Data maps to non-reserved current
-scope keys, UI to `$ui`, and explicit external roots can be selected with
+sessions. A host may select one immutable Kuery `ExpressionProfile`. Data maps to
+non-reserved current scope keys, UI to `$ui`, and explicit external roots can be selected with
 `namespaces: scope => ({ pricing: scope.$pricing })`; configure the corresponding
 native session namespace too. Optional authorization applies at every read.
 

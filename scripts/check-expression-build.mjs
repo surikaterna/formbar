@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+const expressionRequire = createRequire(new URL("../packages/expressions/package.json", import.meta.url));
 const packages = ["expressions", "core", "react", "arbiter"];
 
-function check([expressions, core, react, arbiter], mode) {
+function check([expressions, core, react, arbiter, kuery, expression], mode) {
 	const form = core.createForm({ initialData: { quantity: 2 } });
 	const runtime = expressions.createExpressionService({ namespaces: core.createCoreExpressionNamespaces(form) });
 	const compiled = runtime.compile({
@@ -18,6 +20,17 @@ function check([expressions, core, react, arbiter], mode) {
 	assert.equal(compiled.ok, true);
 	assert.deepEqual(runtime.evaluate(compiled.value), { ok: true, value: 24 });
 	assert.equal(typeof react.useExpressionProps, "function");
+	assert.equal(expressions.ExpressionProfile, expression.ExpressionProfile);
+	assert.equal(kuery.ExpressionProfile, expression.ExpressionProfile);
+	for (const Profile of [kuery.ExpressionProfile, expression.ExpressionProfile, expressions.ExpressionProfile]) {
+		const custom = new Profile("identity-smoke", [{ name: "identity:value", arity: 0, execute: () => 7 }]);
+		const identityService = expressions.createExpressionService({ profile: custom });
+		const identityProgram = identityService.compile({ kind: "op", op: "identity:value", args: [] });
+		assert.deepEqual(identityService.evaluate(identityProgram.value), { ok: true, value: 7 });
+		identityService.dispose();
+	}
+	const externalProfile = new expressions.ExpressionProfile("reverse-identity", []);
+	assert.equal(kuery.compileExpression({ kind: "literal", value: 1 }, { profile: externalProfile }).ok, true);
 	const bridge = arbiter.createExpressionOperator({ programs: {} });
 	assert.equal(typeof bridge.operator, "function");
 	bridge.dispose();
@@ -95,8 +108,22 @@ function checkPlainThenJson([expressions]) {
 }
 
 const modes = [
-	["ESM", await Promise.all(packages.map((name) => import(`@formbar/${name}`)))],
-	["CJS", packages.map((name) => require(`@formbar/${name}`))],
+	[
+		"ESM",
+		await Promise.all([
+			...packages.map((name) => import(`@formbar/${name}`)),
+			import("../packages/expressions/node_modules/kuery/dist/index.js"),
+			import("../packages/expressions/node_modules/kuery/dist/expression.js"),
+		]),
+	],
+	[
+		"CJS",
+		[
+			...packages.map((name) => require(`@formbar/${name}`)),
+			expressionRequire("kuery"),
+			expressionRequire("kuery/expression"),
+		],
+	],
 ];
 for (const [mode, modules] of modes) {
 	check(modules, mode);
@@ -105,3 +132,8 @@ for (const [mode, modules] of modes) {
 	await checkAsyncSnapshot(modules);
 	checkPlainThenJson(modules);
 }
+
+const expressionsBuild = readFileSync(new URL("../packages/expressions/dist/index.js", import.meta.url), "utf8");
+assert.match(expressionsBuild, /from\s+["']kuery\/expression["']/);
+assert.doesNotMatch(expressionsBuild, /class ExpressionProfile/);
+console.log("Formbar expressions build keeps the shared Kuery runtime external");

@@ -103,6 +103,16 @@ construction/getSnapshot are resource-free; the last unsubscribe releases provid
 Caller owns service/provider disposal. Profile and scope replacement require a new
 service; React releases the old binding on replacement.
 
+Writable paths are acquired and revalidated using own data descriptors, without
+invoking getters. A missing final object property may be created; a missing
+intermediate cannot. Arrays must already be dense and free of accessors, symbols,
+holes, and extra properties. Array writes accept only an existing index or exact
+append at `length`, using an integer from 0 through 2^32-2 or its canonical decimal
+string (`0` or a nonzero digit followed by digits). Negative, leading-zero,
+decimal/exponent, named, maximum/non-index, and beyond-length segments are denied.
+Providers and profiles are trusted synchronous host code; Proxy traps are not a
+sandbox boundary.
+
 Kuery's immutable `standardExpressionProfile` is the default. Hosts can pass an
 explicit `ExpressionProfile`, built with Kuery's `ExpressionProfileBuilder`, to add
 namespaced custom operators. Formbar compiles the complete AST exactly once and
@@ -143,7 +153,7 @@ feature or hostile-Promise sandbox is implied.
 
 ### JSON bounds
 
-`LIMITS`: JSON depth 32 / 1,024 values, 16,384-character strings/keys, 32 operator
+`LIMITS`: JSON depth 32 / 1,024 values, 16,384-code-point strings/keys, 32 operator
 arguments, 64 resolved path segments. Prop maps have at most 128 entries within
 the JSON budget. No getters, functions, sparse arrays, nonfinite numbers or unsafe
 keys; no `eval`, regular-expression operators or serialized engine selection.
@@ -158,3 +168,11 @@ after a native Promise prototype candidate is established.
 Notifications compare JSON values/diagnostics and write-target identity; evaluation
 may repeat on coarse invalidations/reads. This is not a renderer, markup parser,
 stored-computation scheduler, effect system or full component registry.
+
+`@formbar/expressions` imports the installed `kuery/expression` runtime rather than
+embedding a private copy, so Kuery root/subpath and Formbar profile constructors
+share identity in ESM and CJS. The temporary git dependency is pinned to
+`0c0b623adf871d11b437f67535696405a59e6e49`; preparation deterministically cleans
+and rebuilds both Kuery entries and declarations. A clean consumer install remains
+blocked until Kuery 2.1.0 publishes those artifacts; no package-tarball workaround
+is supported.

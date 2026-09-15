@@ -28,7 +28,8 @@ The adapter acquires subscriptions only when the service is observed. Disposal
 invalidates retained setters and clears rendered values. Root reads are supported;
 use `form.reset` for root replacement, not a writable root expression. See the
 [expression ADR](../expressions/docs/adr/0001-expression-service-and-reactive-props.md)
-for safe paths, authorization and stale-parent semantics.
+for safe paths, authorization, stale-parent, descriptor, array-index, disposal and
+trust boundaries.
 
 Disposal observers cannot interrupt other observers or core teardown. All plugin,
 plugin-owned, middleware, field-cache and store cleanup steps are attempted;

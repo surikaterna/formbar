@@ -24,3 +24,9 @@ accessors; trusted callbacks consume only descriptor-verified ordinary native
 Promises and reject suspicious species shapes without observing them.
 Plain JSON objects with data fields named `then` remain valid and are not
 misclassified as callback Promise results.
+
+Validate writable object/array targets and immutable core path copies through own
+data descriptors before dispatch, including dense canonical append-only array
+rules and transaction rollback. Harden disposal registration races, count JSON
+limits by Unicode code point, and keep the installed Kuery runtime external so
+root, subpath, ESM, and CJS profile identities remain shared.

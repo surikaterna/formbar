@@ -50,7 +50,7 @@ JSON copying does not assert an AST schema: expression, prop and scope parsers
 accept copied JSON and construct typed contracts only after explicit shape guards.
 
 `LIMITS` bounds each copied JSON document to 1,024 values, depth 32, and strings/keys
-16,384 characters; structural AST containers count toward those budgets. Each op
+16,384 Unicode code points (inclusive); structural AST containers count toward those budgets. Each op
 has at most 32 arguments; a resolved path has at most 64 segments. A prop definition
 document has the same JSON budget and at most 128 props. Each dependency/result
 copy has its own JSON budget. Thus evaluation work is bounded by the validated AST
@@ -150,6 +150,14 @@ former logical target. Mutation payloads are validated/copied before the final
 capability check. Form lifecycle signals (`isDisposed`/`onDispose`) let adapters
 invalidate views and reject retained setters when the actual form is disposed,
 without monkey-patching the form or constructing a shadow store.
+Write-target traversal and its final pre-dispatch recheck use own data descriptors
+without getters. Missing final object keys are writable; missing intermediates are
+not. Dense native arrays accept only existing indices or exact append at `length`,
+with canonical indices from 0 through 2^32-2. Holes, accessors, symbols, extras,
+negative/leading-zero/decimal/exponent/named/max/non-index and beyond-length targets
+fail before provider/core dispatch. Core repeats descriptor-safe immutable copying
+and rolls back transactions on failure; this defense assumes ordinary trusted host
+snapshots and does not claim to contain Proxy traps.
 
 Observation construction and `getSnapshot` acquire no resources. Subscriptions
 are lazy, shared at service level, and released after the last observer subscriber.
@@ -236,17 +244,20 @@ ESM/CJS/declarations and builds before dependent packages. Its initial-release m
 changeset starts at 0.0.0 and joins the existing linked family.
 
 The current dependency is reproducibly pinned to Kuery commit
-`e446db3bb55444390945741dd75bfd351a604fe2` from PR #34. This verified revision also
+`0c0b623adf871d11b437f67535696405a59e6e49` from PR #34. This verified revision also
 provides immutable profile extension and lazy standard `if` semantics. Formbar still
 preauthorizes and captures every static dependency before Kuery selects an `if`
 branch: a missing unselected dependency is framed as missing and remains unevaluated,
 while a denied unselected dependency fails closed before evaluation. Formbar PR #91 must remain
-draft and is release-blocked until that API is merged and published, at which point
-the git pin must be replaced with the released semver before final review/publish.
+draft and is release-blocked until Kuery 2.1.0 is published, at which point the git
+pin must be replaced with the released semver before final review/publish.
 Because Bun does not run dependency lifecycle scripts for this git checkout, the
-temporary `prepare:kuery` step builds its public entry and declarations before
-Formbar build/test commands. Kuery is bundled into the expressions runtime build;
-this workaround is removed with the released package.
+temporary `prepare:kuery` step cleans and rebuilds its root/expression ESM, CJS, and
+declaration entries from the exact checkout before Formbar build/test commands.
+Formbar keeps Kuery external so all public imports share one installed runtime
+identity. A clean unprepared git consumer remains blocked because lifecycle scripts
+do not produce those artifacts; package-tarball substitution is intentionally not
+used. The temporary preparation is removed with the released package.
 
 New production responsibilities are cohesive, files remain below 400 lines and
 new functions below 50 lines with nesting at most three levels. **Builder approved

@@ -32,13 +32,15 @@ const newFiles = [
 	"packages/core/src/disposal-signal.ts",
 	"packages/core/src/form-disposer.ts",
 	"packages/core/src/expression-namespaces.ts",
+	"packages/core/src/immutable-path.ts",
 	"packages/react/src/use-expression-props.ts",
 	"packages/arbiter/src/expression-operator.ts",
 ];
 
 describe("expression ownership and source principles", () => {
 	it("pins Kuery only in the expressions package and keeps integrations decoupled", () => {
-		expect(manifest("expressions").dependencies.kuery).toContain("e446db3bb55444390945741dd75bfd351a604fe2");
+		expect(manifest("expressions").dependencies.kuery).toContain("0c0b623adf871d11b437f67535696405a59e6e49");
+		expect(read("packages/expressions/tsup.config.ts")).not.toContain("noExternal");
 		for (const name of ["core", "react", "arbiter"]) {
 			expect(manifest(name).dependencies["@formbar/expressions"]).toBeDefined();
 			expect(manifest(name).dependencies["@formbar/expressions-kuery"]).toBeUndefined();
