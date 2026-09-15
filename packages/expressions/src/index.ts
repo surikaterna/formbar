@@ -7,6 +7,7 @@ export { createExpressionService, ExpressionService } from "./service.js";
 export { forwardExpressionProp, type ForwardedProp } from "./forward-prop.js";
 export { CallbackBoundary } from "./callback-boundary.js";
 export { synchronousValue } from "./async.js";
+export { inspectDataContainer, type OwnDataEntry } from "./data-container.js";
 export {
 	ExpressionProfile,
 	ExpressionProfileBuilder,

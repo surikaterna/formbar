@@ -11,6 +11,32 @@ function writable(snapshot: () => unknown, segments: readonly (string | number)[
 	return { service, result: service.resolveWritable(program.value), write };
 }
 
+function dataProperty(input: object, key: PropertyKey, value: unknown, enumerable = true): void {
+	Object.defineProperty(input, key, { value, enumerable, writable: true, configurable: true });
+}
+
+function unsupportedObjectCases(getter: () => number): readonly [object, readonly string[]][] {
+	const rootAccessor = Object.defineProperty({ x: 1 }, "bad", { get: getter, enumerable: true });
+	const finalAccessor = Object.defineProperty({}, "x", { get: getter, enumerable: true });
+	const nested = { parent: Object.defineProperty({ x: 1 }, "bad", { get: getter, enumerable: true }) };
+	const nullParent = Object.create(null);
+	dataProperty(nullParent, "x", 1);
+	Object.defineProperty(nullParent, "bad", { get: getter, enumerable: true });
+	const symbol = Object.defineProperty({ x: 1 }, Symbol("bad"), { value: 2, enumerable: true });
+	const nonenumerable = Object.defineProperty({ x: 1 }, "bad", { value: 2 });
+	const unsafe = { x: 1 };
+	dataProperty(unsafe, "__proto__", 2);
+	return [
+		[rootAccessor, ["x"]],
+		[finalAccessor, ["x"]],
+		[nested, ["parent", "x"]],
+		[{ parent: nullParent }, ["parent", "x"]],
+		[symbol, ["x"]],
+		[nonenumerable, ["x"]],
+		[unsafe, ["x"]],
+	];
+}
+
 describe("descriptor-safe write targets", () => {
 	it("allows an object final property to be missing but rejects a missing intermediate", () => {
 		const root = { parent: {} };
@@ -54,11 +80,32 @@ describe("descriptor-safe write targets", () => {
 		expect(getter).not.toHaveBeenCalled();
 	});
 
+	it("rejects unsupported siblings in every copied object container before generic provider write", () => {
+		const getter = vi.fn(() => 1);
+		for (const [root, segments] of unsupportedObjectCases(getter)) {
+			const target = writable(() => root, segments);
+			expect(target.result.ok).toBe(false);
+			expect(target.write).not.toHaveBeenCalled();
+		}
+		expect(getter).not.toHaveBeenCalled();
+	});
+
+	it("accepts ordinary and null-prototype containers with supported sibling data", () => {
+		const parent = Object.create(null);
+		dataProperty(parent, "x", 1);
+		dataProperty(parent, "sibling", 2);
+		const root = { parent, sibling: true };
+		const target = writable(() => root, ["parent", "x"]);
+		expect(target.result.ok).toBe(true);
+		if (target.result.ok) expect(target.result.value(3).ok).toBe(true);
+		expect(target.write).toHaveBeenCalledOnce();
+	});
+
 	it("revalidates immediately before provider invocation", () => {
 		const getter = vi.fn(() => 1);
 		let reads = 0;
 		const valid = { x: 1 };
-		const invalid = Object.defineProperty({}, "x", { get: getter, enumerable: true });
+		const invalid = Object.defineProperty({ x: 1 }, "sibling", { get: getter, enumerable: true });
 		const target = writable(() => (++reads < 3 ? valid : invalid), ["x"]);
 		expect(target.result.ok).toBe(true);
 		if (target.result.ok) expect(target.result.value(2).ok).toBe(false);

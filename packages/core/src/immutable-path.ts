@@ -1,3 +1,4 @@
+import { type OwnDataEntry, inspectDataContainer } from "@formbar/expressions";
 import { assertSafeSegment } from "./safe-path.js";
 
 const MAX_ARRAY_INDEX = 2 ** 32 - 2;
@@ -16,39 +17,7 @@ function canonicalArrayIndex(segment: string | number): number {
 	return index;
 }
 
-function ownDataEntries(input: object): readonly (readonly [string, unknown])[] {
-	if (!Array.isArray(input)) {
-		const prototype = Object.getPrototypeOf(input);
-		if (prototype !== Object.prototype && prototype !== null) throw new TypeError("Invalid state object");
-	}
-	const entries: [string, unknown][] = [];
-	for (const key of Reflect.ownKeys(input)) {
-		if (typeof key !== "string") throw new TypeError("Invalid state property");
-		const descriptor = Object.getOwnPropertyDescriptor(input, key);
-		if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
-			if (Array.isArray(input) && key === "length" && descriptor && "value" in descriptor) continue;
-			throw new TypeError("Invalid state property");
-		}
-		entries.push([key, descriptor.value]);
-	}
-	return entries;
-}
-
-function validateArray(input: readonly unknown[]): readonly (readonly [string, unknown])[] {
-	if (Object.getPrototypeOf(input) !== Array.prototype) throw new TypeError("Invalid state array");
-	const entries = ownDataEntries(input);
-	if (entries.length !== input.length) throw new TypeError("Invalid state array");
-	for (let index = 0; index < input.length; index++) {
-		if (entries[index]?.[0] !== String(index)) throw new TypeError("Invalid state array");
-	}
-	return entries;
-}
-
-function descriptors(input: object): readonly (readonly [string, unknown])[] {
-	return Array.isArray(input) ? validateArray(input) : ownDataEntries(input);
-}
-
-function dataValue(entries: readonly (readonly [string, unknown])[], key: string): unknown {
+function dataValue(entries: readonly OwnDataEntry[], key: string): unknown {
 	return entries.find(([entry]) => entry === key)?.[1];
 }
 
@@ -56,18 +25,18 @@ function validatePath(root: unknown, segments: readonly (string | number)[]): vo
 	let current = root;
 	for (let offset = 0; offset < segments.length; offset++) {
 		if (current === null || typeof current !== "object") return;
-		const entries = descriptors(current);
+		const entries = inspectDataContainer(current);
 		const segment = segments[offset];
 		assertSafeSegment(String(segment));
 		if (Array.isArray(current)) {
 			const index = canonicalArrayIndex(segment);
-			if (index > current.length) throw new TypeError("Array writes may only replace or append");
-			current = index === current.length ? undefined : entries[index]?.[1];
+			if (index > entries.length) throw new TypeError("Array writes may only replace or append");
+			current = index === entries.length ? undefined : entries[index]?.[1];
 		} else current = dataValue(entries, String(segment));
 	}
 }
 
-function normalizedObject(entries: readonly (readonly [string, unknown])[]): Record<string, unknown> {
+function normalizedObject(entries: readonly OwnDataEntry[]): Record<string, unknown> {
 	const output: Record<string, unknown> = {};
 	for (const [key, value] of entries)
 		Object.defineProperty(output, key, { value, enumerable: true, writable: true, configurable: true });
@@ -80,13 +49,13 @@ function copyPath(root: unknown, segments: readonly (string | number)[], value: 
 	const next = rest[0];
 	const defaultChild = next !== undefined && (typeof next === "number" || ARRAY_INDEX.test(next)) ? [] : {};
 	if (Array.isArray(root)) {
-		const entries = validateArray(root);
+		const entries = inspectDataContainer(root);
 		const index = canonicalArrayIndex(segment);
 		const output = entries.map((entry) => entry[1]);
 		output[index] = copyPath(entries[index]?.[1] ?? (rest.length ? defaultChild : undefined), rest, value);
 		return output;
 	}
-	const entries = root && typeof root === "object" ? descriptors(root) : [];
+	const entries = root && typeof root === "object" ? inspectDataContainer(root) : [];
 	const key = String(segment);
 	const output = normalizedObject(entries);
 	output[key] = copyPath(dataValue(entries, key) ?? (rest.length ? defaultChild : undefined), rest, value);

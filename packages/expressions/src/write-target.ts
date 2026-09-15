@@ -1,4 +1,5 @@
 import type { Segment } from "./contracts.js";
+import { type OwnDataEntry, inspectDataContainer } from "./data-container.js";
 import { ExpressionError } from "./result.js";
 
 const MAX_ARRAY_INDEX = 2 ** 32 - 2;
@@ -17,26 +18,16 @@ function arrayIndex(segment: Segment): number {
 	return index;
 }
 
-function validateDenseArray(input: readonly unknown[]): void {
-	if (Object.getPrototypeOf(input) !== Array.prototype) throw new ExpressionError("denied");
-	const length = Object.getOwnPropertyDescriptor(input, "length")?.value;
-	if (typeof length !== "number" || !Number.isInteger(length) || length < 0 || length > 2 ** 32 - 1) {
-		throw new ExpressionError("denied");
-	}
-	const keys = Reflect.ownKeys(input);
-	if (keys.length !== length + 1) throw new ExpressionError("denied");
-	for (let index = 0; index < length; index++) {
-		const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
-		if (!descriptor?.enumerable || !("value" in descriptor)) throw new ExpressionError("denied");
-	}
+function entry(entries: readonly OwnDataEntry[], key: string): OwnDataEntry | undefined {
+	return entries.find(([name]) => name === key);
 }
 
-function targetDescriptor(parent: object, segment: Segment, final: boolean): PropertyDescriptor | undefined {
-	if (!Array.isArray(parent)) return Object.getOwnPropertyDescriptor(parent, segment);
-	validateDenseArray(parent);
+function targetEntry(parent: object, segment: Segment, final: boolean): OwnDataEntry | undefined {
+	const entries = inspectDataContainer(parent);
+	if (!Array.isArray(parent)) return entry(entries, String(segment));
 	const index = arrayIndex(segment);
-	if (index > parent.length || (!final && index === parent.length)) throw new ExpressionError("missing");
-	return index === parent.length ? undefined : Object.getOwnPropertyDescriptor(parent, String(index));
+	if (index > entries.length || (!final && index === entries.length)) throw new ExpressionError("missing");
+	return index === entries.length ? undefined : entries[index];
 }
 
 /** Validates an immutable write path without reading properties through accessors. */
@@ -46,15 +37,14 @@ export function validateWriteTarget(root: unknown, segments: readonly Segment[])
 	for (let index = 0; index < segments.length; index++) {
 		if (current === null || typeof current !== "object") throw new ExpressionError("missing");
 		const final = index === segments.length - 1;
-		const descriptor = targetDescriptor(current, segments[index], final);
-		if (!descriptor) {
+		const selected = targetEntry(current, segments[index], final);
+		if (!selected) {
 			if (final && !Array.isArray(current)) return current;
 			if (final && Array.isArray(current)) return current;
 			throw new ExpressionError("missing");
 		}
-		if (!("value" in descriptor)) throw new ExpressionError("denied");
 		if (final) return current;
-		current = descriptor.value;
+		current = selected[1];
 	}
 	throw new ExpressionError("missing");
 }
