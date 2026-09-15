@@ -18,12 +18,14 @@ describe("immutable descriptor-safe core writes", () => {
 	});
 
 	it("preserves direct object branch creation and dense array append", () => {
-		const form = createForm<{ nested?: { value?: number }; items: number[] }>({ initialData: { items: [1] } });
+		const form = createForm<{ nested?: { value?: number }; items: number[] }, Record<string, never>>({
+			initialData: { items: [1] },
+		});
 		expect(form.setValue("nested.value", 2).ok).toBe(true);
-		expect(form.setValue("/items/1", 2).ok).toBe(true);
+		expect(form.dispatch({ type: "set-value", path: "/items/1", value: 2 }).ok).toBe(true);
 		expect(form.getState().data).toEqual({ nested: { value: 2 }, items: [1, 2] });
 		const state = form.getState();
-		expect(form.setValue("/items/3", 4).ok).toBe(false);
+		expect(form.dispatch({ type: "set-value", path: "/items/3", value: 4 }).ok).toBe(false);
 		expect(form.getState()).toBe(state);
 		form.dispose();
 	});
