@@ -3,6 +3,8 @@
 "@formbar/core": minor
 "@formbar/react": minor
 "@formbar/arbiter": minor
+"@formbar/from-schema": minor
+"@formbar/react-schema": minor
 ---
 
 Introduce the authorized reactive expression runtime powered directly by Kuery's
