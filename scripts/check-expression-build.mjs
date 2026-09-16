@@ -22,17 +22,23 @@ function check([expressions, core, react, arbiter, kuery, expression], mode) {
 	assert.equal(typeof react.useExpressionProps, "function");
 	assert.equal(expressions.ExpressionProfile, expression.ExpressionProfile);
 	assert.equal(kuery.ExpressionProfile, expression.ExpressionProfile);
-	for (const Profile of [kuery.ExpressionProfile, expression.ExpressionProfile, expressions.ExpressionProfile]) {
-		const custom = new Profile("identity-smoke", [{ name: "identity:value", arity: 0, execute: () => 7 }]);
-		const identityService = expressions.createExpressionService({ profile: custom });
-		const identityProgram = identityService.compile({ kind: "op", op: "identity:value", args: [] });
-		assert.deepEqual(identityService.evaluate(identityProgram.value), { ok: true, value: 7 });
-		identityService.dispose();
-	}
+	const custom = new kuery.ExpressionProfile("identity-smoke", [
+		{ name: "identity:value", arity: 0, execute: () => 7 },
+	]);
+	const identityService = expressions.createExpressionService({ profile: custom });
+	const identityProgram = identityService.compile({ kind: "op", op: "identity:value", args: [] });
+	assert.deepEqual(identityService.evaluate(identityProgram.value), { ok: true, value: 7 });
+	identityService.dispose();
 	const externalProfile = new expressions.ExpressionProfile("reverse-identity", []);
 	assert.equal(kuery.compileExpression({ kind: "literal", value: 1 }, { profile: externalProfile }).ok, true);
-	const bridge = arbiter.createExpressionOperator({ programs: {} });
-	assert.equal(typeof bridge.operator, "function");
+	const entries = new Map();
+	const registry = {
+		register: (name, handler) => entries.set(name, handler),
+		get: (name) => entries.get(name),
+		has: (name) => entries.has(name),
+	};
+	const bridge = arbiter.registerExpressionThenOperator(registry, { programs: new Map() });
+	assert.equal(registry.get(arbiter.FORMBAR_VALUE_THEN_OPERATOR), bridge.handler);
 	bridge.dispose();
 	runtime.dispose();
 	form.dispose();

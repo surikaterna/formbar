@@ -34,12 +34,12 @@ const newFiles = [
 	"packages/core/src/expression-namespaces.ts",
 	"packages/core/src/immutable-path.ts",
 	"packages/react/src/use-expression-props.ts",
-	"packages/arbiter/src/expression-operator.ts",
+	"packages/arbiter/src/expression-then-operator.ts",
 ];
 
 describe("expression ownership and source principles", () => {
-	it("pins Kuery only in the expressions package and keeps integrations decoupled", () => {
-		expect(manifest("expressions").dependencies.kuery).toContain("0c0b623adf871d11b437f67535696405a59e6e49");
+	it("uses the released Kuery runtime and keeps integrations decoupled", () => {
+		expect(manifest("expressions").dependencies.kuery).toBe("^2.1.0");
 		expect(read("packages/expressions/tsup.config.ts")).not.toContain("noExternal");
 		for (const name of ["core", "react", "arbiter"]) {
 			expect(manifest(name).dependencies["@formbar/expressions"]).toBeDefined();

@@ -10,13 +10,13 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
-		"@arbitre/core": "^0.2.0",
+		"@arbitre/core": "^0.3.0",
 		"@formbar/arbiter": "workspace:*",
 		"@formbar/core": "workspace:*",
 		"@formbar/from-schema": "workspace:*",
 		"@formbar/react": "workspace:*",
 		"@formbar/react-schema": "workspace:*",
-		"kuery": "^2.0.0",
+		"kuery": "^2.1.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},

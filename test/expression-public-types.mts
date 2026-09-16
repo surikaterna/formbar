@@ -1,5 +1,5 @@
-import type { OperatorFunction } from "@arbitre/core";
-import { createExpressionOperator } from "@formbar/arbiter";
+import type { ThenOperatorHandler, ThenOperatorRegistry } from "@arbitre/core";
+import { registerExpressionThenOperator } from "@formbar/arbiter";
 import { createCoreExpressionNamespaces, createForm } from "@formbar/core";
 import { ExpressionProfileBuilder, createExpressionService, forwardExpressionProp } from "@formbar/expressions";
 import type { Diagnostic, JsonValue, PropDefinitions, PropSpec, ValueExpression } from "@formbar/expressions";
@@ -32,9 +32,10 @@ if (forwarded.ok) {
 	// @ts-expect-error Forwarding retains the host's guarded type.
 	forwarded.value.setValue?.("wrong");
 }
-const bridge = createExpressionOperator({ profile: customProfile, programs: {} });
-const operator: OperatorFunction = bridge.operator;
-void operator;
+declare const registry: ThenOperatorRegistry;
+const bridge = registerExpressionThenOperator(registry, { profile: customProfile, programs: new Map() });
+const handler: ThenOperatorHandler = bridge.handler;
+void handler;
 const hook: typeof useExpressionProps = useExpressionProps;
 void hook;
 form.onDispose(() => {});
