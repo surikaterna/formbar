@@ -41,6 +41,9 @@
 		"build:dist": "tsup",
 		"test": "vitest run --root ../.. packages/core/src/__tests__"
 	},
+	"dependencies": {
+		"@formbar/expressions": "^0.0.0"
+	},
 	"devDependencies": {
 		"@formbar/from-schema": "^0.3.1"
 	}

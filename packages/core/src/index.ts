@@ -56,6 +56,7 @@ export type {
 } from "./contracts.js";
 // Form factory (SE1.4)
 export { createForm } from "./create-form.js";
+export { createCoreExpressionNamespaces } from "./expression-namespaces.js";
 // Equality utility
 export { structuredEqual } from "./equality.js";
 export { FormbarError, type FormbarErrorCode } from "./errors.js";

@@ -9,6 +9,7 @@ export default defineConfig({
 	plugins: [react(), tailwindcss()],
 	resolve: {
 		alias: {
+			"@formbar/expressions": new URL("../../packages/expressions/src/index.ts", import.meta.url).pathname,
 			"@formbar/arbiter": new URL("../../packages/arbiter/src/index.ts", import.meta.url).pathname,
 			"@formbar/core": new URL("../../packages/core/src/index.ts", import.meta.url).pathname,
 			"@formbar/from-schema": new URL("../../packages/from-schema/src/index.ts", import.meta.url).pathname,

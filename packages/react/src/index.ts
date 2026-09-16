@@ -32,3 +32,4 @@ export {
 export { useField } from "./use-field.js";
 export { type UseFormOptions, useForm } from "./use-form.js";
 export { useFormSelector } from "./use-form-selector.js";
+export { useExpressionProps } from "./use-expression-props.js";

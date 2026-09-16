@@ -9,10 +9,12 @@ import type {
 	ValidatorFn,
 } from "./contracts.js";
 import { computeIsPristine, computeIsSubmitting, computeIsTouched, computeIsValid } from "./convenience-flags.js";
+import { createDisposalSignal } from "./disposal-signal.js";
 import { FormbarError } from "./errors.js";
 import { createFieldApi } from "./field-api.js";
+import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
-import { disposeMiddlewares, initMiddlewares } from "./middleware-runner.js";
+import { initMiddlewares } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
 import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
@@ -65,6 +67,7 @@ export function createForm<TData, TUi>(
 	options: CreateFormOptions<TData, TUi> = {} as CreateFormOptions<TData, TUi>,
 ): FormApi<TData, TUi> {
 	warnUnknownCreateFormOptionsAtRuntime(options);
+	const disposal = createDisposalSignal();
 	let initialDataSnapshot: TData = structuredClone((options.initialData ?? {}) as TData);
 	const initialUiStateSnapshot: TUi = structuredClone((options.initialUiState ?? {}) as TUi);
 
@@ -315,15 +318,18 @@ export function createForm<TData, TUi>(
 		isValid: () => computeIsValid(store.getState()),
 		isSubmitting: () => computeIsSubmitting(store.getState()),
 		isTouched: () => computeIsTouched(store.getState()),
-		dispose: () => {
-			submitAbortController?.abort();
-			asyncManager?.cancelAll();
-			for (const plugin of plugins) plugin.onDispose?.();
-			for (const disposer of pluginDisposers) disposer();
-			disposeMiddlewares((options.middleware ?? []) as readonly Middleware[]);
-			fieldCache.clear();
-			store.dispose();
-		},
+		isDisposed: disposal.isDisposed,
+		onDispose: disposal.onDispose,
+		getDisposalDiagnostics: disposal.getDiagnostics,
+		dispose: createFormDisposer(disposal, {
+			abort: () => submitAbortController?.abort(),
+			cancel: () => asyncManager?.cancelAll(),
+			plugins,
+			pluginDisposers,
+			middlewares: options.middleware ?? [],
+			clearFields: () => fieldCache.clear(),
+			disposeStore: () => store.dispose(),
+		}),
 	};
 
 	initMiddlewares((options.middleware ?? []) as readonly Middleware[], { state: initialState });
