@@ -6,21 +6,25 @@ Formbar plugin bridge for Arbitre production rules. It syncs form data and `$ui`
 
 ```ts
 import { createSession } from "@arbitre/core";
-import { createExpressionOperator } from "@formbar/arbiter";
+import { registerExpressionThenOperator } from "@formbar/arbiter";
 
-const bridge = createExpressionOperator({
-  programs: {
-    adjusted: { kind: "op", op: "add", args: [
+const handlers = new Map();
+const thenOperators = {
+  register: (name, handler) => handlers.set(name, handler),
+  get: name => handlers.get(name),
+  has: name => handlers.has(name),
+};
+const bridge = registerExpressionThenOperator(thenOperators, {
+  programs: new Map([["adjusted", { kind: "op", op: "add", args: [
       { kind: "ref", ref: { namespace: "data", segments: ["nativeTotal"] } },
       { kind: "literal", value: 1 },
-    ] },
-  },
+    ] }]]),
 });
 const session = createSession({
-  operators: { custom: { $formbarValue: bridge.operator } },
+  thenOperators,
   rules: [{ name: "calculate", when: { ready: true }, then: [
     { $set: { nativeTotal: { $multiply: ["$quantity", "$unitPrice"] } } },
-    { $set: { adjusted: { $formbarValue: "adjusted" } } },
+    { $formbarValue: { adjusted: "adjusted" } },
   ] }],
 });
 // Optional form integration: createArbiterPlugin({ session }).
@@ -32,17 +36,19 @@ session.dispose();
 bridge.dispose();
 ```
 
-The bridge compiles host-registered IDs once. It uses public `operators.custom`
-and `OperatorFunction`, never private/native arithmetic imports or temporary rule
-sessions. A host may select one immutable Kuery `ExpressionProfile`. Data maps to
+The bridge compiles all host-registered IDs before mutating Arbitre's public
+`ThenOperatorRegistry`. A host may select one immutable Kuery `ExpressionProfile`. Data maps to
 non-reserved current scope keys, UI to `$ui`, and explicit external roots can be selected with
 `namespaces: scope => ({ pricing: scope.$pricing })`; configure the corresponding
 native session namespace too. Optional authorization applies at every read.
 
 Failures throw fixed-code `ExpressionError`s, not scope values. Native session
 strict/lenient error behavior remains authoritative. Registration is opt-in and
-not globally installed. The host owns bridge/session disposal; disposed bridges
-reject retained IDs. There is no public operator-unregister method in Arbitre 0.2.
+not globally installed. Every entry evaluates against the same incoming stage scope
+before any tracked write occurs, so failed stages write nothing. Prior stages are
+visible, same-stage writes are not inputs, and separate stages can chain. Writes
+remain visible to Arbitre changes and TMS. The host owns bridge/session disposal;
+disposed retained handlers fail because Arbitre 0.3 has no unregister operation.
 
 This does **not** replace the native `when` compiler, its dependency indexes,
 refiring/TMS semantics or stored-computation scheduling. A continuously true
@@ -98,4 +104,4 @@ not supported; non-production core builds warn with this migration path when the
 ## Dependencies
 
 - Depends on `@formbar/core`.
-- Peer dependencies: `@arbitre/core >=0.1.0` and `kuery >=2.0.0`.
+- Peer dependencies: `@arbitre/core ^0.3.0` and `kuery ^2.1.0`.

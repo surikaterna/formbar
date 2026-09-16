@@ -115,9 +115,8 @@ results and division by either sign of zero fail. Shape, operator names, and ari
 are checked at compile time; operand and result types are checked at evaluation
 time unless a custom profile implements additional static analysis. Overflow fails; finite IEEE-754 rounding/underflow is
 retained. This is **not a claim of native Arbitre arithmetic compatibility**.
-Arbitre 0.2's arithmetic handlers are not public runtime exports and have their own
-null/coercion semantics. No private import, copied upstream evaluator, temporary
-rule session, or speculative upstream arithmetic blocker is used.
+The Arbitre bridge does not invoke or copy Arbitre's arithmetic implementation;
+it registers only the Formbar stage through the public 0.3 registry.
 
 ## Capabilities, read/write props and reactions
 
@@ -201,16 +200,19 @@ but detached callbacks cannot resurrect disposed observations or setters.
 
 ## Optional Arbitre integration is not an effect scheduler
 
-`createExpressionOperator({ profile?, programs, authorize?, namespaces? })` compiles
-a host-registered ID map once. Register its `operator` through the public session
-`operators.custom` option, for example `$formbarValue`. IDs are strings in rule
-RHS expressions; arbitrary serialized programs cannot be registered from a rule.
+`registerExpressionThenOperator(registry, { profile?, programs, authorize?, namespaces? })`
+compiles an immutable host ID map before registering `$formbarValue` through
+Arbitre 0.3's public `ThenOperatorRegistry`. Rule stage values are string IDs;
+arbitrary serialized programs cannot be registered from a rule.
 Each invocation adapts the **actual current RHS scope**, including prior stages'
 native arithmetic writes, rather than reading stale committed core state. Data
 roots exclude reserved `$` keys; UI maps to `$ui`; hosts explicitly select external
 roots from the scope. No subscriptions/session ownership are acquired by this pure
-bridge. Errors throw code-only `ExpressionError`s; native strict session error and
-transaction behavior remains authoritative. Host callback code is trusted.
+bridge. All entries evaluate against one incoming scope before ordered tracked
+writes begin, so a failed entry causes zero stage writes. Prior stages are visible,
+same-stage writes are not expression inputs, and later stages may chain. Errors throw
+code-only `ExpressionError`s; native transaction behavior remains authoritative.
+Host callback code is trusted.
 
 The bridge never replaces the native `when` compiler, calculates hidden native
 dependency indexes for IDs, or changes activation/refiring/TMS semantics. Real
@@ -243,21 +245,14 @@ unmount, real Arbitre RHS evaluation and existing regressions. The new package e
 ESM/CJS/declarations and builds before dependent packages. Its initial-release minor
 changeset starts at 0.0.0 and joins the existing linked family.
 
-The current dependency is reproducibly pinned to Kuery commit
-`0c0b623adf871d11b437f67535696405a59e6e49` from PR #34. This verified revision also
-provides immutable profile extension and lazy standard `if` semantics. Formbar still
+The released Kuery 2.1 dependency provides immutable profile extension and lazy
+standard `if` semantics. Formbar still
 preauthorizes and captures every static dependency before Kuery selects an `if`
 branch: a missing unselected dependency is framed as missing and remains unevaluated,
-while a denied unselected dependency fails closed before evaluation. Formbar PR #91 must remain
-draft and is release-blocked until Kuery 2.1.0 is published, at which point the git
-pin must be replaced with the released semver before final review/publish.
-Because Bun does not run dependency lifecycle scripts for this git checkout, the
-temporary `prepare:kuery` step cleans and rebuilds its root/expression ESM, CJS, and
-declaration entries from the exact checkout before Formbar build/test commands.
-Formbar keeps Kuery external so all public imports share one installed runtime
-identity. A clean unprepared git consumer remains blocked because lifecycle scripts
-do not produce those artifacts; package-tarball substitution is intentionally not
-used. The temporary preparation is removed with the released package.
+while a denied unselected dependency fails closed before evaluation. Formbar keeps
+Kuery external so all public imports share one installed runtime identity. Arbitre
+0.3 supplies the public stage registry and tracked write boundary; Formbar does not
+use private operators, temporary sessions, or a pure Kuery extension for this bridge.
 
 New production responsibilities are cohesive, files remain below 400 lines and
 new functions below 50 lines with nesting at most three levels. **Builder approved

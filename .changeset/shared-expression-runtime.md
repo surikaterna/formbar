@@ -10,7 +10,8 @@
 Introduce the authorized reactive expression runtime powered directly by Kuery's
 strict whole-AST expression core (#90, parent #60, contract coordination #61). Add authorized core namespace
 adapters and form disposal notifications, the public reactive ordinary-prop React
-hook, and an opt-in Arbitre operator that reads actual rule RHS scope. Derived
+hook, and an opt-in Arbitre 0.3 then-stage operator that reads actual rule RHS scope,
+evaluates each stage atomically, and records writes through Arbitre's tracked callback. Derived
 expressions stay read-only; direct bindings preserve core write/veto results and
 reject stale capabilities. This does not add a declarative renderer or stored
 computation scheduler. The new expressions package begins at 0.0.0 and joins the
@@ -31,4 +32,5 @@ Validate writable object/array targets and immutable core path copies through ow
 data descriptors before dispatch, including dense canonical append-only array
 rules and transaction rollback. Harden disposal registration races, count JSON
 limits by Unicode code point, and keep the installed Kuery runtime external so
-root, subpath, ESM, and CJS profile identities remain shared.
+root, subpath, ESM, and CJS profile identities remain shared. Consume the released
+Kuery 2.1 and Arbitre 0.3 public registries without temporary preparation scripts.

@@ -171,8 +171,5 @@ stored-computation scheduler, effect system or full component registry.
 
 `@formbar/expressions` imports the installed `kuery/expression` runtime rather than
 embedding a private copy, so Kuery root/subpath and Formbar profile constructors
-share identity in ESM and CJS. The temporary git dependency is pinned to
-`0c0b623adf871d11b437f67535696405a59e6e49`; preparation deterministically cleans
-and rebuilds both Kuery entries and declarations. A clean consumer install remains
-blocked until Kuery 2.1.0 publishes those artifacts; no package-tarball workaround
-is supported.
+share identity in ESM and CJS. The package consumes the released Kuery 2.1 public
+expression entry; no dependency preparation or private backend is required.
