@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -58,6 +59,25 @@ describe("expression ownership and source principles", () => {
 			expect(linked).toContain(pkg.name);
 			expect(read(".changeset/shared-expression-runtime.md")).toContain(`"${pkg.name}": minor`);
 		}
+	});
+	it("packs only public expression artifacts and documentation", () => {
+		const output = execFileSync("npm", ["pack", "--dry-run", "--json", "./packages/expressions"], {
+			cwd: fileURLToPath(root),
+			encoding: "utf8",
+		});
+		const files = JSON.parse(output)[0].files.map(({ path }: { path: string }) => path);
+		expect(manifest("expressions").files).toEqual(["dist", "docs"]);
+		expect(files).toEqual(
+			expect.arrayContaining([
+				"dist/index.js",
+				"dist/index.cjs",
+				"dist/index.d.ts",
+				"dist/index.d.cts",
+				"docs/adr/0001-expression-service-and-reactive-props.md",
+			]),
+		);
+		expect(files).not.toContain(expect.stringMatching(/(^|\/)(src|__tests__|test|scripts|node_modules)(\/|\.|$)/));
+		expect(files).not.toContain(expect.stringMatching(/(^|\/)tsconfig|(^|\/)tsup\.config/));
 	});
 	it.each(newFiles)("keeps %s cohesive and bounded without private imports", (path) => {
 		const source = read(path);
