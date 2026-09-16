@@ -118,8 +118,8 @@ const modes = [
 		"ESM",
 		await Promise.all([
 			...packages.map((name) => import(`@formbar/${name}`)),
-			import("../packages/expressions/node_modules/kuery/dist/index.js"),
-			import("../packages/expressions/node_modules/kuery/dist/expression.js"),
+			import("kuery"),
+			import("kuery/expression"),
 		]),
 	],
 	[
