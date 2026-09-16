@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
@@ -113,6 +114,32 @@ function checkPlainThenJson([expressions]) {
 	assert.equal(JSON.stringify(service.evaluate(compiled.value)), JSON.stringify({ ok: true, value }));
 }
 
+function checkExpressionPackage() {
+	const output = execFileSync("npm", ["pack", "--dry-run", "--json", "./packages/expressions"], {
+		encoding: "utf8",
+	});
+	const files = JSON.parse(output)[0].files.map(({ path }) => path);
+	for (const artifact of [
+		"dist/index.js",
+		"dist/index.js.map",
+		"dist/index.cjs",
+		"dist/index.cjs.map",
+		"dist/index.d.ts",
+		"dist/index.d.cts",
+	]) {
+		assert.ok(files.includes(artifact), `expression package is missing ${artifact}`);
+	}
+	assert.ok(files.includes("docs/adr/0001-expression-service-and-reactive-props.md"));
+	assert.equal(
+		files.some((path) => /(^|\/)(src|__tests__|test|scripts|node_modules)(\/|\.|$)/.test(path)),
+		false,
+	);
+	assert.equal(
+		files.some((path) => /(^|\/)tsconfig|(^|\/)tsup\.config/.test(path)),
+		false,
+	);
+}
+
 const modes = [
 	[
 		"ESM",
@@ -142,4 +169,5 @@ for (const [mode, modules] of modes) {
 const expressionsBuild = readFileSync(new URL("../packages/expressions/dist/index.js", import.meta.url), "utf8");
 assert.match(expressionsBuild, /from\s+["']kuery\/expression["']/);
 assert.doesNotMatch(expressionsBuild, /class ExpressionProfile/);
+checkExpressionPackage();
 console.log("Formbar expressions build keeps the shared Kuery runtime external");
