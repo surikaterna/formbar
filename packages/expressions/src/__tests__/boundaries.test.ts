@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +60,7 @@ describe("expression ownership and source principles", () => {
 	});
 	it("declares a separately consumable public build and coordinated initial release", () => {
 		const linked = JSON.parse(read(".changeset/config.json")).linked.flat();
+		const release = new URL(".changeset/shared-expression-runtime.md", root);
 		for (const name of ["expressions"]) {
 			const pkg = manifest(name);
 			expect(pkg.exports["."]).toEqual({
@@ -59,7 +69,12 @@ describe("expression ownership and source principles", () => {
 				require: "./dist/index.cjs",
 			});
 			expect(linked).toContain(pkg.name);
-			expect(read(".changeset/shared-expression-runtime.md")).toContain(`"${pkg.name}": minor`);
+			if (existsSync(release)) {
+				expect(read(".changeset/shared-expression-runtime.md")).toContain(`"${pkg.name}": minor`);
+			} else {
+				expect(pkg.version).not.toBe("0.0.0");
+				expect(read(`packages/${name}/CHANGELOG.md`)).toContain(`## ${pkg.version}`);
+			}
 		}
 	});
 	it("keeps the source-free package boundary before build artifacts exist", () => {
