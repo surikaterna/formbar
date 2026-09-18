@@ -9,5 +9,12 @@ export {
 	SectionRenderer,
 } from "./renderers/index.js";
 export type { ResolvedFieldState } from "./resolve-field-state.js";
-export { DEFAULT_FIELD_STATE, pruneHiddenFields, resolveFieldStates } from "./resolve-field-state.js";
+export {
+	DEFAULT_FIELD_STATE,
+	descriptionId,
+	errorId,
+	fieldId,
+	pruneHiddenFields,
+	resolveFieldStates,
+} from "./resolve-field-state.js";
 export { type UseSchemaFormOptions, type UseSchemaFormResult, useSchemaForm } from "./use-schema-form.js";

@@ -1,4 +1,4 @@
-import { useForm } from "@formbar/react";
+import { useForm, useFormSelector } from "@formbar/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSchemaForm } from "../use-schema-form.js";
 
@@ -8,8 +8,10 @@ vi.mock("react", () => ({
 
 vi.mock("@formbar/react", () => ({
 	useForm: vi.fn(),
-	useFormSelector: vi.fn(() => ({})),
+	useFormSelector: vi.fn((_form, selector) => selector({ uiState: currentUiState })),
 }));
+
+let currentUiState: Readonly<Record<string, unknown>> | null | undefined = {};
 
 const schemaWithoutDefaults = {
 	type: "object",
@@ -34,6 +36,7 @@ interface FormData {
 describe("useSchemaForm initial data", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		currentUiState = {};
 	});
 
 	it("omits initialData when neither the schema nor caller supplies it", () => {
@@ -60,6 +63,31 @@ describe("useSchemaForm initial data", () => {
 			name: "caller name",
 			role: "viewer",
 		});
+	});
+});
+
+describe("useSchemaForm presentation compatibility", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		currentUiState = {};
+	});
+
+	it("subscribes to dynamic UI state and returns a non-null pruned root", () => {
+		currentUiState = { "name.visible": false, "name.readOnly": "yes", "name.disabled": 0 };
+		const result = useSchemaForm<FormData, Record<string, unknown>>(schemaWithoutDefaults);
+
+		expect(useFormSelector).toHaveBeenCalledOnce();
+		expect(result.fieldStates.get("name")).toEqual({ visible: false, readOnly: true, disabled: false });
+		expect(result.layout).not.toBeNull();
+		expect(result.layout.children).toEqual([]);
+	});
+
+	it("falls back to an empty UI state when the form state has no object", () => {
+		currentUiState = null;
+		const result = useSchemaForm<FormData, Record<string, unknown>>(schemaWithoutDefaults);
+
+		expect(result.fieldStates.get("name")).toBeDefined();
+		expect(result.fieldStates.get("name")?.visible).toBe(true);
 	});
 });
 

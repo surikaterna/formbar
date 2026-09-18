@@ -2,6 +2,10 @@
 
 Schema-driven React helpers that combine `@formbar/from-schema` ingestion with `@formbar/react` hooks, field-state resolution, layout pruning, and layout-node rendering.
 
+Field-state resolution, hidden-layout pruning, and deterministic presentation IDs are compatibility exports backed by
+`@formbar/from-schema`. Existing `resolveFieldStates(uiState, string[])` callers retain the same Boolean coercion and
+default behavior.
+
 ## Install
 
 ```bash

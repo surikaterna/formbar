@@ -27,6 +27,11 @@ describe("renderLayoutTree a11y wiring", () => {
 
 		expect(element.props.aria).toBeDefined();
 		expect(element.props.aria["aria-invalid"]).toBe(true);
+		expect(element.props.aria).toMatchObject({
+			id: "field-email",
+			"aria-describedby": "field-email-error",
+			"aria-errormessage": "field-email-error",
+		});
 	});
 
 	it("passes undefined aria for non-field nodes without path", () => {
