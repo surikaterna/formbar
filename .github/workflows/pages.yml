@@ -38,6 +38,14 @@ jobs:
           FORMBAR_DEMO_BASE: /formbar/
         run: bun run --filter @formbar/demos build
 
+      - name: Build Web and TUI playground
+        env:
+          FORMBAR_TUI_BASE: /formbar/tui/
+        run: bun run --filter @formbar/tui-interaction-spike build:browser
+
+      - name: Add playground to Pages artifact
+        run: mkdir -p apps/demos/dist/tui && cp -R apps/tui-interaction-spike/dist/. apps/demos/dist/tui/
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

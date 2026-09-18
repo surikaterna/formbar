@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { createElement } from "react";
 import type { RendererRegistry } from "./renderer-registry.js";
 import type { LayoutRendererProps } from "./renderer-types.js";
+import { descriptionId, errorId, fieldId } from "./resolve-field-state.js";
 
 /** Options for rendering a layout tree with a11y context */
 export interface RenderTreeOptions {
@@ -34,14 +35,25 @@ export function renderLayoutTree(
 
 function computeAriaProps(node: LayoutNode, options?: RenderTreeOptions) {
 	if (!node.path) return undefined;
+	const path = node.path;
 
-	const pathIssues = filterIssuesForPath(node.path, options?.issues);
-	const required = options?.requiredPaths?.has(node.path) ?? false;
+	const pathIssues = filterIssuesForPath(path, options?.issues);
+	const required = options?.requiredPaths?.has(path) ?? false;
 
-	return getFieldProps(node.path, {
+	const props = getFieldProps(path, {
 		issues: pathIssues,
 		required,
 	});
+	const describedBy = props["aria-describedby"]
+		?.split(" ")
+		.map((id) => (id.endsWith("-description") ? descriptionId(path) : errorId(path)))
+		.join(" ");
+	return {
+		...props,
+		id: fieldId(path),
+		...(describedBy ? { "aria-describedby": describedBy } : {}),
+		...(props["aria-errormessage"] ? { "aria-errormessage": errorId(path) } : {}),
+	};
 }
 
 function filterIssuesForPath(path: string, issues?: readonly ValidationIssue[]): readonly ValidationIssue[] {

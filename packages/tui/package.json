@@ -1,0 +1,54 @@
+{
+	"name": "@formbar/tui",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Unreleased contracts for the future Formbar Ink renderer and standalone terminal host",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/surikaterna/formbar.git",
+		"directory": "packages/tui"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./standalone": {
+			"types": "./dist/standalone.d.ts",
+			"import": "./dist/standalone.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": ["dist", "README.md"],
+	"sideEffects": false,
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"build": "tsc --noEmit",
+		"build:dist": "tsup",
+		"test": "vitest run --root ../.. packages/tui/src/__tests__ && bun run test:package",
+		"test:artifacts": "bun run build:dist && node tests/artifact-smoke.mjs",
+		"test:package": "bun run test:artifacts && bun run test:types && bun run test:packed",
+		"test:packed": "node tests/packed-consumer.mjs",
+		"test:types": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck tests/consumer.ts",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@formbar/core": "workspace:*",
+		"@formbar/from-schema": "workspace:*"
+	},
+	"peerDependencies": {
+		"ink": "^6.5.0",
+		"react": ">=19.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "22.15.3",
+		"@types/react": "^19.0.0",
+		"ink": "6.5.1",
+		"ink-testing-library": "4.0.0",
+		"react": "^19.0.0"
+	}
+}

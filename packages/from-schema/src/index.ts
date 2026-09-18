@@ -81,4 +81,20 @@ export {
 	type LayoutMiddleware,
 	type LayoutMiddlewareContext,
 } from "./layout-middleware.js";
+export {
+	createFormPresentation,
+	DEFAULT_FIELD_STATE,
+	descriptionId,
+	errorId,
+	type FieldStateDefinition,
+	fieldId,
+	type FormPresentation,
+	type FormPresentationSource,
+	type FormPresentationStateInput,
+	type PresentationField,
+	type PresentationFieldIds,
+	pruneHiddenFields,
+	type ResolvedFieldState,
+	resolveFieldStates,
+} from "./presentation-model.js";
 export { hasUiPaths, isValidUiSchema, validateUiSchemaRequirement } from "./ui-schema-check.js";

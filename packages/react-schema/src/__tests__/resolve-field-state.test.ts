@@ -1,6 +1,13 @@
 import type { LayoutNode } from "@formbar/from-schema";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FIELD_STATE, pruneHiddenFields, resolveFieldStates } from "../resolve-field-state.js";
+import {
+	DEFAULT_FIELD_STATE,
+	descriptionId,
+	errorId,
+	fieldId,
+	pruneHiddenFields,
+	resolveFieldStates,
+} from "../resolve-field-state.js";
 
 describe("resolveFieldStates", () => {
 	it("returns default state for fields with no uiState overrides", () => {
@@ -41,6 +48,17 @@ describe("resolveFieldStates", () => {
 			readOnly: true,
 			disabled: false,
 		});
+	});
+
+	it("keeps compatibility with shared presentation state and IDs", async () => {
+		const shared = await import("@formbar/from-schema");
+		const uiState = { "x.visible": "yes", "x.readOnly": 0, "x.disabled": 1 };
+		expect(resolveFieldStates(uiState, ["x"])).toEqual(shared.resolveFieldStates(uiState, ["x"]));
+		expect([fieldId("items[0].name"), descriptionId("x"), errorId("x")]).toEqual([
+			shared.fieldId("items[0].name"),
+			shared.descriptionId("x"),
+			shared.errorId("x"),
+		]);
 	});
 });
 

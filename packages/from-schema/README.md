@@ -44,6 +44,34 @@ console.log(prepared.layout.type);
 form.dispose();
 ```
 
+## Renderer-neutral presentation
+
+`createFormPresentation` derives a synchronous renderer-neutral snapshot from prepared schema data and current form
+state. It resolves visible/read-only/disabled field state, immutably prunes hidden layout fields, groups issues by
+exact data path, and exposes prepared metadata, options, and deterministic IDs without React, Ink, or DOM imports.
+
+```ts
+import { createFormPresentation, createSchemaForm } from "@formbar/from-schema";
+
+const prepared = createSchemaForm(schema);
+const presentation = createFormPresentation(prepared, {
+	uiState: { "email.readOnly": true },
+	issues: form.getState().issues,
+});
+
+const email = presentation.fieldsByPath.get("email");
+console.log(email?.title, email?.state.readOnly, email?.ids.field);
+```
+
+Hidden fields remain in `fieldsByPath` but are absent from `layout`. Issues that do not exactly match a prepared field
+path remain available as `formIssues`. The function is pure and does not subscribe to or dispose form state; renderer
+adapters own that lifecycle.
+
+`presentation.layout` is `null` when its root field is hidden. Malformed sources fail deterministically: duplicate
+schema field paths and layout field paths absent from the schema fields throw `TypeError` rather than silently
+overwriting or creating partial presentation state. Every `field` layout node must provide a non-blank string path;
+missing, non-string, empty, and whitespace-only paths are rejected before schema membership is checked.
+
 ## When to use this package
 
 - Use `@formbar/from-schema` when you need schema extraction, schema-backed validators, default values, or compiled layout nodes without React.

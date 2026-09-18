@@ -1,9 +1,9 @@
 import { createArbiterPlugin } from "@formbar/arbiter";
 import type { FormState } from "@formbar/core";
-import type { FormbarOption, LayoutNode, SchemaFieldInfo } from "@formbar/from-schema";
-import { isSectionNode } from "@formbar/from-schema";
+import type { FormbarOption, LayoutNode, SchemaFieldInfo, SchemaFormResult } from "@formbar/from-schema";
+import { createFormPresentation, isSectionNode } from "@formbar/from-schema";
 import { type ResolvedFieldState, useSchemaForm } from "@formbar/react-schema";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui";
 import { ArrayRenderer } from "./ArrayRenderer";
 import { DemoFormField } from "./DemoFormField";
@@ -51,19 +51,7 @@ interface DemoFormRootProps {
 }
 
 export function DemoFormRoot(props: DemoFormRootProps) {
-	const { formData, renderContext, layout } = useDemoFormRootState(props);
-	return <DemoFormCards formData={formData} renderContext={renderContext} layout={layout} />;
-}
-
-function useDemoFormRootState({
-	schema,
-	data,
-	layout: layoutOverride,
-	onChange,
-	rules = EMPTY_RULES,
-	initialUiState = EMPTY_UI_STATE,
-	onSnapshot,
-}: DemoFormRootProps) {
+	const { schema, data, layout: layoutOverride, rules = EMPTY_RULES, initialUiState = EMPTY_UI_STATE } = props;
 	const plugins = useMemo(
 		() =>
 			rules.length
@@ -71,35 +59,81 @@ function useDemoFormRootState({
 				: [],
 		[rules],
 	);
-	const { form, fields, layout, optionsByPath, fieldStates, metadata, warnings } = useSchemaForm<
-		Record<string, unknown>,
-		Record<string, unknown>
-	>(schema, {
+	const result = useSchemaForm<Record<string, unknown>, Record<string, unknown>>(schema, {
 		initialData: data,
 		initialUiState,
 		...(layoutOverride ? { layoutOverride: layoutOverride as LayoutNode } : {}),
 		plugins,
 	});
-	const [formData, setFormData] = useState<Record<string, unknown>>(() => form.getState().data);
+	const prepared = useMemo<SchemaFormResult>(
+		() => ({
+			fields: result.fields,
+			layout: result.layout,
+			metadata: result.metadata,
+			validators: [],
+			defaults: {},
+			optionsByPath: result.optionsByPath,
+			warnings: result.warnings,
+		}),
+		[result.fields, result.layout, result.metadata, result.optionsByPath, result.warnings],
+	);
+	return (
+		<DemoFormView
+			form={result.form}
+			schema={prepared}
+			rawSchema={schema}
+			onChange={props.onChange}
+			onSnapshot={props.onSnapshot}
+		/>
+	);
+}
+
+export interface DemoFormViewProps {
+	readonly form: DemoFormApi;
+	readonly schema: SchemaFormResult;
+	readonly rawSchema?: object;
+	readonly onChange?: (path: string, value: unknown) => void;
+	readonly onSnapshot?: (snapshot: DemoFormSnapshot) => void;
+}
+
+/** A renderer-only demo view. The caller retains form creation and disposal ownership. */
+export function DemoFormView({ form, schema, rawSchema, onChange = () => undefined, onSnapshot }: DemoFormViewProps) {
+	const state = useSyncExternalStore(form.subscribe, form.getState, form.getState);
+	const presentation = useMemo(
+		() =>
+			createFormPresentation(schema, {
+				uiState: (state.uiState ?? {}) as Readonly<Record<string, unknown>>,
+				issues: state.issues,
+			}),
+		[schema, state],
+	);
+	const fields = schema.fields;
+	const layout = presentation.layout ?? { ...schema.layout, children: [] };
+	const fieldStates = useMemo(
+		() => new Map(presentation.fields.map((field) => [field.path, field.state])),
+		[presentation],
+	);
 	const fieldMap = useMemo(() => indexFields(fields), [fields]);
-	const arrayItemsMap = useMemo(() => buildArrayItemsMap(schema), [schema]);
+	const arrayItemsMap = useMemo(() => buildArrayItemsMap(rawSchema ?? {}), [rawSchema]);
 	const handleChange = useCallback(
 		(path: string, value: unknown) => {
 			onChange(path, value);
 		},
 		[onChange],
 	);
-	useEffect(() => {
-		const publish = () => {
-			const state = form.getState();
-			setFormData(state.data);
-			onSnapshot?.({ state, metadata, warnings });
-		};
-		publish();
-		return form.subscribe(publish);
-	}, [form, metadata, onSnapshot, warnings]);
-	const renderContext = { form, fieldMap, optionsByPath, fieldStates, onChange: handleChange, arrayItemsMap };
-	return { formData, renderContext, layout };
+	useEffect(
+		() => onSnapshot?.({ state, metadata: schema.metadata, warnings: schema.warnings }),
+		[onSnapshot, schema.metadata, schema.warnings, state],
+	);
+	const renderContext = {
+		form,
+		fieldMap,
+		optionsByPath: schema.optionsByPath,
+		fieldStates,
+		onChange: handleChange,
+		arrayItemsMap,
+	};
+	return <DemoFormCards formData={state.data} renderContext={renderContext} layout={layout} />;
 }
 
 function indexFields(fields: readonly SchemaFieldInfo[]): Map<string, SchemaFieldInfo> {

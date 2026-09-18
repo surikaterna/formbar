@@ -6,6 +6,8 @@ const sourcePath = (path: string) => fileURLToPath(new URL(path, import.meta.url
 export default defineConfig({
 	resolve: {
 		alias: {
+			"@formbar/tui/standalone": sourcePath("./packages/tui/src/standalone.ts"),
+			"@formbar/tui": sourcePath("./packages/tui/src/index.ts"),
 			"@formbar/expressions": sourcePath("./packages/expressions/src/index.ts"),
 			"@formbar/arbiter": sourcePath("./packages/arbiter/src/index.ts"),
 			"@formbar/core/path": sourcePath("./packages/core/src/path.entry.ts"),
@@ -21,6 +23,7 @@ export default defineConfig({
 		include: [
 			"packages/*/src/__tests__/**/*.test.ts",
 			"apps/demos/src/__tests__/**/*.test.ts",
+			"apps/tui-interaction-spike/src/__tests__/**/*.test.{ts,tsx}",
 			"scripts/release/__tests__/**/*.test.ts",
 		],
 	},

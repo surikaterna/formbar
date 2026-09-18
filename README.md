@@ -12,12 +12,14 @@ Headless, schema-driven form tooling for TypeScript and React.
 | [`@formbar/react-schema`](./packages/react-schema) | Schema-driven React form hook, layout rendering, and renderer registry. |
 | [`@formbar/arbiter`](./packages/arbiter) | Bridge from Arbitre production rules into the Formbar plugin pipeline. |
 | [`@formbar/expressions`](./packages/expressions) | Authorized reactive expressions using Kuery's strict whole-AST core. |
+| [`@formbar/tui`](./packages/tui) | **Private, experimental:** process-free editable Ink renderer plus an optional Node-only standalone terminal host, with validation/submission, synchronous field-adapter registry, interaction contracts, semantic themes, and navigation runtime. |
 
 Private workspace apps:
 
 | App | Description |
 | --- | --- |
 | `@formbar/demos` | Private demo app used for local development; not published. |
+| `@formbar/tui-interaction-spike` | Private Linux PTY fixture and renderer integration proof for `@formbar/tui`; not published. |
 
 Use only the packages needed for your stack: `@formbar/core` for a headless engine, `@formbar/react` for React bindings, `@formbar/from-schema` for schema ingestion, `@formbar/react-schema` for schema-driven React rendering, and `@formbar/arbiter` for rule-engine integration.
 
@@ -26,7 +28,7 @@ Use only the packages needed for your stack: `@formbar/core` for a headless engi
 ```bash
 bun install
 bun run build
-bun test
+bun run test
 ```
 
 ## Development
