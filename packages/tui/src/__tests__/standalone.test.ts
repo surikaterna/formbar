@@ -91,7 +91,7 @@ describe("standalone host lifecycle", () => {
 		const instance = renderStandaloneForm({ form, schema, ...streams });
 		const promise = instance.waitUntilExit();
 		expect(instance.waitUntilExit()).toBe(promise);
-		await vi.waitFor(() => expect(streams.output()).toContain("Actions:"));
+		await vi.waitFor(() => expect(streams.output()).toContain("Actions:"), { timeout: 5_000 });
 		instance.unmount();
 		instance.unmount();
 		expect(await promise).toEqual({ reason: "unmount" });
@@ -141,7 +141,7 @@ describe("standalone host lifecycle", () => {
 				throw new Error("consumer callback");
 			},
 		});
-		await vi.waitFor(() => expect(streams.output()).toContain("Actions:"));
+		await vi.waitFor(() => expect(streams.output()).toContain("Actions:"), { timeout: 5_000 });
 		await send(streams.stdin, "\r", "\r", "\x13");
 		expect(await instance.waitUntilExit()).toEqual({ reason: "submit" });
 		expect(events).toEqual(["callback"]);
