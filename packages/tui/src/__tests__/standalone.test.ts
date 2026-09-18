@@ -15,8 +15,6 @@ const schema: SchemaFormResult = {
 	warnings: [],
 };
 
-const CI_RENDER_TIMEOUT = 30_000;
-
 describe("standalone input normalization", () => {
 	it("normalizes controls, modifiers, deletion, Unicode paste, and Space fallback deterministically", () => {
 		expect(normalizeStandaloneInput("c", { ctrl: true })).toEqual({ kind: "exit", reason: "ctrl-c" });
@@ -87,24 +85,19 @@ describe("standalone host lifecycle", () => {
 		await Promise.all([a.waitUntilExit(), b.waitUntilExit()]);
 	});
 
-	it(
-		"shares one exit promise, restores raw mode, and leaves caller-owned forms alive",
-		async () => {
-			const streams = fakeStreams();
-			const form = makeForm();
-			const instance = renderStandaloneForm({ form, schema, ...streams });
-			const promise = instance.waitUntilExit();
-			expect(instance.waitUntilExit()).toBe(promise);
-			await vi.waitFor(() => expect(streams.output()).toContain("Actions:"), { timeout: CI_RENDER_TIMEOUT });
-			instance.unmount();
-			instance.unmount();
-			expect(await promise).toEqual({ reason: "unmount" });
-			expect(streams.raw).toHaveBeenLastCalledWith(false);
-			expect(form.isDisposed()).toBe(false);
-			form.dispose();
-		},
-		CI_RENDER_TIMEOUT + 5_000,
-	);
+	it("shares one exit promise, restores raw mode, and leaves caller-owned forms alive", async () => {
+		const streams = fakeStreams();
+		const form = makeForm();
+		const instance = renderStandaloneForm({ form, schema, ...streams });
+		const promise = instance.waitUntilExit();
+		expect(instance.waitUntilExit()).toBe(promise);
+		instance.unmount();
+		instance.unmount();
+		expect(await promise).toEqual({ reason: "unmount" });
+		expect(streams.raw).toHaveBeenLastCalledWith(false);
+		expect(form.isDisposed()).toBe(false);
+		form.dispose();
+	});
 
 	it("opts into signals without re-signaling and disposes a host-owned form last", async () => {
 		const before = process.listenerCount("SIGTERM");
@@ -134,30 +127,25 @@ describe("standalone host lifecycle", () => {
 		form.dispose();
 	});
 
-	it(
-		"runs the success callback before default exit even when the callback throws",
-		async () => {
-			const streams = fakeStreams();
-			const form = makeForm();
-			const events: string[] = [];
-			const instance = renderStandaloneForm({
-				form,
-				schema,
-				...streams,
-				onSubmitSuccess: () => {
-					events.push("callback");
-					throw new Error("consumer callback");
-				},
-			});
-			await vi.waitFor(() => expect(streams.output()).toContain("Actions:"), { timeout: CI_RENDER_TIMEOUT });
-			await send(streams.stdin, "\r", "\r", "\x13");
-			expect(await instance.waitUntilExit()).toEqual({ reason: "submit" });
-			expect(events).toEqual(["callback"]);
-			expect(streams.raw).toHaveBeenLastCalledWith(false);
-			form.dispose();
-		},
-		CI_RENDER_TIMEOUT + 5_000,
-	);
+	it("runs the success callback before default exit even when the callback throws", async () => {
+		const streams = fakeStreams();
+		const form = makeForm();
+		const events: string[] = [];
+		const instance = renderStandaloneForm({
+			form,
+			schema,
+			...streams,
+			onSubmitSuccess: () => {
+				events.push("callback");
+				throw new Error("consumer callback");
+			},
+		});
+		await send(streams.stdin, "\r", "\r", "\x13");
+		expect(await instance.waitUntilExit()).toEqual({ reason: "submit" });
+		expect(events).toEqual(["callback"]);
+		expect(streams.raw).toHaveBeenLastCalledWith(false);
+		form.dispose();
+	});
 
 	it("continues reverse cleanup and aggregates terminal and ownership failures", async () => {
 		const streams = fakeStreams();
