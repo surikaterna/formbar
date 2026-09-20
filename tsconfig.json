@@ -15,6 +15,7 @@
 	"references": [
 		{ "path": "packages/expressions" },
 		{ "path": "packages/core" },
+		{ "path": "packages/declarative" },
 		{ "path": "packages/from-schema" },
 		{ "path": "packages/react" }
 	]
