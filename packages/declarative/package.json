@@ -1,0 +1,33 @@
+{
+	"name": "@formbar/declarative",
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Framework-neutral serialized form definition contracts",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/surikaterna/formbar.git",
+		"directory": "packages/declarative"
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": ["dist"],
+	"sideEffects": false,
+	"scripts": {
+		"build": "tsc --noEmit",
+		"build:dist": "tsup",
+		"test": "vitest run --root ../.. packages/declarative/src/__tests__"
+	},
+	"dependencies": {
+		"@formbar/core": "^0.4.0",
+		"@formbar/expressions": "^0.4.0"
+	}
+}
