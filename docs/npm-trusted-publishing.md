@@ -22,6 +22,22 @@ Use these settings for each package:
 The workflow grants `id-token: write` and sets `NPM_CONFIG_PROVENANCE=true` for `bunx changeset publish`,
 allowing npm to verify the GitHub Actions run without `NODE_AUTH_TOKEN` or `NPM_TOKEN`.
 
+## Omitted-event recovery
+
+An omitted `main` PushEvent may be recovered by directly dispatching the same
+`.github/workflows/release.yml` workflow under the exact-SHA contract in
+[`workflow-recovery.md`](./workflow-recovery.md). The dispatch does not introduce a
+coordinator, reusable publishing workflow, alternate ref, or token fallback. It
+therefore retains the trusted publisher identity: repository
+`surikaterna/formbar`, workflow filename `release.yml`, and no environment.
+
+The recovery guard runs before checkout and requires the workflow definition, event
+SHA, expected SHA, and live protected `main` tip to agree. After it passes, the
+normal Changesets action still creates or updates the standard release PR while
+changesets remain. Otherwise, the existing preflight, `bunx changeset publish` with
+OIDC provenance, and reconciliation steps run in their normal order. Follow the
+CI-first three-workflow runbook; never recover publication manually.
+
 ## One-time bootstrap for a new package
 
 `@formbar/expressions` is currently version `0.0.0` and is absent from npm. npm

@@ -15,6 +15,7 @@ export default defineConfig({
 			"packages/*/src/__tests__/**/*.test.ts",
 			"apps/demos/src/__tests__/**/*.test.ts",
 			"scripts/release/__tests__/**/*.test.ts",
+			"scripts/workflows/__tests__/**/*.test.ts",
 			"test/**/*.test.ts",
 		],
 	},

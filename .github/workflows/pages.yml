@@ -4,9 +4,19 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: Full lowercase SHA currently at the tip of main
+        required: true
+        type: string
+      recovery_issue:
+        description: Open recovery issue number authorizing this run
+        required: true
+        type: string
 
 permissions:
   contents: read
+  issues: read
   pages: write
   id-token: write
 
@@ -19,6 +29,46 @@ jobs:
     if: github.repository == 'surikaterna/formbar'
     runs-on: ubuntu-latest
     steps:
+      - name: Validate exact-SHA recovery
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          EXPECTED_WORKFLOW_REF: surikaterna/formbar/.github/workflows/pages.yml@refs/heads/main
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_ISSUE: ${{ inputs.recovery_issue }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            printf '::error::%s\n' "$1"
+            exit 1
+          }
+
+          [[ "$GITHUB_REPOSITORY" == "surikaterna/formbar" ]] || fail "Recovery is restricted to surikaterna/formbar"
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || fail "Recovery must run on refs/heads/main"
+          [[ "$GITHUB_REF_PROTECTED" == "true" ]] || fail "Recovery requires a protected main ref"
+          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "expected_main_sha must be a full lowercase SHA"
+          [[ "$RECOVERY_ISSUE" =~ ^[1-9][0-9]*$ ]] || fail "recovery_issue must be a positive issue number"
+          [[ "$GITHUB_WORKFLOW_REF" == "$EXPECTED_WORKFLOW_REF" ]] || fail "Workflow must be loaded from its main-branch path"
+          [[ "$GITHUB_WORKFLOW_SHA" == "$EXPECTED_MAIN_SHA" ]] || fail "Workflow SHA does not match expected_main_sha"
+          [[ "$GITHUB_SHA" == "$EXPECTED_MAIN_SHA" ]] || fail "Event SHA does not match expected_main_sha"
+
+          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
+          [[ "$default_branch" == "main" ]] || fail "Repository default branch is not main"
+
+          main_protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
+          [[ "$main_protected" == "true" ]] || fail "The live main branch is not protected"
+
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current_main_sha" == "$EXPECTED_MAIN_SHA" ]] || fail "main advanced after the reviewed SHA"
+
+          issue_state="$(gh api "repos/$GITHUB_REPOSITORY/issues/$RECOVERY_ISSUE" --jq '.state')"
+          issue_is_pr="$(gh api "repos/$GITHUB_REPOSITORY/issues/$RECOVERY_ISSUE" --jq 'has("pull_request")')"
+          [[ "$issue_state" == "open" ]] || fail "Recovery issue is not open"
+          [[ "$issue_is_pr" == "false" ]] || fail "recovery_issue must identify an issue, not a pull request"
+          printf 'RECOVERY_EVIDENCE recovery_issue=%s expected_main_sha=%s\n' "$RECOVERY_ISSUE" "$EXPECTED_MAIN_SHA"
+
       - name: Checkout
         uses: actions/checkout@v5
 
