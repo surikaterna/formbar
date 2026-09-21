@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { getPreset } from "../playground/presets";
-import { applySources, createPlaygroundSession, resetSession, updateSource } from "../playground/session";
+import {
+	applySources,
+	createPlaygroundSession,
+	resetSession,
+	restorePlaygroundSession,
+	updateSource,
+} from "../playground/session";
+import { type StorageLike, saveDraft } from "../playground/storage";
 
 function presetDocument() {
 	const preset = getPreset("schema-compilation");
@@ -23,5 +30,20 @@ describe("playground session", () => {
 		expect(applied.applied.initialData).toEqual({ name: "Ada" });
 		expect(applied.revision).toBe(1);
 		expect(resetSession(applied, presetDocument()).revision).toBe(2);
+	});
+
+	it("restores version-2 editor sources after a reload without applying them", () => {
+		const values = new Map<string, string>();
+		const storage: StorageLike = {
+			getItem: (key) => values.get(key) ?? null,
+			setItem: (key, value) => values.set(key, value),
+			removeItem: (key) => values.delete(key),
+		};
+		const sources = { ...createPlaygroundSession(presetDocument()).sources, initialData: '{"name":"Recovered"}' };
+		expect(saveDraft(storage, "schema-compilation:default", sources)).toBe(true);
+		const restored = restorePlaygroundSession(presetDocument(), "schema-compilation:default", storage);
+		expect(restored.sources).toEqual(sources);
+		expect(restored.applied).toBe(presetDocument());
+		expect(restored.revision).toBe(0);
 	});
 });

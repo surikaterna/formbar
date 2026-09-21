@@ -6,8 +6,14 @@ import { SourceEditor } from "./SourceEditor";
 import { type PlaygroundPreset, SOURCE_KEYS, type SourceKey } from "./contracts";
 import { formatJson, stringifyDocument } from "./document";
 import { getCompatibility, getPreset } from "./presets";
-import { applySources, createPlaygroundSession, resetSession, updateSource } from "./session";
-import { saveDraft } from "./storage";
+import {
+	applySources,
+	type createPlaygroundSession,
+	resetSession,
+	restorePlaygroundSession,
+	updateSource,
+} from "./session";
+import { discardDraft, saveDraft } from "./storage";
 
 interface PlaygroundPageProps {
 	readonly demoId: string;
@@ -25,7 +31,9 @@ export function PlaygroundPage(props: PlaygroundPageProps) {
 }
 
 function Playground(props: PlaygroundPageProps & { readonly preset: PlaygroundPreset }) {
-	const [session, setSession] = useState(() => createPlaygroundSession(props.preset.document));
+	const [session, setSession] = useState(() =>
+		restorePlaygroundSession(props.preset.document, props.preset.key, window.localStorage),
+	);
 	const [active, setActive] = useState<SourceKey>("schema");
 	const [status, setStatus] = useState("Compilation preview loaded.");
 	const baseline = useMemo(() => stringifyDocument(props.preset.document), [props.preset]);
@@ -37,6 +45,7 @@ function Playground(props: PlaygroundPageProps & { readonly preset: PlaygroundPr
 		setStatus(next.revision === session.revision ? "Apply failed; review source errors." : "Sources compiled.");
 	};
 	const reset = () => {
+		discardDraft(window.localStorage, props.preset.key);
 		setSession(resetSession(session, props.preset.document));
 		setStatus("Preset restored.");
 	};

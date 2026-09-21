@@ -10,6 +10,7 @@ vi.mock("@formbar/react-schema", () => ({
 			nodes: {},
 			occurrences: {},
 			definitions: [],
+			evidence: { n1: { primitive: "string", minLength: 2 } },
 		},
 		definition: { version: 1, id: "test", root: { id: "root", type: "group", children: [] } },
 		diagnostics: { source: [], projection: [], compilation: [], definition: [] },
@@ -23,6 +24,8 @@ describe("CompilationPreview", () => {
 		const serialized = JSON.stringify(element);
 		expect(serialized).toContain("read-only");
 		expect(serialized).toContain("await issues #64 and #65");
+		expect(serialized).toContain("Descriptor document and evidence");
+		expect(serialized).toContain('"evidence":{"n1":{"primitive":"string","minLength":2}}');
 		expect(serialized).not.toContain('"type":"input"');
 		expect(vi.mocked(useSchemaForm).mock.calls[0]?.[1]).toMatchObject({ side: "input" });
 	});

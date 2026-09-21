@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SOURCE_KEYS, TOTAL_LIMIT_BYTES } from "../playground/contracts";
-import { type StorageLike, discardDraft, draftKey, loadDraft, saveDraft } from "../playground/storage";
+import { type StorageLike, discardDraft, draftKey, legacyDraftKey, loadDraft, saveDraft } from "../playground/storage";
 
 const sources = { schema: "{}", definition: "null", initialData: "{}" };
 
@@ -27,6 +27,18 @@ describe("playground storage", () => {
 		expect(loadDraft(storage, "two")).toBeNull();
 		storage.values.set(draftKey("one"), JSON.stringify({ version: 1, presetKey: "one", sources }));
 		expect(loadDraft(storage, "one")).toBeNull();
+		expect(storage.values.has(draftKey("one"))).toBe(false);
+	});
+
+	it("clears legacy layout drafts without translating them and still loads v2", () => {
+		const storage = new MemoryStorage();
+		storage.values.set(
+			legacyDraftKey("one"),
+			JSON.stringify({ version: 1, presetKey: "one", layout: {}, sources: { schema: "{}", layout: "null" } }),
+		);
+		expect(saveDraft(storage, "one", sources)).toBe(true);
+		expect(loadDraft(storage, "one")?.sources).toEqual(sources);
+		expect(storage.values.has(legacyDraftKey("one"))).toBe(false);
 	});
 
 	it.each([
