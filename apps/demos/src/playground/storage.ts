@@ -1,7 +1,7 @@
 import { type PlaygroundSources, SOURCE_KEYS, TOTAL_LIMIT_BYTES } from "./contracts";
 
-const DRAFT_VERSION = 1;
-const PREFIX = "formbar:playground:draft:v1:";
+const DRAFT_VERSION = 2;
+const PREFIX = "formbar:playground:draft:v2:";
 
 export interface StoredDraft {
 	readonly version: typeof DRAFT_VERSION;

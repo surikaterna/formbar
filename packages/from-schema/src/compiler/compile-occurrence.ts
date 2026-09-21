@@ -1,0 +1,226 @@
+import type { FormNode } from "@formbar/declarative";
+import type { DescriptorDocument, DescriptorNode, DescriptorOccurrence } from "../descriptors/contracts.js";
+import type { CompilationDiagnostic } from "../diagnostics.js";
+import { type BindingContext, binding, childBinding, repeaterItemBinding } from "./bindings.js";
+import { nodeId, scopeId } from "./ids.js";
+import { presentationFor } from "./presentation.js";
+
+export interface CompilationContext {
+	readonly document: DescriptorDocument;
+	readonly diagnostics: CompilationDiagnostic[];
+}
+
+export function compileOccurrence(
+	context: CompilationContext,
+	occurrenceId: string,
+	bindingContext: BindingContext,
+): FormNode {
+	const occurrence = context.document.occurrences[occurrenceId];
+	if (!occurrence) return missingNode(context, occurrenceId, bindingContext);
+	const node = context.document.nodes[occurrence.nodeId];
+	if (!node)
+		return fallbackNode(context, occurrence, bindingContext, "missing-descriptor", "Descriptor node is missing.");
+	if (occurrence.expansion === "cycle")
+		return fallbackNode(
+			context,
+			occurrence,
+			bindingContext,
+			"cyclic-schema",
+			"Recursive occurrence requires runtime policy.",
+		);
+	if (occurrence.expansion !== "expanded")
+		return fallbackNode(
+			context,
+			occurrence,
+			bindingContext,
+			"unsupported-schema",
+			`Occurrence expansion is ${occurrence.expansion}.`,
+		);
+	if (hasApplicators(node) && node.kind !== "object")
+		addDiagnostic(
+			context,
+			occurrence,
+			"unsupported-schema",
+			"Applicator evidence was retained but not compiled into presentation intent.",
+		);
+	if (node.kind === "object") return compileObject(context, occurrence, node, bindingContext);
+	if (node.kind === "array") return compileArray(context, occurrence, node, bindingContext);
+	if (node.kind === "tuple") return compileTuple(context, occurrence, bindingContext);
+	if (node.kind === "wrapper" || node.kind === "ref") return compileTransparent(context, occurrence, bindingContext);
+	if (node.kind === "union" || node.kind === "intersection")
+		return fallbackNode(
+			context,
+			occurrence,
+			bindingContext,
+			"composed-schema",
+			"Composed schema retained without selecting a branch.",
+		);
+	if (node.kind === "unknown" || node.kind === "opaque")
+		return fallbackNode(
+			context,
+			occurrence,
+			bindingContext,
+			"opaque-schema",
+			`${node.kind} schema evidence cannot select a widget.`,
+		);
+	if (node.kind === "record" || node.kind === "unconstrained" || node.kind === "never")
+		return fallbackNode(
+			context,
+			occurrence,
+			bindingContext,
+			"unsupported-schema",
+			`${node.kind} schema evidence requires authored presentation.`,
+		);
+	return fieldNode(context, occurrence, node, bindingContext);
+}
+
+function compileObject(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	node: Extract<DescriptorNode, { kind: "object" }>,
+	bindingContext: BindingContext,
+): FormNode {
+	const propertyChildren = occurrence.children
+		.map((id) => context.document.occurrences[id])
+		.filter((child): child is DescriptorOccurrence => child?.relation === "property" && typeof child.key === "string");
+	const children = propertyChildren.map((child) =>
+		compileOccurrence(context, child.id, childBinding(bindingContext, child.key as string)),
+	);
+	if (node.additionalProperties || hasApplicators(node))
+		addDiagnostic(
+			context,
+			occurrence,
+			"unsupported-schema",
+			"Object applicator or dynamic-property evidence was retained but not compiled into controls.",
+		);
+	return Object.freeze({ id: nodeId(occurrence.id, "group"), type: "group", children: Object.freeze(children) });
+}
+
+function compileArray(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	node: Extract<DescriptorNode, { kind: "array" }>,
+	bindingContext: BindingContext,
+): FormNode {
+	const item = occurrence.children
+		.map((id) => context.document.occurrences[id])
+		.find((child) => child?.relation === "items");
+	const scope = scopeId(occurrence.id);
+	const child = item
+		? compileOccurrence(context, item.id, repeaterItemBinding(scope))
+		: fallbackNode(
+				context,
+				occurrence,
+				repeaterItemBinding(scope),
+				"missing-descriptor",
+				"Array item occurrence is missing.",
+			);
+	const evidence = context.document.evidence[occurrence.nodeId];
+	return Object.freeze({
+		id: nodeId(occurrence.id, "repeater"),
+		type: "repeater",
+		binding: binding(bindingContext),
+		scope,
+		children: Object.freeze([child]),
+		...(evidence?.minItems === undefined ? {} : { minItems: evidence.minItems }),
+		...(evidence?.maxItems === undefined ? {} : { maxItems: evidence.maxItems }),
+	});
+}
+
+function compileTuple(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	bindingContext: BindingContext,
+): FormNode {
+	const children = occurrence.children
+		.map((id) => context.document.occurrences[id])
+		.filter((child): child is DescriptorOccurrence => child?.relation === "tuple-item" && typeof child.key === "number")
+		.map((child) => compileOccurrence(context, child.id, childBinding(bindingContext, child.key as number)));
+	addDiagnostic(
+		context,
+		occurrence,
+		"unsupported-schema",
+		"Tuple structure compiled positionally; rest evidence remains descriptor-only.",
+	);
+	return Object.freeze({ id: nodeId(occurrence.id, "group"), type: "group", children: Object.freeze(children) });
+}
+
+function compileTransparent(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	bindingContext: BindingContext,
+): FormNode {
+	const child = occurrence.children
+		.map((id) => context.document.occurrences[id])
+		.find((item) => item?.relation === "wrapper" || item?.relation === "reference");
+	return child
+		? compileOccurrence(context, child.id, bindingContext)
+		: fallbackNode(
+				context,
+				occurrence,
+				bindingContext,
+				"unsupported-schema",
+				"Unresolved wrapper or reference requires authored presentation.",
+			);
+}
+
+function fieldNode(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	node: DescriptorNode,
+	bindingContext: BindingContext,
+): FormNode {
+	const presentation = presentationFor(node, context.document.source.provider);
+	return Object.freeze({
+		id: nodeId(occurrence.id, "field"),
+		type: "field",
+		binding: binding(bindingContext),
+		widget: presentation.widget,
+		...(presentation.label === undefined ? {} : { label: presentation.label }),
+		...(presentation.presentation ? { presentation: presentation.presentation } : {}),
+		...(presentation.props ? { props: presentation.props } : {}),
+	});
+}
+
+function fallbackNode(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	bindingContext: BindingContext,
+	code: CompilationDiagnostic["code"],
+	message: string,
+): FormNode {
+	addDiagnostic(context, occurrence, code, message);
+	return Object.freeze({
+		id: nodeId(occurrence.id, "field"),
+		type: "field",
+		binding: binding(bindingContext),
+		widget: "unsupported",
+	});
+}
+
+function missingNode(context: CompilationContext, occurrenceId: string, bindingContext: BindingContext): FormNode {
+	const occurrence = Object.freeze({ id: occurrenceId, nodeId: "missing" }) as DescriptorOccurrence;
+	return fallbackNode(context, occurrence, bindingContext, "missing-descriptor", "Occurrence is missing.");
+}
+
+function addDiagnostic(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	code: CompilationDiagnostic["code"],
+	message: string,
+): void {
+	context.diagnostics.push({
+		code,
+		severity: "warning",
+		occurrenceId: occurrence.id,
+		nodeId: occurrence.nodeId,
+		message,
+	});
+}
+
+function hasApplicators(node: DescriptorNode): boolean {
+	const value = node.applicators;
+	if (!value) return false;
+	if (value.if || value.then || value.else || value.not || value.contains || value.propertyNames) return true;
+	return Object.keys(value.patternProperties ?? {}).length > 0 || Object.keys(value.dependentSchemas ?? {}).length > 0;
+}

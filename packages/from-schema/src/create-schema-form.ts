@@ -1,90 +1,86 @@
-import type { ValidatorFn } from "@formbar/core";
-import { createStandardSchemaValidator, isStandardSchemaLike } from "@formbar/core";
-import { type JsonSchema, type SchemaFieldInfo, type SchemaMetadata, ingestSchema } from "@scheman/core";
-import { createJsonSchemaValidator, isJsonSchema } from "./adapters/json-schema-validator.js";
-import { applyFormbarMetadata } from "./formbar-metadata.js";
-import type { FormbarOption, FormbarOptionTitleResolver, FormbarOptionWarning } from "./formbar-options.js";
-import { type LayoutMiddleware, applyLayoutMiddleware } from "./layout-middleware.js";
-import { compileLayout } from "./layout/layout-compiler.js";
-import type { LayoutNode } from "./layout/layout-types.js";
-import { prepareSchemaOptions } from "./schema-form-options.js";
+import type { SchemaValidator } from "@formbar/core";
+import {
+	type DefinitionDiagnostic,
+	type FormDefinition,
+	type ValidatedFormDefinition,
+	validateFormDefinition,
+} from "@formbar/declarative";
+import type { LimitOptions, SchemaDocumentProvider, StandardSchemaV1 } from "@scheman/core";
+import {
+	type CompileDefaultFormDefinitionOptions,
+	compileDefaultFormDefinition,
+} from "./compiler/compile-default-definition.js";
+import type { DescriptorDocument, DescriptorSide } from "./descriptors/contracts.js";
+import type { ProjectionLimitOptions } from "./descriptors/limits.js";
+import type { SchemaFormDiagnostics } from "./diagnostics.js";
+import { projectSchema } from "./schema-source.js";
 
-export interface CreateSchemaFormOptions {
-	/** Additional validators to include beyond the auto-detected schema validator */
-	readonly validators?: readonly ValidatorFn[] | undefined;
-	/** Override the auto-compiled layout with a custom LayoutNode tree */
-	readonly layoutOverride?: LayoutNode | undefined;
-	/** Middleware pipeline applied to the compiled layout tree */
-	readonly layoutMiddleware?: readonly LayoutMiddleware[] | undefined;
-	/** Synchronously resolves option titles without coupling schema ingestion to a UI framework */
-	readonly resolveOptionTitle?: FormbarOptionTitleResolver | undefined;
+export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
+	readonly provider: SchemaDocumentProvider;
+	readonly side: DescriptorSide;
+	readonly limits?: LimitOptions;
+	readonly projectionLimits?: ProjectionLimitOptions;
+	readonly validators?: readonly SchemaValidator<TData, TUi>[];
+	readonly definition?: FormDefinition;
+	readonly generation?: CompileDefaultFormDefinitionOptions;
 }
 
-export interface SchemaFormResult {
-	readonly fields: readonly SchemaFieldInfo[];
-	readonly layout: LayoutNode;
-	readonly metadata: SchemaMetadata;
-	readonly validators: readonly ValidatorFn[];
-	readonly defaults: Readonly<Record<string, unknown>>;
-	readonly optionsByPath: ReadonlyMap<string, readonly FormbarOption[]>;
-	readonly warnings: readonly FormbarOptionWarning[];
+export interface SchemaFormResult<TData = unknown, TUi = unknown> {
+	readonly descriptors: DescriptorDocument;
+	readonly definition: ValidatedFormDefinition;
+	readonly sourceValidator?: StandardSchemaV1;
+	readonly validators: readonly SchemaValidator<TData, TUi>[];
+	readonly diagnostics: SchemaFormDiagnostics;
 }
 
 /**
- * Creates a form instance from a schema definition (Zod v4 or JSON Schema).
- * Automatically extracts fields, compiles a layout tree, generates validators,
- * and resolves default values from the schema.
- *
- * @param schema - A Zod schema, JSON Schema object, or any Standard Schema v1 implementation.
- * @param options - Additional configuration: extra validators, layout overrides, middleware.
- * @returns A configured {@link SchemaFormResult} with validators, layout tree, and field info map.
- *
- * @example
- * ```typescript
- * import { z } from "zod";
- * import { createSchemaForm } from "@formbar/from-schema";
- *
- * const { form, layout, fields } = createSchemaForm(
- *   z.object({
- *     email: z.string().email(),
- *     age: z.number().min(18),
- *   }),
- * );
- * ```
+ * Projects one explicitly selected schema side and validates either an authored
+ * definition or a deterministic generated definition. It does not render.
  */
-export function createSchemaForm(schema: unknown, options?: CreateSchemaFormOptions): SchemaFormResult {
-	const rawResult = ingestSchema(schema);
-	const prepared = prepareSchemaOptions(applyFormbarMetadata(rawResult), schema, options?.resolveOptionTitle);
-	const result = prepared.result;
-	let layout = options?.layoutOverride ?? compileLayout(result);
+export function createSchemaForm<TData = unknown, TUi = unknown>(
+	schema: unknown,
+	options: CreateSchemaFormOptions<TData, TUi>,
+): SchemaFormResult<TData, TUi> {
+	if (options.definition && options.generation) {
+		throw new TypeError("definition and generation are mutually exclusive.");
+	}
+	const projected = projectSchema(schema, {
+		provider: options.provider,
+		side: options.side,
+		...(options.limits ? { limits: options.limits } : {}),
+		...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
+	});
+	const prepared = options.definition
+		? validateAuthoredDefinition(options.definition)
+		: compileDefaultFormDefinition(projected.descriptors, options.generation);
+	if (!prepared.definition) throw new InvalidFormDefinitionError(prepared.definitionDiagnostics);
+	return Object.freeze({
+		descriptors: projected.descriptors,
+		definition: prepared.definition,
+		...(projected.validator ? { sourceValidator: projected.validator } : {}),
+		validators: Object.freeze([...(options.validators ?? [])]),
+		diagnostics: Object.freeze({
+			source: projected.descriptors.sourceDiagnostics,
+			projection: projected.descriptors.projectionDiagnostics,
+			compilation: prepared.diagnostics,
+			definition: prepared.definitionDiagnostics,
+		}),
+	});
+}
 
-	if (options?.layoutMiddleware?.length) {
-		const fieldInfoMap = new Map<string, SchemaFieldInfo>(result.fields.map((f: SchemaFieldInfo) => [f.path, f]));
-		layout = applyLayoutMiddleware(layout, options.layoutMiddleware, fieldInfoMap);
-	}
+function validateAuthoredDefinition(definition: FormDefinition) {
+	const validation = validateFormDefinition(definition);
+	return validation.ok
+		? { definition: validation.value, diagnostics: Object.freeze([]), definitionDiagnostics: Object.freeze([]) }
+		: { definition: undefined, diagnostics: Object.freeze([]), definitionDiagnostics: validation.diagnostics };
+}
 
-	const validators: ValidatorFn[] = [];
-	if (isStandardSchemaLike(schema)) {
-		validators.push(createStandardSchemaValidator(schema));
-	} else if (isJsonSchema(schema)) {
-		validators.push(createJsonSchemaValidator(schema as JsonSchema));
+export class InvalidFormDefinitionError extends TypeError {
+	readonly diagnostics: readonly DefinitionDiagnostic[];
+
+	constructor(diagnostics: readonly DefinitionDiagnostic[]) {
+		super("Form definition validation failed.");
+		this.name = "InvalidFormDefinitionError";
+		this.diagnostics = diagnostics;
 	}
-	if (options?.validators) {
-		validators.push(...options.validators);
-	}
-	const defaults: Record<string, unknown> = {};
-	for (const f of result.fields) {
-		if (f.defaultValue !== undefined) {
-			defaults[f.path] = f.defaultValue;
-		}
-	}
-	return {
-		fields: result.fields,
-		metadata: result.metadata,
-		layout,
-		validators,
-		defaults,
-		optionsByPath: prepared.optionsByPath,
-		warnings: prepared.warnings,
-	};
 }
