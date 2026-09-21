@@ -84,4 +84,19 @@ describe("default FormDefinition compilation", () => {
 			props: { placeholder: { mode: "literal", value: "Write" } },
 		});
 	});
+
+	it("maps object title and description to a titled section", () => {
+		const result = compile({
+			type: "object",
+			title: "Contact",
+			description: "How we can reach you",
+			properties: { email: { type: "string" } },
+		});
+		expect(result.definition?.root).toMatchObject({
+			type: "section",
+			title: "Contact",
+			description: "How we can reach you",
+			children: [expect.objectContaining({ type: "field", widget: "text" })],
+		});
+	});
 });

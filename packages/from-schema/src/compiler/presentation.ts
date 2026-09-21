@@ -8,6 +8,11 @@ export interface CompiledPresentation {
 	readonly props?: FieldNode["props"];
 }
 
+export interface CompiledContainerPresentation {
+	readonly title?: string;
+	readonly description?: string;
+}
+
 export function presentationFor(node: DescriptorNode, provider: string): CompiledPresentation {
 	const annotations = childRecord(node.metadata, "annotations");
 	const extensionKey = provider === "json-schema" || provider === "standard-json-schema" ? "x-formbar" : "formbar";
@@ -35,11 +40,21 @@ export function presentationFor(node: DescriptorNode, provider: string): Compile
 	});
 }
 
+export function containerPresentationFor(node: DescriptorNode): CompiledContainerPresentation {
+	const annotations = childRecord(node.metadata, "annotations");
+	const title = typeof annotations?.title === "string" ? annotations.title : undefined;
+	const description = typeof annotations?.description === "string" ? annotations.description : undefined;
+	return Object.freeze({
+		...(title === undefined ? {} : { title }),
+		...(description === undefined ? {} : { description }),
+	});
+}
+
 function defaultWidget(node: DescriptorNode): string {
 	if (node.kind === "enum" || node.kind === "literal") return "select";
 	if (node.kind !== "primitive") return "unsupported";
 	if (node.type === "boolean") return "checkbox";
-	if (node.type === "number" || node.type === "integer" || node.type === "bigint") return "number";
+	if (node.type === "number" || node.type === "integer") return "number";
 	if (node.type === "date") return "date";
 	return "text";
 }

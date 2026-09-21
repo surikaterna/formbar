@@ -25,7 +25,7 @@ interface MutableOccurrence {
 export interface OccurrenceProjection {
 	readonly rootOccurrenceId: string;
 	readonly occurrences: Readonly<Record<string, DescriptorOccurrence>>;
-	readonly definitionOccurrenceIds: readonly (string | undefined)[];
+	readonly definitionOccurrenceIds: readonly string[];
 	readonly diagnostics: readonly ProjectionDiagnostic[];
 }
 
@@ -39,8 +39,16 @@ export function projectOccurrences(
 	const root = expand(state, rootNodeId, [], "root", undefined, undefined, [], 0);
 	const definitionOccurrenceIds = definitionNodeIds.map((nodeId, index) => {
 		if (index >= limits.maxDefinitionExpansions) {
-			state.diagnostics.push(diagnostic("definition-limit", nodeId, "Definition occurrence expansion limit reached."));
-			return undefined;
+			return createLimitOccurrence(
+				state,
+				nodeId,
+				[],
+				"root",
+				index,
+				undefined,
+				"definition-limit",
+				"Definition occurrence expansion limit reached.",
+			);
 		}
 		return expand(state, nodeId, [], "root", index, undefined, [], 0);
 	});
@@ -58,11 +66,12 @@ interface ProjectionState {
 	readonly occurrences: Record<string, MutableOccurrence>;
 	readonly seen: Map<string, number>;
 	readonly diagnostics: ProjectionDiagnostic[];
-	next: number;
+	nextId: number;
+	expanded: number;
 }
 
 function createState(nodes: Readonly<Record<string, DescriptorNode>>, limits: ProjectionLimits): ProjectionState {
-	return { nodes, limits, occurrences: {}, seen: new Map(), diagnostics: [], next: 0 };
+	return { nodes, limits, occurrences: {}, seen: new Map(), diagnostics: [], nextId: 0, expanded: 0 };
 }
 
 function expand(
@@ -74,12 +83,20 @@ function expand(
 	presence: "required" | "optional" | "unknown" | undefined,
 	ancestors: readonly string[],
 	depth: number,
-): string | undefined {
-	if (state.next >= state.limits.maxOccurrences) {
-		state.diagnostics.push(diagnostic("occurrence-limit", nodeId, "Occurrence expansion limit reached."));
-		return undefined;
-	}
+): string {
+	if (state.expanded >= state.limits.maxOccurrences)
+		return createLimitOccurrence(
+			state,
+			nodeId,
+			path,
+			relation,
+			key,
+			presence,
+			"occurrence-limit",
+			"Occurrence expansion limit reached.",
+		);
 	const occurrence = createOccurrence(state, nodeId, path, relation, key, presence);
+	state.expanded += 1;
 	const node = state.nodes[nodeId];
 	if (!node) return stop(state, occurrence, "missing", "missing-node", "Descriptor node is missing.");
 	if (ancestors.includes(nodeId))
@@ -114,7 +131,7 @@ function createOccurrence(
 	const count = state.seen.get(nodeId) ?? 0;
 	state.seen.set(nodeId, count + 1);
 	const occurrence: MutableOccurrence = {
-		id: `occ-${String(state.next++).padStart(6, "0")}`,
+		id: `occ-${String(state.nextId++).padStart(6, "0")}`,
 		nodeId,
 		path: Object.freeze([...path]),
 		relation,
@@ -126,6 +143,20 @@ function createOccurrence(
 	};
 	state.occurrences[occurrence.id] = occurrence;
 	return occurrence;
+}
+
+function createLimitOccurrence(
+	state: ProjectionState,
+	nodeId: string,
+	path: readonly OccurrencePathSegment[],
+	relation: OccurrenceRelation,
+	key: string | number | undefined,
+	presence: "required" | "optional" | "unknown" | undefined,
+	code: "occurrence-limit" | "definition-limit",
+	message: string,
+): string {
+	const occurrence = createOccurrence(state, nodeId, path, relation, key, presence);
+	return stop(state, occurrence, "limit", code, message);
 }
 
 function stop(

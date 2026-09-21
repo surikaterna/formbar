@@ -3,7 +3,7 @@ import type { DescriptorDocument, DescriptorNode, DescriptorOccurrence } from ".
 import type { CompilationDiagnostic } from "../diagnostics.js";
 import { type BindingContext, binding, childBinding, repeaterItemBinding } from "./bindings.js";
 import { nodeId, scopeId } from "./ids.js";
-import { presentationFor } from "./presentation.js";
+import { containerPresentationFor, presentationFor } from "./presentation.js";
 
 export interface CompilationContext {
 	readonly document: DescriptorDocument;
@@ -18,6 +18,17 @@ export function compileOccurrence(
 	const occurrence = context.document.occurrences[occurrenceId];
 	if (!occurrence) return missingNode(context, occurrenceId, bindingContext);
 	const node = context.document.nodes[occurrence.nodeId];
+	const stopped = stoppedOccurrence(context, occurrence, node, bindingContext);
+	if (stopped) return stopped;
+	return compileNode(context, occurrence, node as DescriptorNode, bindingContext);
+}
+
+function stoppedOccurrence(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	node: DescriptorNode | undefined,
+	bindingContext: BindingContext,
+): FormNode | undefined {
 	if (!node)
 		return fallbackNode(context, occurrence, bindingContext, "missing-descriptor", "Descriptor node is missing.");
 	if (occurrence.expansion === "cycle")
@@ -36,12 +47,22 @@ export function compileOccurrence(
 			"unsupported-schema",
 			`Occurrence expansion is ${occurrence.expansion}.`,
 		);
+	return undefined;
+}
+
+function compileNode(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	node: DescriptorNode,
+	bindingContext: BindingContext,
+): FormNode {
 	if (hasApplicators(node) && node.kind !== "object")
-		addDiagnostic(
+		return fallbackNode(
 			context,
 			occurrence,
+			bindingContext,
 			"unsupported-schema",
-			"Applicator evidence was retained but not compiled into presentation intent.",
+			"Applicator evidence requires authored presentation.",
 		);
 	if (node.kind === "object") return compileObject(context, occurrence, node, bindingContext);
 	if (node.kind === "array") return compileArray(context, occurrence, node, bindingContext);
@@ -63,13 +84,13 @@ export function compileOccurrence(
 			"opaque-schema",
 			`${node.kind} schema evidence cannot select a widget.`,
 		);
-	if (node.kind === "record" || node.kind === "unconstrained" || node.kind === "never")
+	if (node.kind === "record" || node.kind === "unconstrained" || node.kind === "never" || unsupportedPrimitive(node))
 		return fallbackNode(
 			context,
 			occurrence,
 			bindingContext,
 			"unsupported-schema",
-			`${node.kind} schema evidence requires authored presentation.`,
+			`${node.kind === "primitive" ? node.type : node.kind} schema evidence requires authored presentation.`,
 		);
 	return fieldNode(context, occurrence, node, bindingContext);
 }
@@ -86,6 +107,7 @@ function compileObject(
 	const children = propertyChildren.map((child) =>
 		compileOccurrence(context, child.id, childBinding(bindingContext, child.key as string)),
 	);
+	children.push(...unsupportedApplicatorChildren(context, occurrence, bindingContext));
 	if (node.additionalProperties || hasApplicators(node))
 		addDiagnostic(
 			context,
@@ -93,6 +115,16 @@ function compileObject(
 			"unsupported-schema",
 			"Object applicator or dynamic-property evidence was retained but not compiled into controls.",
 		);
+	const presentation = containerPresentationFor(node);
+	if (presentation.title !== undefined || presentation.description !== undefined) {
+		return Object.freeze({
+			id: nodeId(occurrence.id, "section"),
+			type: "section",
+			...(presentation.title === undefined ? {} : { title: presentation.title }),
+			...(presentation.description === undefined ? {} : { description: presentation.description }),
+			children: Object.freeze(children),
+		});
+	}
 	return Object.freeze({ id: nodeId(occurrence.id, "group"), type: "group", children: Object.freeze(children) });
 }
 
@@ -136,6 +168,13 @@ function compileTuple(
 		.map((id) => context.document.occurrences[id])
 		.filter((child): child is DescriptorOccurrence => child?.relation === "tuple-item" && typeof child.key === "number")
 		.map((child) => compileOccurrence(context, child.id, childBinding(bindingContext, child.key as number)));
+	const rest = occurrence.children
+		.map((id) => context.document.occurrences[id])
+		.find((child) => child?.relation === "tuple-rest");
+	if (rest)
+		children.push(
+			fallbackNode(context, rest, bindingContext, "unsupported-schema", "Tuple rest requires authored presentation."),
+		);
 	addDiagnostic(
 		context,
 		occurrence,
@@ -223,4 +262,28 @@ function hasApplicators(node: DescriptorNode): boolean {
 	if (!value) return false;
 	if (value.if || value.then || value.else || value.not || value.contains || value.propertyNames) return true;
 	return Object.keys(value.patternProperties ?? {}).length > 0 || Object.keys(value.dependentSchemas ?? {}).length > 0;
+}
+
+function unsupportedApplicatorChildren(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	bindingContext: BindingContext,
+): FormNode[] {
+	return occurrence.children
+		.map((id) => context.document.occurrences[id])
+		.filter((child): child is DescriptorOccurrence => child?.relation === "applicator")
+		.map((child) =>
+			fallbackNode(
+				context,
+				child,
+				bindingContext,
+				"unsupported-schema",
+				"Applicator branch requires authored presentation.",
+			),
+		);
+}
+
+function unsupportedPrimitive(node: DescriptorNode): boolean {
+	if (node.kind !== "primitive") return false;
+	return !["string", "number", "integer", "boolean", "date"].includes(node.type);
 }

@@ -27,7 +27,7 @@ console.log(prepared.definition); // already passed validateFormDefinition
 
 `DescriptorDocument` has a node table that preserves graph identity and a separate occurrence table that preserves path-bound uses. References, sharing, cycles, wrappers, ordered unions/intersections, tuples, records, applicators, definitions, boolean schemas, unknown/opaque/unavailable evidence, capabilities, raw metadata/constraints, and source diagnostics remain observable. Unsupported presentation choices become explicit fallback nodes and diagnostics rather than disappearing.
 
-Raw owned metadata and constraints are preserved. Normalized evidence is limited to unambiguous primitive, literal, enum, default annotation/wrapper, numeric/string/array bounds, pattern, and format values. `const` is a literal, not a default. Factories are never run to manufacture defaults.
+Raw owned metadata and constraints are preserved. Equivalent supported JSON Schema and passive Zod checks normalize to the same unambiguous primitive, integer, literal, enum, numeric/string/array bound, pattern, and format evidence. Concrete default annotations/wrappers may normalize, but deferred factory sentinels never become values. `const` is a literal, not a default, and factories are never run.
 
 Formbar presentation metadata is read only from exact provider locations: JSON/Standard JSON `metadata.extensions["x-formbar"]` and Zod `metadata.extensions.formbar`. There is no deep alias lookup or metadata merge.
 

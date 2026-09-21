@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jsonSchemaProvider, projectSchema } from "../index.js";
+import { compileDefaultFormDefinition, jsonSchemaProvider, projectSchema } from "../index.js";
 
 describe("descriptor document projection", () => {
 	it("retains recursive references, sharing, definitions, metadata, and selected-side provenance", () => {
@@ -90,11 +90,40 @@ describe("descriptor document projection", () => {
 		const first = projectSchema(schema, options).descriptors;
 		const second = projectSchema(schema, options).descriptors;
 		expect(first).toEqual(second);
-		expect(Object.keys(first.occurrences)).toHaveLength(1);
+		expect(Object.keys(first.occurrences)).toHaveLength(4);
+		expect(Object.values(first.occurrences).filter((item) => item.relation === "property")).toEqual([
+			expect.objectContaining({ key: "first", expansion: "limit" }),
+			expect.objectContaining({ key: "second", expansion: "limit" }),
+		]);
 		expect(first.projectionDiagnostics.map((item) => item.code)).toEqual([
 			"occurrence-limit",
 			"occurrence-limit",
 			"occurrence-limit",
+		]);
+		const compiled = compileDefaultFormDefinition(first);
+		expect(compiled.definition?.root).toMatchObject({
+			type: "group",
+			children: [
+				expect.objectContaining({ type: "field", widget: "unsupported" }),
+				expect.objectContaining({ type: "field", widget: "unsupported" }),
+			],
+		});
+	});
+
+	it("creates explicit deterministic fallback occurrences when definition expansion is exhausted", () => {
+		const descriptors = projectSchema(
+			{ $defs: { first: { type: "string" }, second: { type: "number" } }, type: "null" },
+			{
+				provider: jsonSchemaProvider(),
+				side: "input",
+				projectionLimits: { maxDefinitionExpansions: 1 },
+			},
+		).descriptors;
+		expect(descriptors.definitions).toHaveLength(2);
+		const fallback = descriptors.occurrences[descriptors.definitions[1].occurrenceId as string];
+		expect(fallback).toMatchObject({ expansion: "limit", relation: "root", key: 1 });
+		expect(descriptors.projectionDiagnostics).toEqual([
+			expect.objectContaining({ code: "definition-limit", occurrenceId: fallback.id }),
 		]);
 	});
 

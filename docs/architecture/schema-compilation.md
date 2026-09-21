@@ -16,17 +16,17 @@ The selected `input` or `output` root is mandatory. Projection traverses only th
 
 ## Limits
 
-Scheman's `maxDepth`, `maxNodes`, `maxDefinitions`, `maxDiagnostics`, `maxEdges`, and metadata budgets are forwarded unchanged. Formbar adds positive bounded occurrence budgets: `maxOccurrences` (default 20,000), `maxOccurrenceDepth` (128), and `maxDefinitionExpansions` (2,000). Limit and cycle stops remain explicit occurrences/diagnostics; projection does not silently drop a selected branch.
+Scheman's `maxDepth`, `maxNodes`, `maxDefinitions`, `maxDiagnostics`, `maxEdges`, and metadata budgets are forwarded unchanged. Formbar adds positive bounded expansion budgets: `maxOccurrences` (default 20,000), `maxOccurrenceDepth` (128), and `maxDefinitionExpansions` (2,000). Every selected edge at an exhausted frontier receives a non-expanded fallback occurrence and diagnostic; fallback count remains bounded by Scheman's edge budget. Definition exhaustion is represented the same way. No selected branch silently disappears.
 
 ## Metadata and evidence
 
-Scheman's owned raw `metadata` and `constraints` values are retained exactly. Normalization is passive and narrow: primitive kind, local presence, literals/enums, default annotations or default wrappers, bounds, pattern, and format. Factories are never executed. `const` remains literal evidence, never default evidence.
+Scheman's owned raw `metadata` and `constraints` values are retained exactly. Normalization is passive, provider-neutral, and narrow: primitive/integer kind, local presence, literals/enums, concrete defaults, bounds, pattern, and format. Equivalent supported JSON Schema and Zod checks produce equivalent evidence. Deferred factory markers are not defaults and factories are never executed. `const` remains literal evidence, never default evidence.
 
 Formbar metadata has exact locations only: JSON and Standard JSON use `extensions["x-formbar"]`; Zod uses `extensions.formbar`. Compiler presentation allowlisting recognizes only supported scalar widget, label, placeholder, and span values. It performs no deep aliases, cross-side/branch merge, or arbitrary UI metadata interpretation.
 
 ## Default definitions and repeater scopes
 
-Compilation is deterministic. IDs derive from provider/side and occurrence IDs. Object properties become structured data bindings. Arrays become repeaters with lexical scopes; primitive items bind to an empty path in that scope, object properties bind relative segments, and nested arrays introduce a new nested scope. Generated definitions pass the public `validateFormDefinition` API.
+Compilation is deterministic. IDs derive from provider/side and occurrence IDs. Titled/described objects become sections; other objects become groups. Object properties become structured data bindings. Arrays become repeaters with lexical scopes; primitive items bind to an empty path in that scope, object properties bind relative segments, and nested arrays introduce a new nested scope. Unsupported primitives and constructs produce diagnosed `unsupported` fallback fields. Generated definitions pass the public `validateFormDefinition` API.
 
 Composed options remain descriptor evidence. The default compiler emits an explicit unsupported field and compilation diagnostic rather than selecting a union/intersection branch; #49 owns future composed presentation semantics.
 
