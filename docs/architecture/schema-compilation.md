@@ -20,9 +20,9 @@ Scheman's `maxDepth`, `maxNodes`, `maxDefinitions`, `maxDiagnostics`, `maxEdges`
 
 ## Metadata and evidence
 
-Scheman's owned raw `metadata` and `constraints` values are retained exactly. Normalization is passive, provider-neutral, and narrow: primitive/integer kind, local presence, literals/enums, concrete defaults, bounds, pattern, and format. Equivalent supported JSON Schema and Zod checks produce equivalent evidence. Deferred factory markers are not defaults and factories are never executed. `const` remains literal evidence, never default evidence.
+Scheman's owned raw `metadata` and `constraints` values are retained exactly. Normalization is passive, provider-neutral, and narrow: primitive/integer kind, local presence, literals/enums, concrete defaults, effective bounds, pattern, and format. Exact lengths become equal minimum/maximum evidence, while repeated inclusive/exclusive bounds reduce to their restrictive intersection. Equivalent supported JSON Schema and Zod checks produce equivalent evidence. Deferred factory markers are not defaults and factories are never executed. `const` remains literal evidence, never default evidence.
 
-Formbar metadata has exact locations only: JSON and Standard JSON use `extensions["x-formbar"]`; Zod uses `extensions.formbar`. Compiler presentation allowlisting recognizes only supported scalar widget, label, placeholder, and span values. It performs no deep aliases, cross-side/branch merge, or arbitrary UI metadata interpretation.
+Formbar metadata has exact locations only: JSON and Standard JSON use `extensions["x-formbar"]`; Zod uses `extensions.formbar`. Container title/description annotations use JSON/Standard JSON and Zod 4 `metadata.annotations`, while Zod 3 descriptions use `metadata.description`. Compiler presentation allowlisting performs no deep aliases, cross-side/branch merge, or arbitrary UI metadata interpretation.
 
 ## Default definitions and repeater scopes
 

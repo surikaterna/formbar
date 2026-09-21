@@ -40,8 +40,8 @@ export function presentationFor(node: DescriptorNode, provider: string): Compile
 	});
 }
 
-export function containerPresentationFor(node: DescriptorNode): CompiledContainerPresentation {
-	const annotations = childRecord(node.metadata, "annotations");
+export function containerPresentationFor(node: DescriptorNode, provider: string): CompiledContainerPresentation {
+	const annotations = provider === "zod3" ? record(node.metadata) : childRecord(node.metadata, "annotations");
 	const title = typeof annotations?.title === "string" ? annotations.title : undefined;
 	const description = typeof annotations?.description === "string" ? annotations.description : undefined;
 	return Object.freeze({
@@ -60,20 +60,22 @@ function defaultWidget(node: DescriptorNode): string {
 }
 
 function childRecord(value: unknown, key: string): DescriptorValueRecord | undefined {
-	if (!isRecord(value)) return undefined;
-	const child = value[key];
-	return isRecord(child) ? child : undefined;
+	const child = record(value)?.[key];
+	return record(child);
 }
 
-function isRecord(value: unknown): value is DescriptorValueRecord {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function record(value: unknown): DescriptorValueRecord | undefined {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as DescriptorValueRecord)
+		: undefined;
 }
 
 function validSpan(value: unknown): value is NodePresentation["span"] {
 	if (value === "auto" || value === "full") return true;
 	if (typeof value === "number") return Number.isInteger(value) && value >= 1 && value <= 12;
-	if (!isRecord(value)) return false;
-	return Object.entries(value).every(
+	const values = record(value);
+	if (!values) return false;
+	return Object.entries(values).every(
 		([key, span]) =>
 			["base", "sm", "md", "lg", "xl"].includes(key) &&
 			(span === "auto" ||

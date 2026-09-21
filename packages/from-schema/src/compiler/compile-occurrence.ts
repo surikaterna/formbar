@@ -115,7 +115,7 @@ function compileObject(
 			"unsupported-schema",
 			"Object applicator or dynamic-property evidence was retained but not compiled into controls.",
 		);
-	const presentation = containerPresentationFor(node);
+	const presentation = containerPresentationFor(node, context.document.source.provider);
 	if (presentation.title !== undefined || presentation.description !== undefined) {
 		return Object.freeze({
 			id: nodeId(occurrence.id, "section"),

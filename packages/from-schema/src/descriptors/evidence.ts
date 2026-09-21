@@ -48,8 +48,9 @@ function collectZodConstraints(
 	output: CandidateMap,
 ): void {
 	if (node.kind === "array") {
-		addNumber(output, "minItems", record(source?.minLength)?.value);
-		addNumber(output, "maxItems", record(source?.maxLength)?.value);
+		addNumber(output, "minItems", constraintValue(source?.minLength));
+		addNumber(output, "maxItems", constraintValue(source?.maxLength));
+		addExactLength(node, output, constraintValue(source?.exactLength));
 	}
 	const checks = Array.isArray(source?.checks) ? source.checks : [];
 	for (const value of checks) {
@@ -61,7 +62,11 @@ function collectZodConstraints(
 function collectZodCheck(node: DescriptorNode, check: DescriptorValueRecord, output: CandidateMap): void {
 	const kind = typeof check.kind === "string" ? check.kind : check.check;
 	if (kind === "min" || kind === "max") collectZod3Bound(node, check, output, kind);
-	if (kind === "min_length" || kind === "max_length") collectLength(node, check, output, kind);
+	if (kind === "min_length" || kind === "min_size") addLengthBound(node, output, true, check.minimum);
+	if (kind === "max_length" || kind === "max_size") addLengthBound(node, output, false, check.maximum);
+	if (kind === "length") addExactLength(node, output, check.value);
+	if (kind === "length_equals") addExactLength(node, output, check.length);
+	if (kind === "size_equals") addExactLength(node, output, check.size);
 	if (kind === "greater_than" || kind === "less_than") collectZod4Bound(check, output, kind);
 	if (kind === "regex") addPattern(output, check.regex);
 	if (kind === "string_format") collectStringFormat(check, output);
@@ -86,15 +91,24 @@ function collectZod3Bound(
 	addNumber(output, boundKey(kind, exclusive), check.value);
 }
 
-function collectLength(
+function addLengthBound(
 	node: DescriptorNode,
-	check: DescriptorValueRecord,
 	output: CandidateMap,
-	kind: "min_length" | "max_length",
+	minimum: boolean,
+	value: DescriptorValue | undefined,
 ): void {
-	const minimum = kind === "min_length";
-	const key = node.kind === "array" ? (minimum ? "minItems" : "maxItems") : minimum ? "minLength" : "maxLength";
-	addNumber(output, key, minimum ? check.minimum : check.maximum);
+	if (node.kind === "array") {
+		addNumber(output, minimum ? "minItems" : "maxItems", value);
+		return;
+	}
+	if (node.kind === "primitive" && node.type === "string") {
+		addNumber(output, minimum ? "minLength" : "maxLength", value);
+	}
+}
+
+function addExactLength(node: DescriptorNode, output: CandidateMap, value: DescriptorValue | undefined): void {
+	addLengthBound(node, output, true, value);
+	addLengthBound(node, output, false, value);
 }
 
 function collectZod4Bound(
@@ -164,9 +178,34 @@ function addString(output: CandidateMap, key: EvidenceKey, value: DescriptorValu
 function unambiguousCandidates(input: CandidateMap): Partial<NormalizedEvidence> {
 	const output: Record<string, number | string> = {};
 	for (const [key, values] of Object.entries(input)) {
-		if (values && values.length > 0 && values.every((value) => value === values[0])) output[key] = values[0];
+		if (!values || values.length === 0) continue;
+		if (values.every((value): value is number => typeof value === "number")) {
+			output[key] = restrictiveBound(key as EvidenceKey, values);
+		} else if (values.every((value) => value === values[0])) output[key] = values[0];
 	}
+	collapseNumericBound(output, "minimum", "exclusiveMinimum", true);
+	collapseNumericBound(output, "maximum", "exclusiveMaximum", false);
 	return output;
+}
+
+function restrictiveBound(key: EvidenceKey, values: readonly number[]): number {
+	let selected = values[0];
+	for (const value of values.slice(1))
+		selected = UPPER_BOUND_KEYS.has(key) ? Math.min(selected, value) : Math.max(selected, value);
+	return selected;
+}
+
+function collapseNumericBound(
+	output: Record<string, number | string>,
+	inclusiveKey: "minimum" | "maximum",
+	exclusiveKey: "exclusiveMinimum" | "exclusiveMaximum",
+	lower: boolean,
+): void {
+	const inclusive = output[inclusiveKey];
+	const exclusive = output[exclusiveKey];
+	if (typeof inclusive !== "number" || typeof exclusive !== "number") return;
+	const exclusiveWins = lower ? exclusive >= inclusive : exclusive <= inclusive;
+	delete output[exclusiveWins ? inclusiveKey : exclusiveKey];
 }
 
 function boundKey(kind: "min" | "max", exclusive: boolean): EvidenceKey {
@@ -178,6 +217,10 @@ function childRecord(value: unknown, key: string): DescriptorValueRecord | undef
 	return record(record(value)?.[key]);
 }
 
+function constraintValue(value: DescriptorValue | undefined): DescriptorValue | undefined {
+	return typeof value === "number" ? value : record(value)?.value;
+}
+
 function record(value: unknown): DescriptorValueRecord | undefined {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
 		? (value as DescriptorValueRecord)
@@ -185,3 +228,4 @@ function record(value: unknown): DescriptorValueRecord | undefined {
 }
 
 const FORMAT_KINDS = new Set(["email", "url", "uuid", "cuid", "datetime", "date", "time", "duration", "ip", "emoji"]);
+const UPPER_BOUND_KEYS = new Set<EvidenceKey>(["maximum", "exclusiveMaximum", "maxLength", "maxItems"]);

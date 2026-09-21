@@ -1,14 +1,22 @@
 import type { FormNode } from "@formbar/declarative";
 import { validateFormDefinition } from "@formbar/declarative";
 import { describe, expect, it } from "vitest";
-import { compileDefaultFormDefinition, jsonSchemaProvider, projectSchema } from "../index.js";
+import { z as z3 } from "zod3-current";
+import { z as z4 } from "zod4-current";
+import {
+	compileDefaultFormDefinition,
+	jsonSchemaProvider,
+	projectSchema,
+	zod3Provider,
+	zod4Provider,
+} from "../index.js";
 
-function compile(schema: unknown) {
-	const { descriptors } = projectSchema(schema, { provider: jsonSchemaProvider(), side: "input" });
+function compile(schema: unknown, provider: Parameters<typeof projectSchema>[1]["provider"] = jsonSchemaProvider()) {
+	const { descriptors } = projectSchema(schema, { provider, side: "input" });
 	const result = compileDefaultFormDefinition(descriptors);
 	if (!result.definition) throw new Error(JSON.stringify(result.definitionDiagnostics));
 	expect(validateFormDefinition(result.definition).ok).toBe(true);
-	return result;
+	return { ...result, descriptors };
 }
 
 function nodes(root: FormNode): FormNode[] {
@@ -99,4 +107,39 @@ describe("default FormDefinition compilation", () => {
 			children: [expect.objectContaining({ type: "field", widget: "text" })],
 		});
 	});
+
+	it("compiles descriptions from exact JSON, Zod 3, and Zod 4 metadata locations", () => {
+		const json = compile({ type: "object", description: "Person section", properties: { name: { type: "string" } } });
+		const zod3 = compile(
+			z3.object({ name: z3.string() }).describe("Person section"),
+			zod3Provider({ execution: { shape: "allow", metadata: "allow" } }),
+		);
+		const zod4Schema = z4.object({ name: z4.string() }).describe("Person section");
+		expect(zod4Schema.meta()).toMatchObject({ description: "Person section" });
+		const zod4 = compile(zod4Schema, zod4Provider({ execution: { shape: "allow", metadata: "allow" } }));
+		expect(json.definition?.root).toMatchObject({ type: "section", description: "Person section" });
+		expect(zod3.definition?.root).toMatchObject({ type: "section", description: "Person section" });
+		expect(zod4.definition?.root).toMatchObject({ type: "section", description: "Person section" });
+		expect(rootMetadata(json.descriptors)).toMatchObject({ annotations: { description: "Person section" } });
+		expect(rootMetadata(zod3.descriptors)).toMatchObject({ description: "Person section" });
+		expect(rootMetadata(zod4.descriptors)).toMatchObject({ annotations: { description: "Person section" } });
+	});
+
+	it("compiles trusted Zod 4 title and description annotations without aliases", () => {
+		const schema = z4.object({ name: z4.string() }).meta({ title: "Person", description: "Person section" });
+		expect(schema.meta()).toMatchObject({ title: "Person", description: "Person section" });
+		const result = compile(schema, zod4Provider({ execution: { shape: "allow", metadata: "allow" } }));
+		expect(result.definition?.root).toMatchObject({
+			type: "section",
+			title: "Person",
+			description: "Person section",
+		});
+		expect(rootMetadata(result.descriptors)).toMatchObject({
+			annotations: { title: "Person", description: "Person section" },
+		});
+	});
 });
+
+function rootMetadata(document: ReturnType<typeof projectSchema>["descriptors"]) {
+	return document.nodes[document.occurrences[document.rootOccurrenceId].nodeId].metadata;
+}
