@@ -25,7 +25,7 @@ export interface CreateFieldApiParams<TData, TUi> {
 	readonly getIssues: (path: CanonicalPath) => readonly ValidationIssue[];
 	readonly getInitialValue: () => unknown;
 	readonly getFieldMeta: (pathKey: string) => FieldMetaEntry | undefined;
-	readonly markTouched: (pathKey: string) => void;
+	readonly markTouched: (pathKey: string, path: CanonicalPath) => void;
 	readonly getFormSubmitted: () => boolean;
 	readonly updateFieldMeta: (updater: (meta: Record<string, FieldMetaEntry>) => Record<string, FieldMetaEntry>) => void;
 	/** Form-level field defaults (tier 2) */
@@ -53,111 +53,89 @@ function stripUndefined(obj: FieldConfig): Partial<FieldConfig> {
 	return result as Partial<FieldConfig>;
 }
 
-/**
- * Creates a {@link FieldApi} bound to a specific path within the form state.
- * Provides get/set, validation, touch tracking, and array helpers.
- *
- * @param params - Field creation parameters including store, path, and config.
- * @returns A field API with typed access to the value at the given path.
- *
- * @example
- * ```typescript
- * const field = form.field("email");
- * field.set("alice@example.com");
- * field.markTouched();
- * console.log(field.issues()); // []
- * ```
- */
+class FieldApiImplementation<TData, TUi> implements FieldApi<TData, TUi, string> {
+	readonly path: CanonicalPath;
+	readonly pathKey: string;
+
+	constructor(private readonly params: CreateFieldApiParams<TData, TUi>) {
+		this.path = params.path;
+		this.pathKey =
+			params.path.namespace === "data"
+				? fieldMetaKey(normalizeDataPath({ namespace: "data", segments: params.path.segments }))
+				: params.rawPath;
+	}
+
+	get(): DeepValue<TData, string> {
+		const state = this.params.getState();
+		const root = this.path.namespace === "ui" ? state.uiState : state.data;
+		return resolveValue(root, this.path.segments) as DeepValue<TData, string>;
+	}
+
+	set(value: DeepValue<TData, string>): FormDispatchResult {
+		return this.params.setValue(this.params.rawPath, value);
+	}
+
+	validate(): readonly ValidationIssue[] {
+		const config = mergeFieldConfig(this.params.formDefaults, this.params.config);
+		if (!config?.validators?.length) return [];
+		const state = this.params.getState();
+		const issues: ValidationIssue[] = [];
+		for (const validator of config.validators) {
+			const input = {
+				data: state.data,
+				uiState: state.uiState,
+				...(state.meta.stage !== undefined ? { stage: state.meta.stage } : {}),
+			};
+			const result = validator(input);
+			if (Array.isArray(result)) issues.push(...result);
+		}
+		return issues;
+	}
+
+	issues(): readonly ValidationIssue[] {
+		const context = {
+			fieldMeta: this.params.getFieldMeta(this.pathKey),
+			formSubmitted: this.params.getFormSubmitted(),
+		};
+		return shouldShowIssues(this.params.config?.validationTriggers, context) ? this.params.getIssues(this.path) : [];
+	}
+
+	ui<T = unknown>(selector: (uiState: TUi) => T): T {
+		return selector(this.params.getState().uiState);
+	}
+
+	isTouched(): boolean {
+		return this.params.getFieldMeta(this.pathKey)?.touched ?? false;
+	}
+
+	isDirty(): boolean {
+		return !structuredEqual(this.get(), this.params.getInitialValue());
+	}
+
+	isValidating(): boolean {
+		return this.params.getFieldMeta(this.pathKey)?.isValidating ?? false;
+	}
+
+	markTouched(): void {
+		this.params.markTouched(this.pathKey, this.path);
+	}
+
+	handleChange(value: DeepValue<TData, string>): FormDispatchResult {
+		return this.set(value);
+	}
+
+	handleBlur(): void {
+		this.markTouched();
+	}
+}
+
 export function createFieldApi<TData, TUi>(params: CreateFieldApiParams<TData, TUi>): FieldApi<TData, TUi, string> {
-	const pathKey =
-		params.path.namespace === "data"
-			? fieldMetaKey(normalizeDataPath({ namespace: "data", segments: params.path.segments }))
-			: params.rawPath;
-
-	const fieldApi: FieldApi<TData, TUi, string> = {
-		path: params.path,
-
-		// Justified: resolveValue walks the actual data structure; cast bridges runtime to static type
-		get(): DeepValue<TData, string> {
-			const state = params.getState();
-			const root = params.path.namespace === "ui" ? state.uiState : state.data;
-			return resolveValue(root, params.path.segments) as DeepValue<TData, string>;
-		},
-
-		set(value: DeepValue<TData, string>): FormDispatchResult {
-			return params.setValue(params.rawPath, value);
-		},
-
-		validate(): readonly ValidationIssue[] {
-			const mergedConfig = mergeFieldConfig(params.formDefaults, params.config);
-			if (!mergedConfig?.validators?.length) {
-				return [];
-			}
-			const state = params.getState();
-			const allIssues: ValidationIssue[] = [];
-			for (const validator of mergedConfig.validators) {
-				const input = {
-					data: state.data,
-					uiState: state.uiState,
-					...(state.meta.stage !== undefined ? { stage: state.meta.stage } : {}),
-				};
-				const result = validator(input);
-				if (Array.isArray(result)) {
-					allIssues.push(...result);
-				}
-			}
-			return allIssues;
-		},
-
-		issues(): readonly ValidationIssue[] {
-			const triggers = params.config?.validationTriggers;
-			const meta = params.getFieldMeta(pathKey);
-			const formSubmitted = params.getFormSubmitted();
-
-			if (!shouldShowIssues(triggers, { fieldMeta: meta, formSubmitted })) {
-				return [];
-			}
-			return params.getIssues(params.path);
-		},
-
-		ui<T = unknown>(selector: (uiState: TUi) => T): T {
-			return selector(params.getState().uiState);
-		},
-
-		isTouched(): boolean {
-			return params.getFieldMeta(pathKey)?.touched ?? false;
-		},
-
-		isDirty(): boolean {
-			const current = this.get();
-			const initial = params.getInitialValue();
-			return !structuredEqual(current, initial);
-		},
-
-		isValidating(): boolean {
-			return params.getFieldMeta(pathKey)?.isValidating ?? false;
-		},
-
-		markTouched(): void {
-			params.markTouched(pathKey);
-		},
-
-		handleChange(value: DeepValue<TData, string>): FormDispatchResult {
-			return this.set(value);
-		},
-
-		handleBlur(): void {
-			this.markTouched();
-		},
-	};
-
+	const fieldApi = new FieldApiImplementation(params);
 	const arrayHelpers = createArrayHelpers({
 		get: () => fieldApi.get(),
-		// Justified: runtime array value is typed at call site; cast bridges generic set signature
 		set: (value: unknown) => fieldApi.set(value as DeepValue<TData, string>),
-		pathKey,
+		pathKey: fieldApi.pathKey,
 		updateFieldMeta: params.updateFieldMeta,
 	});
-
-	return { ...fieldApi, ...arrayHelpers };
+	return Object.assign(fieldApi, arrayHelpers);
 }

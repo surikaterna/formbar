@@ -91,7 +91,7 @@ export interface CreateFormOptions<TData, TUi> {
 	readonly clock?: () => string;
 	/** Injectable ID generator for deterministic testing. Defaults to Date.now + Math.random. */
 	readonly idGenerator?: () => string;
-	readonly asyncValidators?: readonly AsyncValidatorConfig[];
+	readonly asyncValidators?: readonly AsyncValidatorConfig<TData, TUi>[];
 }
 
 // Imports for CreateFormOptions references

@@ -29,6 +29,8 @@ export interface FieldPolicyContribution extends FieldPolicy {
 	readonly producerId: string;
 }
 
+const POLICY_KEYS = new Set<PropertyKey>(["path", "visible", "disabled", "readOnly", "required", "label"]);
+
 function normalizeSegment(segment: CanonicalSegment): CanonicalSegment {
 	if (typeof segment === "number") {
 		if (!Number.isSafeInteger(segment) || segment < 0) throw new Error(`Invalid data path index: ${segment}`);
@@ -56,8 +58,38 @@ function pathKey(path: AbsoluteDataPath): string {
 
 export function fieldMetaKey(path: AbsoluteDataPath): string {
 	const dotSafe = path.segments.every((segment) => typeof segment === "number" || !segment.includes("."));
+	if (path.segments[0] === "$ui") return toDataPointer(path.segments);
 	if (dotSafe) return path.segments.join(".");
-	return `/${path.segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+	return toDataPointer(path.segments);
+}
+
+function toDataPointer(segments: readonly CanonicalSegment[]): string {
+	return `/${segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
+function normalizePolicy(input: FieldPolicyInput): FieldPolicy {
+	for (const key of Reflect.ownKeys(input)) {
+		if (!POLICY_KEYS.has(key)) throw new Error(`Unknown field policy property: ${String(key)}`);
+	}
+	for (const key of ["visible", "disabled", "readOnly", "required"] as const) {
+		if (input[key] !== undefined && typeof input[key] !== "boolean") {
+			throw new Error(`Field policy property "${key}" must be boolean`);
+		}
+	}
+	if (input.label !== undefined && typeof input.label !== "string") {
+		throw new Error('Field policy property "label" must be a string');
+	}
+	return {
+		...(input.visible !== undefined ? { visible: input.visible } : {}),
+		...(input.disabled !== undefined ? { disabled: input.disabled } : {}),
+		...(input.readOnly !== undefined ? { readOnly: input.readOnly } : {}),
+		...(input.required !== undefined ? { required: input.required } : {}),
+		...(input.label !== undefined ? { label: input.label } : {}),
+	};
+}
+
+export function emptyFieldPolicy(): readonly FieldPolicyContribution[] {
+	return Object.freeze([]);
 }
 
 export function normalizePolicySnapshot(
@@ -66,12 +98,12 @@ export function normalizePolicySnapshot(
 ): readonly FieldPolicyContribution[] {
 	const seen = new Set<string>();
 	return Object.freeze(
-		inputs.map(({ path: input, ...policy }) => {
-			const path = normalizeDataPath(input);
+		inputs.map((input) => {
+			const path = normalizeDataPath(input.path);
 			const key = pathKey(path);
 			if (seen.has(key)) throw new Error(`Duplicate field policy path from plugin "${producerId}": ${key}`);
 			seen.add(key);
-			return Object.freeze({ ...policy, path, producerId });
+			return Object.freeze({ ...normalizePolicy(input), path, producerId });
 		}),
 	);
 }

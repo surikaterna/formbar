@@ -1,14 +1,21 @@
 import { CallbackBoundary, failure, resolveRef } from "@formbar/expressions";
 import type { JsonValue, NamespaceProvider, Segment, WriteResult } from "@formbar/expressions";
 import type { FormApi } from "./contracts.js";
-import { parsePath } from "./path-parser.js";
+import { parsePath, toDot } from "./path-parser.js";
 import type { Namespace } from "./path.js";
 
 function mutationPath(namespace: Namespace, segments: readonly Segment[]): string | undefined {
 	resolveRef({ namespace, segments });
 	if (!segments.length) return undefined;
+	if (namespace === "ui") {
+		try {
+			return toDot({ namespace, segments });
+		} catch {
+			return undefined;
+		}
+	}
 	const escaped = segments.map((part) => String(part).replace(/~/g, "~0").replace(/\//g, "~1"));
-	const path = `/${namespace === "ui" ? "$ui/" : ""}${escaped.join("/")}`;
+	const path = `/${escaped.join("/")}`;
 	const parsed = parsePath(path);
 	if (parsed.namespace !== namespace || parsed.segments.some((part, i) => String(part) !== String(segments[i])))
 		return undefined;

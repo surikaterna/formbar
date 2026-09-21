@@ -13,8 +13,7 @@ interface NormalizedValidator<TData, TUi> {
 
 interface RunToken {
 	readonly kind: "automatic" | "foreground";
-	readonly id: number;
-	revision: number;
+	readonly revision: number;
 	readonly lifecycle: number;
 	readonly validatorGenerations: ReadonlyMap<string, number>;
 	readonly validatorIds: ReadonlySet<string>;
@@ -48,9 +47,7 @@ interface CoordinatorDeps<TData, TUi> {
 
 function overlaps(a: AbsoluteDataPath, b: AbsoluteDataPath): boolean {
 	const length = Math.min(a.segments.length, b.segments.length);
-	for (let index = 0; index < length; index++) {
-		if (a.segments[index] !== b.segments[index]) return false;
-	}
+	for (let index = 0; index < length; index++) if (a.segments[index] !== b.segments[index]) return false;
 	return true;
 }
 
@@ -83,7 +80,6 @@ function exceptionIssue(validator: NormalizedValidator<unknown, unknown>, error:
 
 function createToken(
 	kind: RunToken["kind"],
-	id: number,
 	revision: number,
 	lifecycle: number,
 	validatorGenerations: ReadonlyMap<string, number>,
@@ -95,7 +91,6 @@ function createToken(
 	});
 	return {
 		kind,
-		id,
 		revision,
 		lifecycle,
 		validatorGenerations,
@@ -107,36 +102,56 @@ function createToken(
 	};
 }
 
-export function createValidationCoordinator<TData, TUi>(
-	deps: CoordinatorDeps<TData, TUi>,
-): ValidationCoordinator<TData, TUi> {
-	const validators = normalizeValidators(deps.validators);
-	const automatic = new Map<string, RunToken>();
-	const active = new Set<RunToken>();
-	const generations = new Map<string, number>();
-	let foreground: RunToken | undefined;
-	let revision = 0;
-	let lifecycle = 0;
-	let runId = 0;
+class ValidationRuntime<TData, TUi> {
+	private readonly validators: readonly NormalizedValidator<TData, TUi>[];
+	private readonly automatic = new Map<string, RunToken>();
+	private readonly automaticPaths = new Map<string, AbsoluteDataPath>();
+	private readonly active = new Set<RunToken>();
+	private readonly generations = new Map<string, number>();
+	private foreground: RunToken | undefined;
+	private currentRevision = 0;
+	private lifecycle = 0;
 
-	function isCurrent(token: RunToken): boolean {
-		if (token.cancellation || token.revision !== revision || token.lifecycle !== lifecycle) return false;
-		for (const [id, generation] of token.validatorGenerations) {
-			if (generations.get(id) !== generation) return false;
-		}
-		return token.kind === "foreground" ? foreground === token : [...automatic.values()].includes(token);
+	constructor(private readonly deps: CoordinatorDeps<TData, TUi>) {
+		this.validators = normalizeValidators(deps.validators);
 	}
 
-	function projectValidating(): void {
-		const paths = new Set([...active].flatMap((token) => token.paths.map(fieldMetaKey)));
-		const current = deps.getState();
-		const unchangedGlobal = current.meta.validation.validating === active.size > 0;
-		const unchangedFields = Object.entries(current.fieldMeta).every(
-			([key, meta]) => meta.isValidating === paths.has(key),
-		);
-		const hasEveryPath = [...paths].every((key) => key in current.fieldMeta);
-		if (unchangedGlobal && unchangedFields && hasEveryPath) return;
-		deps.updateState((state) => {
+	api(): ValidationCoordinator<TData, TUi> {
+		return {
+			revision: () => this.currentRevision,
+			onMutation: (path, event) => this.onMutation(path, event),
+			onBlur: (path) => this.trigger(path, "onBlur", false),
+			validate: (scope, signal) => this.validate(scope, signal),
+			validateSnapshot: (snapshot, revision, signal) => this.runForeground(this.validators, snapshot, revision, signal),
+			reset: () => this.endLifecycle(false),
+			dispose: () => this.endLifecycle(true),
+		};
+	}
+
+	private isCurrent(token: RunToken): boolean {
+		if (token.cancellation || token.revision !== this.currentRevision || token.lifecycle !== this.lifecycle)
+			return false;
+		for (const [id, generation] of token.validatorGenerations) {
+			if (this.generations.get(id) !== generation) return false;
+		}
+		return token.kind === "foreground" ? this.foreground === token : [...this.automatic.values()].includes(token);
+	}
+
+	private desiredPaths(): Set<string> {
+		return new Set([...this.active].flatMap((token) => token.paths.map(fieldMetaKey)));
+	}
+
+	private projectionChanged(paths: ReadonlySet<string>): boolean {
+		const current = this.deps.getState();
+		if (current.meta.validation.validating !== this.active.size > 0) return true;
+		if ([...paths].some((key) => !(key in current.fieldMeta))) return true;
+		return Object.entries(current.fieldMeta).some(([key, meta]) => meta.isValidating !== paths.has(key));
+	}
+
+	private projectValidating(): void {
+		const paths = this.desiredPaths();
+		if (!this.projectionChanged(paths)) return;
+		this.deps.updateState((state) => {
 			const fieldMeta = { ...state.fieldMeta } as Record<string, FieldMetaEntry>;
 			for (const [key, meta] of Object.entries(fieldMeta)) {
 				const validating = paths.has(key);
@@ -149,33 +164,37 @@ export function createValidationCoordinator<TData, TUi>(
 			return {
 				...state,
 				fieldMeta,
-				meta: { ...state.meta, validation: { ...state.meta.validation, validating: active.size > 0 } },
+				meta: { ...state.meta, validation: { ...state.meta.validation, validating: this.active.size > 0 } },
 			};
 		});
 	}
 
-	function detach(token: RunToken): void {
-		active.delete(token);
-		if (token.kind === "foreground" && foreground === token) foreground = undefined;
-		for (const id of token.validatorIds) if (automatic.get(id) === token) automatic.delete(id);
+	private detach(token: RunToken): void {
+		this.active.delete(token);
+		if (token.kind === "foreground" && this.foreground === token) this.foreground = undefined;
+		for (const id of token.validatorIds) {
+			if (this.automatic.get(id) !== token) continue;
+			this.automatic.delete(id);
+			this.automaticPaths.delete(id);
+		}
 	}
 
-	function cancel(token: RunToken, reason: Cancellation): void {
+	private cancel(token: RunToken, reason: Cancellation): void {
 		if (token.cancellation) return;
 		token.cancellation = reason;
 		if (token.timer) clearTimeout(token.timer);
 		token.controller.abort();
 		token.resolveCancellation(reason);
-		detach(token);
+		this.detach(token);
 	}
 
-	function cancelAll(reason: Cancellation, project = true): void {
-		for (const token of [...active]) cancel(token, reason);
-		if (project) projectValidating();
+	private cancelAll(reason: Cancellation, project = true): void {
+		for (const token of [...this.active]) this.cancel(token, reason);
+		if (project) this.projectValidating();
 	}
 
-	function replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[]): void {
-		deps.updateState((state) => ({
+	private replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[]): void {
+		this.deps.updateState((state) => ({
 			...state,
 			issues: normalizeIssues([
 				...state.issues.filter(
@@ -186,7 +205,7 @@ export function createValidationCoordinator<TData, TUi>(
 		}));
 	}
 
-	async function executeValidator(
+	private async executeValidator(
 		validator: NormalizedValidator<TData, TUi>,
 		snapshot: { readonly data: TData; readonly uiState: TUi },
 		token: RunToken,
@@ -195,55 +214,78 @@ export function createValidationCoordinator<TData, TUi>(
 			const issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal });
 			return issues.map((issue) => canonicalizeIssue(issue, validator.config.id));
 		} catch (error) {
-			if (!isCurrent(token)) return [];
+			if (!this.isCurrent(token)) return [];
 			return [exceptionIssue(validator as NormalizedValidator<unknown, unknown>, error)];
 		}
 	}
 
-	async function runAutomatic(token: RunToken, validator: NormalizedValidator<TData, TUi>): Promise<void> {
-		const snapshot = deps.getState();
-		const outcome = await Promise.race([
-			executeValidator(validator, { data: snapshot.data, uiState: snapshot.uiState }, token),
-			token.cancelled,
-		]);
-		if (Array.isArray(outcome) && isCurrent(token)) replaceIssues(token.validatorIds, outcome);
-		if (!isCurrent(token)) return;
-		detach(token);
-		projectValidating();
+	private async runAutomatic(token: RunToken, validator: NormalizedValidator<TData, TUi>): Promise<void> {
+		const state = this.deps.getState();
+		const snapshot = { data: state.data, uiState: state.uiState };
+		const outcome = await Promise.race([this.executeValidator(validator, snapshot, token), token.cancelled]);
+		if (Array.isArray(outcome) && this.isCurrent(token)) this.replaceIssues(token.validatorIds, outcome);
+		if (!this.isCurrent(token)) return;
+		this.detach(token);
+		this.projectValidating();
 	}
 
-	function matching(path: AbsoluteDataPath, trigger: "onChange" | "onBlur") {
-		return validators.filter((validator) => {
+	private matching(path: AbsoluteDataPath, trigger: "onChange" | "onBlur") {
+		return this.validators.filter((validator) => {
 			if ((validator.config.trigger ?? "onChange") !== trigger) return false;
 			return validator.fields.length === 0 || validator.fields.some((field) => overlaps(field, path));
 		});
 	}
 
-	function schedule(validator: NormalizedValidator<TData, TUi>, triggerPath: AbsoluteDataPath): void {
+	private nextGeneration(id: string): number {
+		const generation = (this.generations.get(id) ?? 0) + 1;
+		this.generations.set(id, generation);
+		return generation;
+	}
+
+	private schedule(validator: NormalizedValidator<TData, TUi>, triggerPath: AbsoluteDataPath): void {
 		const id = validator.config.id;
-		const existing = automatic.get(id);
-		if (existing) cancel(existing, "superseded");
-		if (foreground?.validatorIds.has(id)) cancel(foreground, "superseded");
-		const generation = (generations.get(id) ?? 0) + 1;
-		generations.set(id, generation);
-		const paths = validator.fields.length > 0 ? validator.fields : [triggerPath];
-		const token = createToken("automatic", ++runId, revision, lifecycle, new Map([[id, generation]]), paths);
-		automatic.set(id, token);
-		active.add(token);
+		const existing = this.automatic.get(id);
+		if (existing) this.cancel(existing, "superseded");
+		if (this.foreground?.validatorIds.has(id)) this.cancel(this.foreground, "superseded");
+		const token = createToken(
+			"automatic",
+			this.currentRevision,
+			this.lifecycle,
+			new Map([[id, this.nextGeneration(id)]]),
+			validator.fields.length > 0 ? validator.fields : [triggerPath],
+		);
+		this.automatic.set(id, token);
+		this.automaticPaths.set(id, triggerPath);
+		this.active.add(token);
 		token.timer = setTimeout(() => {
 			token.timer = undefined;
-			void runAutomatic(token, validator);
+			void this.runAutomatic(token, validator);
 		}, validator.config.debounceMs ?? DEFAULT_DEBOUNCE_MS);
 	}
 
-	function select(scope?: AbsoluteDataPath) {
-		if (!scope) return validators;
-		return validators.filter(
+	private select(scope?: AbsoluteDataPath) {
+		if (!scope) return this.validators;
+		return this.validators.filter(
 			(validator) => validator.fields.length > 0 && validator.fields.some((field) => overlaps(field, scope)),
 		);
 	}
 
-	async function runForeground(
+	private startForeground(selected: readonly NormalizedValidator<TData, TUi>[], paths: readonly AbsoluteDataPath[]) {
+		if (this.foreground) this.cancel(this.foreground, "superseded");
+		const tokenGenerations = new Map<string, number>();
+		for (const validator of selected) {
+			const id = validator.config.id;
+			const automatic = this.automatic.get(id);
+			if (automatic) this.cancel(automatic, "superseded");
+			tokenGenerations.set(id, this.nextGeneration(id));
+		}
+		const token = createToken("foreground", this.currentRevision, this.lifecycle, tokenGenerations, paths);
+		this.foreground = token;
+		this.active.add(token);
+		return token;
+	}
+
+	private async runForeground(
 		selected: readonly NormalizedValidator<TData, TUi>[],
 		snapshot: { readonly data: TData; readonly uiState: TUi },
 		expectedRevision: number,
@@ -252,78 +294,72 @@ export function createValidationCoordinator<TData, TUi>(
 	): Promise<AsyncValidationResult> {
 		if (selected.length === 0) return { status: "completed", issues: [] };
 		if (signal?.aborted) return { status: "aborted", issues: [] };
-		if (foreground) cancel(foreground, "superseded");
-		const tokenGenerations = new Map<string, number>();
-		for (const validator of selected) {
-			const id = validator.config.id;
-			const auto = automatic.get(id);
-			if (auto) cancel(auto, "superseded");
-			const generation = (generations.get(id) ?? 0) + 1;
-			generations.set(id, generation);
-			tokenGenerations.set(id, generation);
-		}
 		const paths = [...selected.flatMap((validator) => validator.fields), ...(scope ? [scope] : [])];
-		const token = createToken("foreground", ++runId, expectedRevision, lifecycle, tokenGenerations, paths);
-		foreground = token;
-		active.add(token);
+		const token = this.startForeground(selected, paths);
+		if (expectedRevision !== this.currentRevision) this.cancel(token, "superseded");
 		const abort = () => {
-			cancel(token, "aborted");
-			projectValidating();
+			this.cancel(token, "aborted");
+			this.projectValidating();
 		};
 		signal?.addEventListener("abort", abort, { once: true });
-		projectValidating();
-		const validation = Promise.all(selected.map((validator) => executeValidator(validator, snapshot, token)));
+		this.projectValidating();
+		const validation = Promise.all(selected.map((validator) => this.executeValidator(validator, snapshot, token)));
 		const outcome = await Promise.race([validation, token.cancelled]);
 		signal?.removeEventListener("abort", abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
-		if (!isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
+		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
 		const issues = normalizeIssues(outcome.flat());
-		replaceIssues(token.validatorIds, issues);
-		detach(token);
-		projectValidating();
+		this.replaceIssues(token.validatorIds, issues);
+		this.detach(token);
+		this.projectValidating();
 		return { status: "completed", issues };
 	}
 
-	function trigger(path: AbsoluteDataPath, event: "onChange" | "onBlur", mutate: boolean): void {
-		if (mutate) {
-			revision += 1;
-			if (foreground) cancel(foreground, "superseded");
-			for (const token of automatic.values()) token.revision = revision;
+	private rescheduleUnrelated(selectedIds: ReadonlySet<string>): void {
+		const retained = [...this.automaticPaths].filter(([id]) => !selectedIds.has(id));
+		for (const token of [...this.automatic.values()]) this.cancel(token, "superseded");
+		for (const [id, path] of retained) {
+			const validator = this.validators.find((entry) => entry.config.id === id);
+			if (validator) this.schedule(validator, path);
 		}
-		for (const validator of matching(path, event)) schedule(validator, path);
-		projectValidating();
 	}
 
-	function endLifecycle(): void {
-		lifecycle += 1;
-		revision += 1;
-		cancelAll("aborted", false);
+	private trigger(path: AbsoluteDataPath, event: "onChange" | "onBlur", mutate: boolean): void {
+		const selected = this.matching(path, event);
+		if (mutate) {
+			this.currentRevision += 1;
+			if (this.foreground) this.cancel(this.foreground, "superseded");
+			this.rescheduleUnrelated(new Set(selected.map((validator) => validator.config.id)));
+		}
+		for (const validator of selected) this.schedule(validator, path);
+		this.projectValidating();
 	}
 
-	return {
-		revision: () => revision,
-		onMutation: (path, event) => {
-			if (path && event) trigger(path, event, true);
-			else {
-				revision += 1;
-				cancelAll("superseded");
-			}
-		},
-		onBlur: (path) => trigger(path, "onBlur", false),
-		validate: (scope, signal) => {
-			const normalizedScope = scope === undefined ? undefined : normalizeDataPath(scope);
-			const state = deps.getState();
-			return runForeground(
-				select(normalizedScope),
-				{ data: state.data, uiState: state.uiState },
-				revision,
-				signal,
-				normalizedScope,
-			);
-		},
-		validateSnapshot: (snapshot, expectedRevision, signal) =>
-			runForeground(select(), snapshot, expectedRevision, signal),
-		reset: endLifecycle,
-		dispose: endLifecycle,
-	};
+	private onMutation(path?: AbsoluteDataPath, event?: "onChange" | "onBlur"): void {
+		if (path && event) {
+			this.trigger(path, event, true);
+			return;
+		}
+		this.currentRevision += 1;
+		this.cancelAll("superseded");
+	}
+
+	private validate(scope?: DataPathInput, signal?: AbortSignal): Promise<AsyncValidationResult> {
+		const normalizedScope = scope === undefined ? undefined : normalizeDataPath(scope);
+		const state = this.deps.getState();
+		const snapshot = { data: state.data, uiState: state.uiState };
+		return this.runForeground(this.select(normalizedScope), snapshot, this.currentRevision, signal, normalizedScope);
+	}
+
+	private endLifecycle(project: boolean): void {
+		this.lifecycle += 1;
+		this.currentRevision += 1;
+		this.cancelAll("aborted", project);
+	}
+}
+
+export function createValidationCoordinator<TData, TUi>(
+	deps: CoordinatorDeps<TData, TUi>,
+): ValidationCoordinator<TData, TUi> {
+	return new ValidationRuntime(deps).api();
 }

@@ -13,12 +13,16 @@ describe("field policy paths", () => {
 		expect(normalizeDataPath("profile.name").segments).toEqual(["profile", "name"]);
 	});
 
-	it.each(["", "/", "$ui.hidden", "/$ui/hidden", "__proto__.x", ["constructor"]] as const)(
+	it.each(["", "/", "$ui.hidden", "__proto__.x", ["constructor"]] as const)(
 		"rejects empty, UI, and unsafe input %#",
 		(input) => {
 			expect(() => normalizeDataPath(input)).toThrow();
 		},
 	);
+
+	it("treats a pointer $ui segment as literal data", () => {
+		expect(normalizeDataPath("/$ui/hidden")).toEqual({ namespace: "data", segments: ["$ui", "hidden"] });
+	});
 });
 
 describe("plugin field policy snapshots", () => {
@@ -68,6 +72,44 @@ describe("plugin field policy snapshots", () => {
 		expect(result.ok).toBe(false);
 		expect(form.getState().data).toEqual({ tick: 0 });
 		expect(form.getState().fieldPolicy).toEqual([]);
+	});
+
+	it("rejects unknown policy properties transactionally", () => {
+		const form = createForm({
+			initialData: { tick: 0 },
+			plugins: [
+				{
+					id: "strict",
+					evaluate: () => ({ fieldPolicy: [{ path: "tick", required: true, custom: "leak" }] }),
+				},
+			] as FormPlugin[],
+		});
+		const result = form.setValue("tick", 1);
+		expect(result).toMatchObject({ ok: false, error: expect.stringContaining("Unknown field policy property") });
+		expect(form.getState().data).toEqual({ tick: 0 });
+		expect(form.getState().fieldPolicy).toEqual([]);
+	});
+
+	it("deeply freezes initial, contributed, and reset policy snapshots", () => {
+		const form = createForm({
+			initialData: { tick: 0 },
+			plugins: [{ id: "frozen", evaluate: () => ({ fieldPolicy: [{ path: ["tick"], required: true }] }) }],
+		});
+		expect(Object.isFrozen(form.getState().fieldPolicy)).toBe(true);
+		expect(() => (form.getState().fieldPolicy as FieldPolicyInput[]).push({ path: "tick" })).toThrow();
+		form.setValue("tick", 1);
+		const contribution = form.getState().fieldPolicy[0];
+		if (!contribution) throw new Error("Expected contributed policy");
+		expect(Object.isFrozen(form.getState().fieldPolicy)).toBe(true);
+		expect(Object.isFrozen(contribution)).toBe(true);
+		expect(Object.isFrozen(contribution.path)).toBe(true);
+		expect(Object.isFrozen(contribution.path.segments)).toBe(true);
+		expect(() => {
+			(contribution as { required?: boolean }).required = false;
+		}).toThrow();
+		expect(() => (contribution.path.segments as string[]).push("leak")).toThrow();
+		form.reset();
+		expect(Object.isFrozen(form.getState().fieldPolicy)).toBe(true);
 	});
 
 	it("changes only policy while preserving lifecycle state and clears policy before onReset", () => {

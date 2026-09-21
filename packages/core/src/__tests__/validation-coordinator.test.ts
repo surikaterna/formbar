@@ -106,6 +106,43 @@ describe("validateAsync selection and ownership", () => {
 			validatorId: "owned",
 		});
 	});
+
+	it("preserves async and non-pipeline issues through a policy-only pipeline refresh", async () => {
+		const asyncIssue = issue("async");
+		const form = createForm({
+			initialData: { tick: 0 },
+			asyncValidators: [{ id: "owned", validate: async () => [asyncIssue] }],
+			plugins: [{ id: "policy", evaluate: () => ({ fieldPolicy: [{ path: "tick", required: true }] }) }],
+		});
+		await form.validateAsync();
+		const before = form.getState().issues;
+		form.dispatch({ type: "policy-refresh" });
+		expect(form.getState().issues).toEqual(before);
+		expect(form.canSubmit()).toBe(false);
+	});
+
+	it("keeps literal $ui data paths distinct for blur validation", async () => {
+		let calls = 0;
+		const form = createForm({
+			initialData: { $ui: { name: "" } },
+			asyncValidators: [
+				{
+					id: "literal-ui",
+					fields: [["$ui", "name"]],
+					trigger: "onBlur",
+					debounceMs: 0,
+					validate: async () => {
+						calls += 1;
+						return [];
+					},
+				},
+			],
+		});
+		form.fieldDynamic("/$ui/name").markTouched();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(calls).toBe(1);
+		expect(form.getState().fieldMeta["/$ui/name"]?.touched).toBe(true);
+	});
 });
 
 describe("validation concurrency and lifecycle", () => {
@@ -185,6 +222,53 @@ describe("validation concurrency and lifecycle", () => {
 		pending.resolve([issue("late")]);
 		await Promise.resolve();
 		expect(form.getState().issues.some((entry) => entry.code === "late")).toBe(false);
+	});
+
+	it("invalidates abort-ignoring automatic work after an unrelated mutation", async () => {
+		const stale = deferred<readonly ValidationIssue[]>();
+		const snapshots: unknown[] = [];
+		const form = createForm({
+			initialData: { a: 0, b: 0 },
+			asyncValidators: [
+				{
+					id: "a",
+					fields: ["a"],
+					debounceMs: 0,
+					validate: async ({ data }) => {
+						snapshots.push(data);
+						return snapshots.length === 1 ? stale.promise : [];
+					},
+				},
+			],
+		});
+		form.setValue("a", 1);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		form.setValue("b", 2);
+		stale.resolve([issue("STALE", "a")]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(snapshots).toEqual([
+			{ a: 1, b: 0 },
+			{ a: 1, b: 2 },
+		]);
+		expect(form.getState().issues.some((entry) => entry.code === "STALE")).toBe(false);
+	});
+
+	it("settles validating flags before disposal and rejects late commits", async () => {
+		const pending = deferred<readonly ValidationIssue[]>();
+		const form = createForm({
+			initialData: { name: "" },
+			asyncValidators: [{ id: "pending", fields: ["name"], validate: () => pending.promise }],
+		});
+		const validation = form.validateAsync("name");
+		expect(form.getState().meta.validation.validating).toBe(true);
+		form.dispose();
+		expect(await validation).toEqual({ status: "aborted", issues: [] });
+		expect(form.getState().meta.validation.validating).toBe(false);
+		expect(form.getState().fieldMeta.name?.isValidating).toBe(false);
+		pending.resolve([issue("late")]);
+		await Promise.resolve();
+		expect(form.getState().issues).toEqual([]);
 	});
 
 	it("turns current validator exceptions into blocking owned issues", async () => {

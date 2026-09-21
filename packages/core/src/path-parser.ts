@@ -64,7 +64,7 @@ export function parsePath(input: string, options?: ParsePathOptions): CanonicalP
 
 	let result: CanonicalPath;
 	if (input.startsWith("/")) {
-		result = parsePointer(input, namespaces);
+		result = parsePointer(input);
 	} else {
 		result = parseDot(input, namespaces);
 	}

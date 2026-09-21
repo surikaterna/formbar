@@ -21,6 +21,22 @@ function issue(code: string): ValidationIssue {
 }
 
 describe("snapshot-safe submit", () => {
+	it("uses the generated attempt ID across state, handler result, return, and middleware", async () => {
+		const afterSubmit: string[] = [];
+		const form = createForm({
+			idGenerator: () => "generated",
+			onSubmit: async ({ submitContext }) => {
+				expect(submitContext.requestId).toBe("generated");
+				return { ok: true, submitId: "handler" };
+			},
+			middleware: [{ id: "observe", afterSubmit: ({ result }) => afterSubmit.push(result.submitId) }],
+		});
+		const result = await form.submit();
+		expect(result.submitId).toBe("generated");
+		expect(form.getState().meta.submission?.submitId).toBe("generated");
+		expect(afterSubmit).toEqual(["generated"]);
+	});
+
 	it("validates the post-pipeline snapshot and gives only its transformed payload to the handler", async () => {
 		const validated: unknown[] = [];
 		const submitted: unknown[] = [];
@@ -105,6 +121,47 @@ describe("snapshot-safe submit", () => {
 });
 
 describe("submit cancellation lifecycle", () => {
+	it("contains throwing and rejecting plugin gates without leaking the running lock", async () => {
+		for (const failure of [
+			() => {
+				throw new Error("thrown gate");
+			},
+			() => Promise.reject(new Error("rejected gate")),
+		] as const) {
+			let shouldFail = true;
+			const form = createForm({
+				plugins: [
+					{
+						id: "gate",
+						beforeSubmit: (() => {
+							if (!shouldFail) return [];
+							return failure();
+						}) as never,
+					},
+				],
+			});
+			const failed = await form.submit();
+			expect(failed.ok).toBe(false);
+			expect(form.getState().meta.submission?.status).toBe("failed");
+			shouldFail = false;
+			expect((await form.submit()).ok).toBe(true);
+			form.dispose();
+		}
+	});
+
+	it("removes caller and internal abort listeners after repeated normal submissions", async () => {
+		const controller = new AbortController();
+		const add = vi.spyOn(controller.signal, "addEventListener");
+		const remove = vi.spyOn(controller.signal, "removeEventListener");
+		const form = createForm({ onSubmit: async () => ({ ok: true, submitId: "handler" }) });
+		for (let attempt = 0; attempt < 3; attempt++)
+			expect((await form.submit(undefined, controller.signal)).ok).toBe(true);
+		const callerAdds = add.mock.calls.filter(([type]) => type === "abort").length;
+		const callerRemoves = remove.mock.calls.filter(([type]) => type === "abort").length;
+		expect(callerAdds).toBe(3);
+		expect(callerRemoves).toBe(3);
+	});
+
 	it("caller abort resolves aborted and ignores an abort-insensitive handler completion", async () => {
 		const handler = deferred<{ ok: true; submitId: string }>();
 		const controller = new AbortController();
