@@ -15,7 +15,8 @@ let esm: Record<string, unknown>;
 let cjs: Record<string, unknown>;
 
 beforeAll(async () => {
-	execFileSync("bun", ["run", "--filter", "@formbar/declarative", "build:dist"], { cwd: root, stdio: "pipe" });
+	for (const packageName of ["@formbar/expressions", "@formbar/core", "@formbar/declarative"])
+		execFileSync("bun", ["run", "--filter", packageName, "build:dist"], { cwd: root, stdio: "inherit" });
 	esm = await import(`${esmPath.href}?parity=${Date.now()}`);
 	cjs = createRequire(import.meta.url)(cjsPath);
 });
