@@ -6,6 +6,14 @@ import { validateFormDefinition } from "../index.js";
 
 const root = new URL("../../../../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf8");
+const stableVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const caretStableRange = /^\^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const neutralDependencyManifests = {
+	"@formbar/core": "packages/core/package.json",
+	"@formbar/expressions": "packages/expressions/package.json",
+} as const;
+type NeutralDependency = keyof typeof neutralDependencyManifests;
+type NeutralVersions = Record<NeutralDependency, string>;
 
 describe("public package boundary", () => {
 	it("exports validation without owning expression language behavior", () => {
@@ -30,14 +38,47 @@ describe("public package boundary", () => {
 	it("declares a public source-free package with only neutral framework dependencies", () => {
 		const manifest = JSON.parse(read("packages/declarative/package.json"));
 		expect(manifest.files).toEqual(["dist"]);
-		expect(manifest.dependencies).toEqual({ "@formbar/core": "^0.4.0", "@formbar/expressions": "^0.4.0" });
+		expectNeutralDependencies(manifest.dependencies, readNeutralVersions());
 		expect(manifest.exports["."]).toEqual({
 			types: "./dist/index.d.ts",
 			import: "./dist/index.js",
 			require: "./dist/index.cjs",
 		});
 	});
+
+	it("accepts a Changesets-style linked dependency range bump", () => {
+		expectNeutralDependencies(
+			{ "@formbar/core": "^0.7.0", "@formbar/expressions": "^0.4.0" },
+			{ "@formbar/core": "0.7.0", "@formbar/expressions": "0.4.0" },
+		);
+	});
+
+	it("rejects unexpected dependencies and invalid or incompatible ranges", () => {
+		const versions: NeutralVersions = { "@formbar/core": "0.7.0", "@formbar/expressions": "0.4.0" };
+		const dependencies = { "@formbar/core": "^0.7.0", "@formbar/expressions": "^0.4.0" };
+		expect(() => expectNeutralDependencies({ ...dependencies, react: "^19.0.0" }, versions)).toThrow();
+		for (const range of ["0.7.0", "^0.7", "^0.6.0"]) {
+			expect(() => expectNeutralDependencies({ ...dependencies, "@formbar/core": range }, versions)).toThrow();
+		}
+	});
 });
+
+function readNeutralVersions(): NeutralVersions {
+	return Object.fromEntries(
+		Object.entries(neutralDependencyManifests).map(([name, path]) => [name, JSON.parse(read(path)).version]),
+	) as NeutralVersions;
+}
+
+function expectNeutralDependencies(dependencies: Record<string, string>, versions: NeutralVersions): void {
+	const names = Object.keys(neutralDependencyManifests) as NeutralDependency[];
+	expect(Object.keys(dependencies).sort()).toEqual([...names].sort());
+	for (const name of names) {
+		const version = versions[name];
+		expect(version, `${name} package version`).toMatch(stableVersion);
+		expect(dependencies[name], `${name} dependency range`).toMatch(caretStableRange);
+		expect(dependencies[name], `${name} compatible dependency range`).toBe(`^${version}`);
+	}
+}
 
 function checkSource(source: string): void {
 	const contents = read(`packages/declarative/src/${source}`);
