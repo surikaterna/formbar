@@ -18,7 +18,6 @@ describe("@formbar/core public API surface", () => {
 				"applyRuleWrites",
 				"applySubmitOutcome",
 				"clearChildFieldMeta",
-				"createAsyncValidationManager",
 				"createConfigurableDateEgressTransform",
 				"createDateEgressTransform",
 				"createDateTransform",
@@ -61,7 +60,13 @@ describe("@formbar/core public API surface", () => {
 		const exports = Object.keys(mod);
 
 		// These should NOT be exported
-		const internals = ["pathEquals", "pathStartsWith", "generateSubmitId", "resolveInitialValue"];
+		const internals = [
+			"createValidationCoordinator",
+			"pathEquals",
+			"pathStartsWith",
+			"generateSubmitId",
+			"resolveInitialValue",
+		];
 		for (const name of internals) {
 			expect(exports).not.toContain(name);
 		}

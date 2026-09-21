@@ -28,6 +28,7 @@ function makeAsyncValidator(opts: {
 	];
 
 	return {
+		id: opts.label,
 		label: opts.label,
 		fields: opts.fields,
 		debounceMs: opts.debounceMs,
@@ -217,6 +218,7 @@ describe("async validation", () => {
 			initialData: { name: "" },
 			asyncValidators: [
 				{
+					id: "av1",
 					label: "av1",
 					fields: ["name"],
 					debounceMs: 10,
@@ -331,6 +333,7 @@ describe("async validation", () => {
 			initialData: { name: "" },
 			asyncValidators: [
 				{
+					id: "av1",
 					label: "av1",
 					fields: ["name"],
 					debounceMs: 300,

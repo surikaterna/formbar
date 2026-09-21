@@ -1,12 +1,6 @@
 import { createSession } from "@arbitre/core";
 import type { FiringResult, ProductionRule, RuleSession } from "@arbitre/core";
-import type {
-	FormPlugin,
-	PluginEvaluateContext,
-	PluginEvaluateResult,
-	PluginFieldMeta,
-	PluginWrite,
-} from "@formbar/core";
+import type { FormPlugin, PluginEvaluateContext, PluginEvaluateResult, PluginWrite } from "@formbar/core";
 import { isArbiterInternalPath } from "./internal-paths.js";
 
 export interface ArbiterPluginOptions {
@@ -19,7 +13,7 @@ export interface ArbiterPluginOptions {
 /**
  * Creates a FormPlugin that bridges @arbitre/core into the formbar pipeline.
  * Syncs form data into the rule session, fires rules, and converts results
- * into PluginWrite[] and PluginFieldMeta records.
+ * into PluginWrite[] records.
  */
 export function createArbiterPlugin(options: ArbiterPluginOptions): FormPlugin {
 	const { rules, session: externalSession } = options;
@@ -73,21 +67,8 @@ export function createArbiterPlugin(options: ArbiterPluginOptions): FormPlugin {
 				});
 			}
 
-			// Derive field meta from session state
-			const fieldMeta: Record<string, PluginFieldMeta> = {};
-			const state = session.getState();
-			for (const [path, value] of Object.entries(state)) {
-				if (!path.startsWith("$meta.")) continue;
-				// Convention: $meta.<fieldPath> holds { visible, disabled, required, readOnly, label }
-				const fieldPath = path.slice("$meta.".length);
-				if (typeof value === "object" && value !== null) {
-					fieldMeta[fieldPath] = value as PluginFieldMeta;
-				}
-			}
-
 			return {
 				writes: writes.length > 0 ? writes : undefined,
-				fieldMeta: Object.keys(fieldMeta).length > 0 ? fieldMeta : undefined,
 			};
 		},
 

@@ -6,17 +6,10 @@ export type {
 	PluginChangeDescriptor,
 	PluginEvaluateContext,
 	PluginEvaluateResult,
-	PluginFieldMeta,
 	PluginInitContext,
 	PluginSubmitContext,
 	PluginWrite,
 } from "./plugin-types.js";
-// Async validation
-export {
-	type AsyncManagerDeps,
-	type AsyncValidationManager,
-	createAsyncValidationManager,
-} from "./async-validation.js";
 // Contract types (SE1.2)
 export type {
 	ActionStateContext,
@@ -25,6 +18,7 @@ export type {
 	AfterSubmitContext,
 	AfterValidateContext,
 	ArrayFieldHelpers,
+	AsyncValidationResult,
 	AsyncValidatorConfig,
 	BeforeActionContext,
 	BeforeEvaluateContext,
@@ -54,6 +48,13 @@ export type {
 	ValidatorInput,
 	VetoHookContextMap,
 } from "./contracts.js";
+export type {
+	AbsoluteDataPath,
+	DataPathInput,
+	FieldPolicy,
+	FieldPolicyContribution,
+	FieldPolicyInput,
+} from "./field-policy.js";
 // Form factory (SE1.4)
 export { createForm } from "./create-form.js";
 export { createCoreExpressionNamespaces } from "./expression-namespaces.js";

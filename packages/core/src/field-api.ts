@@ -1,8 +1,8 @@
 import { createArrayHelpers } from "./array-helpers.js";
 import type { FieldApi, FieldConfig, FormDispatchResult } from "./contracts.js";
 import { structuredEqual } from "./equality.js";
+import { fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import type { CanonicalPath } from "./path.js";
-import type { PluginFieldMeta } from "./plugin-types.js";
 import type { FieldMetaEntry, FormState, ValidationIssue } from "./state.js";
 import { shouldShowIssues } from "./trigger-filter.js";
 import type { DeepValue } from "./type-utils.js";
@@ -25,7 +25,6 @@ export interface CreateFieldApiParams<TData, TUi> {
 	readonly getIssues: (path: CanonicalPath) => readonly ValidationIssue[];
 	readonly getInitialValue: () => unknown;
 	readonly getFieldMeta: (pathKey: string) => FieldMetaEntry | undefined;
-	readonly getPluginFieldMeta?: (pathKey: string) => PluginFieldMeta | undefined;
 	readonly markTouched: (pathKey: string) => void;
 	readonly getFormSubmitted: () => boolean;
 	readonly updateFieldMeta: (updater: (meta: Record<string, FieldMetaEntry>) => Record<string, FieldMetaEntry>) => void;
@@ -70,7 +69,10 @@ function stripUndefined(obj: FieldConfig): Partial<FieldConfig> {
  * ```
  */
 export function createFieldApi<TData, TUi>(params: CreateFieldApiParams<TData, TUi>): FieldApi<TData, TUi, string> {
-	const pathKey = params.path.segments.join(".");
+	const pathKey =
+		params.path.namespace === "data"
+			? fieldMetaKey(normalizeDataPath({ namespace: "data", segments: params.path.segments }))
+			: params.rawPath;
 
 	const fieldApi: FieldApi<TData, TUi, string> = {
 		path: params.path,
@@ -146,10 +148,6 @@ export function createFieldApi<TData, TUi>(params: CreateFieldApiParams<TData, T
 
 		handleBlur(): void {
 			this.markTouched();
-		},
-
-		pluginMeta(): PluginFieldMeta | undefined {
-			return params.getPluginFieldMeta?.(pathKey);
 		},
 	};
 

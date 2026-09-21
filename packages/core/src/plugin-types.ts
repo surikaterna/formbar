@@ -1,4 +1,5 @@
 import type { FormAction } from "./contracts.js";
+import type { FieldPolicyInput } from "./field-policy.js";
 import type { ValidationIssue } from "./state.js";
 
 /**
@@ -9,20 +10,6 @@ export interface PluginWrite {
 	readonly path: string;
 	readonly value: unknown;
 	readonly mode: "set" | "merge" | "delete";
-}
-
-/**
- * Plugin-contributed field attributes. Merged across plugins by path.
- * Conflicts resolved by plugin registration order (last wins per property).
- */
-export interface PluginFieldMeta {
-	readonly visible?: boolean;
-	readonly disabled?: boolean;
-	readonly required?: boolean;
-	readonly readOnly?: boolean;
-	readonly label?: string;
-	/** Arbitrary typed extensions for UI frameworks */
-	readonly extensions?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -57,7 +44,7 @@ export interface PluginEvaluateContext<TData = unknown, TUi = unknown> {
  */
 export interface PluginEvaluateResult {
 	readonly writes?: readonly PluginWrite[];
-	readonly fieldMeta?: Readonly<Record<string, PluginFieldMeta>>;
+	readonly fieldPolicy?: readonly FieldPolicyInput[];
 }
 
 /**
@@ -86,7 +73,7 @@ export interface PluginSubmitContext<TData = unknown, TUi = unknown> {
  *
  * Lifecycle:
  * 1. onInit — called once when form is created. Return a cleanup function.
- * 2. evaluate — synchronous, runs inside each pipeline tick. Returns writes + fieldMeta.
+ * 2. evaluate — synchronous, runs inside each pipeline tick. Returns writes + field policy.
  * 3. beforeSubmit — called during submit. Return issues to block submission.
  * 4. onReset — called on form.reset().
  * 5. onDispose — called on form.dispose().

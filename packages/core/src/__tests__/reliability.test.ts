@@ -10,6 +10,7 @@ function makeState(data: unknown = {}): FormState {
 		uiState: {},
 		meta: { validation: {} },
 		fieldMeta: {},
+		fieldPolicy: [],
 		issues: [],
 	};
 }

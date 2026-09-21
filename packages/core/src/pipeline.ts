@@ -1,16 +1,11 @@
 import type { FormAction, Middleware, ValidatorFn } from "./contracts.js";
 import { FormbarError } from "./errors.js";
 import { applyRuleWrites } from "./expression-integration.js";
+import { normalizePolicySnapshot, replacePolicyContributions } from "./field-policy.js";
 import { setImmutablePath } from "./immutable-path.js";
 import { runNotifyHooksSync, runVetoHooksSync } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
-import type {
-	FormPlugin,
-	PluginChangeDescriptor,
-	PluginEvaluateContext,
-	PluginFieldMeta,
-	PluginWrite,
-} from "./plugin-types.js";
+import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
 import type { CreateFormOptions, FieldMetaEntry, SubmitContext, ValidationIssue } from "./state.js";
 import type { FormStore } from "./store.js";
 import type { Transaction } from "./transaction.js";
@@ -46,7 +41,6 @@ export interface PipelineResult {
 	readonly vetoed?: boolean;
 	readonly vetoReason?: string;
 	readonly issues?: readonly ValidationIssue[];
-	readonly pluginFieldMeta?: Readonly<Record<string, PluginFieldMeta>>;
 }
 
 /** Resolve TransformDefinitions from options.transforms (duck-type check) */
@@ -81,15 +75,18 @@ function runValidators(
 	return allIssues;
 }
 
-/** Evaluate all plugins and return collected writes and merged fieldMeta */
+/** Evaluate all plugins and collect writes plus producer snapshot replacements. */
 function evaluatePlugins(
 	plugins: readonly FormPlugin[],
 	action: FormAction,
 	draftState: { readonly data: unknown; readonly uiState: unknown; readonly issues: readonly ValidationIssue[] },
 	prevState: { readonly data: unknown; readonly uiState: unknown },
-): { writes: readonly PluginWrite[]; fieldMeta: Record<string, PluginFieldMeta> } {
+): {
+	writes: readonly PluginWrite[];
+	policyReplacements: ReadonlyMap<string, ReturnType<typeof normalizePolicySnapshot>>;
+} {
 	const allWrites: PluginWrite[] = [];
-	const mergedFieldMeta: Record<string, PluginFieldMeta> = {};
+	const policyReplacements = new Map<string, ReturnType<typeof normalizePolicySnapshot>>();
 
 	const change: PluginChangeDescriptor = {
 		path: action.path,
@@ -123,14 +120,12 @@ function evaluatePlugins(
 		const result = plugin.evaluate(ctx);
 		if (!result) continue;
 		if (result.writes) allWrites.push(...result.writes);
-		if (result.fieldMeta) {
-			for (const [path, meta] of Object.entries(result.fieldMeta)) {
-				mergedFieldMeta[path] = mergedFieldMeta[path] ? { ...mergedFieldMeta[path], ...meta } : meta;
-			}
+		if (result.fieldPolicy !== undefined) {
+			policyReplacements.set(plugin.id, normalizePolicySnapshot(plugin.id, result.fieldPolicy));
 		}
 	}
 
-	return { writes: allWrites, fieldMeta: mergedFieldMeta };
+	return { writes: allWrites, policyReplacements };
 }
 
 /**
@@ -154,8 +149,10 @@ export function executePipeline(ctx: PipelineContext): PipelineResult {
 	// Step 2: Begin transaction — capture immutable prevState snapshot
 	let tx: Transaction<unknown, unknown> | undefined;
 	try {
+		const stateBeforeTransaction = store.getState();
 		tx = store.beginTransaction();
 		const prevState = tx.prevState;
+		let fieldPolicy = stateBeforeTransaction.fieldPolicy;
 
 		// Step 3: Middleware beforeAction — MAY veto
 		const beforeActionDecision = runVetoHooksSync(middlewares, "beforeAction", { action, state: prevState });
@@ -218,12 +215,13 @@ export function executePipeline(ctx: PipelineContext): PipelineResult {
 		runNotifyHooksSync(middlewares, "beforeEvaluate", { action, state: tx.draftState });
 
 		// Step 7: Evaluate plugins
-		let pluginFieldMeta: Record<string, PluginFieldMeta> = {};
 		if (plugins.length > 0) {
-			const { writes, fieldMeta } = evaluatePlugins(plugins, action, tx.draftState, prevState);
-			pluginFieldMeta = fieldMeta;
+			const { writes, policyReplacements } = evaluatePlugins(plugins, action, tx.draftState, prevState);
 			if (writes.length > 0) {
 				tx.mutate((draft) => applyRuleWrites(draft, writes));
+			}
+			if (policyReplacements.size > 0) {
+				fieldPolicy = replacePolicyContributions(stateBeforeTransaction.fieldPolicy, plugins, policyReplacements);
 			}
 		}
 
@@ -270,7 +268,7 @@ export function executePipeline(ctx: PipelineContext): PipelineResult {
 
 		// Step 14: Abort gate — if a fatal runtime error occurs, rollback (handled by catch)
 		// Write issues into draft (always update to clear stale issues from previous dispatches)
-		tx.mutate((draft) => ({ ...draft, issues }));
+		tx.mutate((draft) => ({ ...draft, fieldPolicy, issues }));
 
 		// Step 15: Commit atomically
 		store.commitTransaction(tx);
@@ -281,7 +279,7 @@ export function executePipeline(ctx: PipelineContext): PipelineResult {
 		const nextState = store.getState();
 		runNotifyHooksSync(middlewares, "afterAction", { action, prevState, nextState });
 
-		return { ok: true, issues, pluginFieldMeta };
+		return { ok: true, issues };
 	} catch (err) {
 		// Step 14: Abort gate — rollback full transaction on fatal error
 		try {

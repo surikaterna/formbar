@@ -1,3 +1,4 @@
+import { structuredEqual } from "./equality.js";
 import type { FormState } from "./state.js";
 import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.js";
 
@@ -35,7 +36,10 @@ export class FormStore<TData, TUi> {
 		if (tx !== this._activeTransaction) {
 			throw new Error("Transaction does not belong to this store");
 		}
-		const nextState = tx.commit();
+		const committed = tx.commit();
+		const nextState = structuredEqual(this._state.fieldPolicy, committed.fieldPolicy)
+			? { ...committed, fieldPolicy: this._state.fieldPolicy }
+			: committed;
 		this._activeTransaction = null;
 
 		if (!tx.dirty) {

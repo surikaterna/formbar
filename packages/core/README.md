@@ -42,6 +42,56 @@ Suspicious Promise species/constructor shapes are rejected without observing
 them; a trusted callback owns any hostile rejection it returns. See the expression
 ADR for the exact callback trust boundary.
 
+## Field policy contributions
+
+Plugins can return `fieldPolicy` snapshots from `evaluate()`. Core normalizes each
+dot path, JSON Pointer, or structured absolute data path and stores the exact,
+producer-owned contributions in `form.getState().fieldPolicy`. Omission retains a
+plugin's previous snapshot, `[]` removes it, and a non-empty array atomically
+replaces it. Core does not resolve effective visibility, disabled, read-only, or
+required state; render/runtime packages own that restrictive merge.
+
+```ts
+const policyPlugin = {
+	id: "permissions",
+	evaluate: () => ({
+		fieldPolicy: [{ path: ["account", "email"], readOnly: true }],
+	}),
+};
+```
+
+Policy paths are always in the data namespace. Use JSON Pointer or structured
+segments for literal dots. Empty, UI-namespace, unsafe, and duplicate normalized
+paths are rejected transactionally. `reset()` clears contributions before plugin
+`onReset` hooks run; lifecycle `fieldMeta` remains separate.
+
+## Async validation lifecycle
+
+Every async validator has a unique `id`; optional labels are descriptive only.
+`fields` accepts the same absolute data-path inputs as field policy. Use
+`validateAsync(scope?, signal?)` for an explicit run. Scoped calls select exact,
+ancestor, and descendant field validators, while form-level validators run only
+for an unscoped call. The promise resolves with a `completed`, `superseded`, or
+`aborted` status and never throws for cancellation.
+
+`state.meta.validation.validating` includes debounce and submit validation.
+`field.isValidating()` is limited to watched/scope paths, and `canSubmit()` is
+false while validation or submission is active. Automatic validation lanes are
+independent by validator ID. Newer work, mutation, reset, disposal, and external
+abort cannot let stale issues or status updates commit.
+
+## Submission snapshots
+
+`submit(context?, signal?)` runs the current pipeline and synchronous/plugin
+gates, captures the resulting data/UI snapshot, and validates that exact snapshot
+without debounce. Mutation during async validation resolves with
+`reason: "validation-superseded"`; invalid data never reaches the handler. The
+handler receives the transformed validated payload plus an `AbortSignal`.
+Submission remains active through validation and handler execution, while the
+validation flag covers only the validation phase. Caller abort, reset, and dispose
+resolve stale work with `reason: "aborted"`; reset immediately permits a new
+submit. Concurrent submit attempts retain the existing rejection behavior.
+
 ## Package installation
 
 ```bash

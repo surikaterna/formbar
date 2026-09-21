@@ -1,4 +1,3 @@
-import { createAsyncValidationManager } from "./async-validation.js";
 import type {
 	FieldApi,
 	FieldConfig,
@@ -12,18 +11,20 @@ import { computeIsPristine, computeIsSubmitting, computeIsTouched, computeIsVali
 import { createDisposalSignal } from "./disposal-signal.js";
 import { FormbarError } from "./errors.js";
 import { createFieldApi } from "./field-api.js";
+import { fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
 import { initMiddlewares } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
 import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
-import type { FormPlugin, PluginFieldMeta, PluginInitContext } from "./plugin-types.js";
+import type { FormPlugin, PluginInitContext } from "./plugin-types.js";
 import { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, ValidationIssue } from "./state.js";
 import { FormStore } from "./store.js";
 import { createSubmitHandler } from "./submit-handler.js";
 import { warnUnknownCreateFormOptionsAtRuntime } from "./unknown-options-warning.js";
+import { createValidationCoordinator } from "./validation-coordinator.js";
 
 function pathEquals(a: CanonicalPath, b: CanonicalPath): boolean {
 	if (a.namespace !== b.namespace) return false;
@@ -75,8 +76,9 @@ export function createForm<TData, TUi>(
 	const initialState = {
 		data: (options.initialData ?? {}) as TData,
 		uiState: (options.initialUiState ?? {}) as TUi,
-		meta: { validation: {} },
+		meta: { validation: { validating: false } },
 		fieldMeta: {},
+		fieldPolicy: [],
 		issues: [],
 	} as FormState<TData, TUi>;
 
@@ -101,8 +103,12 @@ export function createForm<TData, TUi>(
 
 	// Plugin lifecycle
 	const plugins: readonly FormPlugin<TData, TUi>[] = options.plugins ?? [];
+	const pluginIds = new Set<string>();
+	for (const plugin of plugins) {
+		if (!plugin.id || pluginIds.has(plugin.id)) throw new Error(`Plugin id must be unique: "${plugin.id}"`);
+		pluginIds.add(plugin.id);
+	}
 	const pluginDisposers: (() => void)[] = [];
-	let currentPluginFieldMeta: Readonly<Record<string, PluginFieldMeta>> = {};
 
 	const fieldCache = new Map<string, FieldApi<TData, TUi, string>>();
 
@@ -123,13 +129,12 @@ export function createForm<TData, TUi>(
 		store.commitTransaction(tx);
 	}
 
-	const asyncManager = options.asyncValidators?.length
-		? createAsyncValidationManager({
-				asyncValidators: options.asyncValidators,
-				getState: () => store.getState() as FormState<unknown, unknown>,
-				updateState,
-			})
-		: undefined;
+	const validationCoordinator = createValidationCoordinator<TData, TUi>({
+		validators: options.asyncValidators ?? [],
+		getState: () => store.getState(),
+		updateState: (updater) =>
+			updateState(updater as (state: FormState<unknown, unknown>) => FormState<unknown, unknown>),
+	});
 
 	function propagateListeners(pathKey: string, trigger: "change" | "blur"): void {
 		const targets = listeners.getListeners(pathKey, trigger);
@@ -152,6 +157,7 @@ export function createForm<TData, TUi>(
 	}
 
 	function dispatchSetValue(rawPath: string, value: unknown): FormDispatchResult {
+		const before = store.getState();
 		const result = executePipeline({
 			action: { type: "set-value", path: rawPath, value },
 			store: pipelineStore,
@@ -160,13 +166,15 @@ export function createForm<TData, TUi>(
 			plugins,
 		});
 		if (result.ok) {
-			if (result.pluginFieldMeta) currentPluginFieldMeta = result.pluginFieldMeta;
 			const canonical = parsePath(rawPath);
-			if (canonical.namespace === "data") {
-				const pathKey = canonical.segments.join(".");
+			const after = store.getState();
+			const mutated = before.data !== after.data || before.uiState !== after.uiState;
+			if (mutated && canonical.namespace === "data") {
+				const dataPath = normalizeDataPath({ namespace: "data", segments: canonical.segments });
+				const pathKey = fieldMetaKey(dataPath);
 				propagateListeners(pathKey, "change");
-				asyncManager?.onFieldChange(pathKey);
-			}
+				validationCoordinator.onMutation(dataPath, "onChange");
+			} else if (mutated) validationCoordinator.onMutation();
 		}
 		const errorMsg = result.error ?? result.vetoReason;
 		return errorMsg ? { ok: result.ok, error: errorMsg } : { ok: result.ok };
@@ -174,6 +182,7 @@ export function createForm<TData, TUi>(
 
 	function dispatch(action: FormAction): FormDispatchResult {
 		if (action.type === "set-value" && action.path !== undefined) return dispatchSetValue(action.path, action.value);
+		const before = store.getState();
 		const result = executePipeline({
 			action,
 			store: pipelineStore,
@@ -181,6 +190,9 @@ export function createForm<TData, TUi>(
 			isSubmit: false,
 			plugins,
 		});
+		const after = store.getState();
+		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState))
+			validationCoordinator.onMutation();
 		const errorMsg = result.error ?? result.vetoReason;
 		return errorMsg ? { ok: result.ok, error: errorMsg } : { ok: result.ok };
 	}
@@ -225,7 +237,10 @@ export function createForm<TData, TUi>(
 		});
 		store.commitTransaction(tx);
 		propagateListeners(pathKey, "blur");
-		asyncManager?.onFieldBlur(pathKey);
+		const canonical = parsePath(pathKey);
+		if (canonical.namespace === "data") {
+			validationCoordinator.onBlur(normalizeDataPath({ namespace: "data", segments: canonical.segments }));
+		}
 	}
 
 	function updateFieldMeta(updater: (meta: Record<string, FieldMetaEntry>) => Record<string, FieldMetaEntry>): void {
@@ -239,7 +254,11 @@ export function createForm<TData, TUi>(
 		const cached = fieldCache.get(cacheKey);
 		if (cached) return cached;
 		const canonical = parsePath(path);
-		if (config?.validationTriggers) listeners.register(path, config.validationTriggers);
+		const pathKey =
+			canonical.namespace === "data"
+				? fieldMetaKey(normalizeDataPath({ namespace: "data", segments: canonical.segments }))
+				: path;
+		if (config?.validationTriggers) listeners.register(pathKey, config.validationTriggers);
 		const fieldApi = createFieldApi<TData, TUi>({
 			path: canonical,
 			rawPath: path,
@@ -249,7 +268,6 @@ export function createForm<TData, TUi>(
 			getIssues: (p) => getIssues(p),
 			getInitialValue: () => resolveInitialValue(canonical.segments),
 			getFieldMeta: (pk) => (store.getState().fieldMeta as Record<string, FieldMetaEntry>)[pk],
-			getPluginFieldMeta: (pk) => currentPluginFieldMeta[pk],
 			markTouched: markFieldTouched,
 			getFormSubmitted: () => store.getState().meta.submitted ?? false,
 			updateFieldMeta,
@@ -261,6 +279,8 @@ export function createForm<TData, TUi>(
 	}
 
 	function reset(nextInitial?: { readonly data?: TData; readonly uiState?: TUi }): void {
+		submitHandler.reset();
+		validationCoordinator.reset();
 		if (nextInitial?.data !== undefined) initialDataSnapshot = structuredClone(nextInitial.data);
 		const resetData =
 			nextInitial?.data !== undefined ? structuredClone(nextInitial.data) : structuredClone(initialDataSnapshot);
@@ -271,34 +291,29 @@ export function createForm<TData, TUi>(
 		const tx = store.beginTransaction();
 		tx.mutate(
 			() =>
-				({ data: resetData, uiState: resetUi, meta: { validation: {} }, fieldMeta: {}, issues: [] }) as FormState<
-					TData,
-					TUi
-				>,
+				({
+					data: resetData,
+					uiState: resetUi,
+					meta: { validation: { validating: false }, submission: { status: "idle" } },
+					fieldMeta: {},
+					fieldPolicy: [],
+					issues: [],
+				}) as FormState<TData, TUi>,
 		);
 		store.commitTransaction(tx);
 		fieldCache.clear();
 		listeners.clear();
-		asyncManager?.cancelAll();
 		for (const plugin of plugins) plugin.onReset?.();
 	}
 
-	let submitAbortController: AbortController | undefined;
-
-	const submit = createSubmitHandler<TData, TUi>({
+	const submitHandler = createSubmitHandler<TData, TUi>({
 		store,
 		pipelineStore,
 		pipelineOptions,
 		options,
 		plugins,
+		coordinator: validationCoordinator,
 		getApi: () => api,
-		beforeOnSubmit: asyncManager
-			? async () => {
-					asyncManager.cancelAll();
-					submitAbortController = new AbortController();
-					return asyncManager.runAllForSubmit(submitAbortController.signal);
-				}
-			: undefined,
 	});
 
 	const api: FormApi<TData, TUi> = {
@@ -306,13 +321,17 @@ export function createForm<TData, TUi>(
 		dispatch,
 		setValue: dispatchSetValue,
 		validate,
-		submit,
+		validateAsync: validationCoordinator.validate,
+		submit: submitHandler.submit,
 		// Justified: runtime path validation ensures P constraint; cast bridges generic method signature
 		field: field as FormApi<TData, TUi>["field"],
 		fieldDynamic: field as FormApi<TData, TUi>["fieldDynamic"],
 		subscribe: (listener) => store.subscribe(listener),
 		reset,
-		canSubmit: () => !computeIsSubmitting(store.getState()) && computeIsValid(store.getState()),
+		canSubmit: () => {
+			const state = store.getState();
+			return !computeIsSubmitting(state) && !state.meta.validation.validating && computeIsValid(state);
+		},
 		isPristine: () => computeIsPristine(store.getState(), initialDataSnapshot),
 		isDirty: () => !computeIsPristine(store.getState(), initialDataSnapshot),
 		isValid: () => computeIsValid(store.getState()),
@@ -322,8 +341,8 @@ export function createForm<TData, TUi>(
 		onDispose: disposal.onDispose,
 		getDisposalDiagnostics: disposal.getDiagnostics,
 		dispose: createFormDisposer(disposal, {
-			abort: () => submitAbortController?.abort(),
-			cancel: () => asyncManager?.cancelAll(),
+			abort: submitHandler.dispose,
+			cancel: validationCoordinator.dispose,
 			plugins,
 			pluginDisposers,
 			middlewares: options.middleware ?? [],
