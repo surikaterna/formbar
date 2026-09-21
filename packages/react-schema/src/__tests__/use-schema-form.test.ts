@@ -1,124 +1,57 @@
+import { createForm } from "@formbar/core";
+import { jsonSchemaProvider, standardSchemaProvider } from "@formbar/from-schema";
 import { useForm } from "@formbar/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSchemaForm } from "../use-schema-form.js";
 
-vi.mock("react", () => ({
-	useMemo: <T>(factory: () => T): T => factory(),
-}));
+vi.mock("react", () => ({ useMemo: <T>(factory: () => T): T => factory() }));
+vi.mock("@formbar/react", () => ({ useForm: vi.fn(() => ({ kind: "form" })) }));
 
-vi.mock("@formbar/react", () => ({
-	useForm: vi.fn(),
-	useFormSelector: vi.fn(() => ({})),
-}));
+describe("useSchemaForm preparation-only API", () => {
+	beforeEach(() => vi.clearAllMocks());
 
-const schemaWithoutDefaults = {
-	type: "object",
-	properties: {
-		name: { type: "string" },
-	},
-};
-
-const schemaWithDefaults = {
-	type: "object",
-	properties: {
-		name: { type: "string", default: "schema name" },
-		role: { type: "string", default: "viewer" },
-	},
-};
-
-interface FormData {
-	readonly name?: string;
-	readonly role?: string;
-}
-
-describe("useSchemaForm initial data", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
-	it("omits initialData when neither the schema nor caller supplies it", () => {
-		useSchemaForm<FormData, Record<string, unknown>>(schemaWithoutDefaults);
-
-		expect(useForm).toHaveBeenCalledOnce();
-		expect(vi.mocked(useForm).mock.calls[0]?.[0]).not.toHaveProperty("initialData");
-	});
-
-	it("passes caller initialData when the schema has no defaults", () => {
-		const initialData = { name: "caller name" };
-
-		useSchemaForm<FormData, Record<string, unknown>>(schemaWithoutDefaults, { initialData });
-
-		expect(vi.mocked(useForm).mock.calls[0]?.[0]).toHaveProperty("initialData", initialData);
-	});
-
-	it("fills missing caller data from schema defaults while preserving caller precedence", () => {
-		useSchemaForm<FormData, Record<string, unknown>>(schemaWithDefaults, {
-			initialData: { name: "caller name" },
-		});
-
-		expect(vi.mocked(useForm).mock.calls[0]?.[0]).toHaveProperty("initialData", {
-			name: "caller name",
-			role: "viewer",
-		});
-	});
-});
-
-describe("useSchemaForm option warnings", () => {
-	it("surfaces preparation warnings and resolved titles", () => {
-		vi.clearAllMocks();
-		const resolveOptionTitle = vi.fn(({ value }: { value: unknown }) =>
-			value === "active" ? "Resolved active" : undefined,
-		);
-		const result = useSchemaForm<FormData, Record<string, unknown>>(
+	it("returns only form, descriptors, validated definition, diagnostics, and warnings", () => {
+		const result = useSchemaForm(
+			{ type: "object", properties: { name: { type: "string" } } },
 			{
-				type: "object",
-				properties: {
-					role: {
-						type: "string",
-						enum: ["active"],
-						"x-formbar": { options: [{ value: "missing", title: "Missing" }] },
-					},
-				},
+				provider: jsonSchemaProvider(),
+				side: "input",
+				initialData: { name: "Ada" },
 			},
-			{ resolveOptionTitle },
 		);
-
-		expect(result.warnings).toHaveLength(1);
-		expect(result.warnings[0]).toMatchObject({
-			code: "FORMBAR_OPTION_UNMATCHED",
-			path: "role",
-			index: 0,
-			value: "missing",
-		});
-		expect(result.optionsByPath.get("role")).toEqual([{ value: "active", title: "Resolved active" }]);
-		expect(vi.mocked(useForm).mock.calls[0]?.[0]).not.toHaveProperty("resolveOptionTitle");
+		expect(Object.keys(result).sort()).toEqual(["definition", "descriptors", "diagnostics", "form", "warnings"]);
+		expect(result.definition.version).toBe(1);
+		expect(vi.mocked(useForm).mock.calls[0]?.[0]).toMatchObject({ initialData: { name: "Ada" } });
 	});
 
-	it("surfaces primitive array item preparation warnings once", () => {
-		const result = useSchemaForm<FormData, Record<string, unknown>>({
-			type: "object",
-			properties: {
-				tags: {
-					type: "array",
-					items: {
-						type: "string",
-						enum: ["kept"],
-						"x-formbar": {
-							options: [
-								{ value: "missing", title: "Missing" },
-								{ value: "kept", title: "Kept" },
-								{ value: "kept", title: "Duplicate" },
-							],
-						},
-					},
-				},
-			},
-		});
+	it("keeps source validation and caller validators independent", () => {
+		const validator = vi.fn(() => []);
+		useSchemaForm({ type: "string" }, { provider: jsonSchemaProvider(), side: "input", validators: [validator] });
+		const options = vi.mocked(useForm).mock.calls[0]?.[0];
+		expect(options?.validators).toEqual([validator]);
+		expect(options).not.toHaveProperty("schema");
+	});
 
-		expect(result.optionsByPath.get("tags[]")).toEqual([{ value: "kept", title: "Kept" }]);
-		expect(result.warnings.map(({ code, path, index }) => ({ code, path, index }))).toEqual([
-			{ code: "FORMBAR_OPTION_UNMATCHED", path: "tags[]", index: 0 },
-			{ code: "FORMBAR_OPTION_DUPLICATE", path: "tags[]", index: 2 },
+	it("installs the retained source validator through the executable validators path", () => {
+		vi.mocked(useForm).mockImplementation((options) => createForm(options) as never);
+		const schema = {
+			"~standard": {
+				version: 1 as const,
+				vendor: "hook-test",
+				validate: (value: unknown) =>
+					typeof value === "string" ? { value } : { issues: [{ message: "Expected a string" }] },
+			},
+		};
+		const result = useSchemaForm(schema, {
+			provider: standardSchemaProvider(),
+			side: "input",
+			initialData: { invalid: true },
+		});
+		expect(result.form.validate()).toEqual([
+			expect.objectContaining({ code: "SCHEMA_VALIDATION", message: "Expected a string" }),
 		]);
+		const options = vi.mocked(useForm).mock.calls[0]?.[0];
+		expect(options?.validators?.[0]).toBe(schema);
+		expect(options).not.toHaveProperty("schema");
 	});
 });

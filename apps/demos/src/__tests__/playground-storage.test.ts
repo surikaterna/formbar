@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { SOURCE_KEYS, TOTAL_LIMIT_BYTES } from "../playground/contracts";
-import { type StorageLike, discardDraft, draftKey, loadDraft, saveDraft } from "../playground/storage";
+import { type StorageLike, discardDraft, draftKey, legacyDraftKey, loadDraft, saveDraft } from "../playground/storage";
 
-const sources = { schema: "{}", layout: "null", rules: "[]", initialData: "{}", initialUiState: "{}" };
+const sources = { schema: "{}", definition: "null", initialData: "{}" };
 
 class MemoryStorage implements StorageLike {
 	readonly values = new Map<string, string>();
@@ -25,8 +25,20 @@ describe("playground storage", () => {
 		expect(draft?.sources).toEqual(sources);
 		expect(Number.isFinite(draft?.savedAt ?? Number.NaN)).toBe(true);
 		expect(loadDraft(storage, "two")).toBeNull();
-		storage.values.set(draftKey("one"), JSON.stringify({ version: 2, presetKey: "one", sources }));
+		storage.values.set(draftKey("one"), JSON.stringify({ version: 1, presetKey: "one", sources }));
 		expect(loadDraft(storage, "one")).toBeNull();
+		expect(storage.values.has(draftKey("one"))).toBe(false);
+	});
+
+	it("clears legacy layout drafts without translating them and still loads v2", () => {
+		const storage = new MemoryStorage();
+		storage.values.set(
+			legacyDraftKey("one"),
+			JSON.stringify({ version: 1, presetKey: "one", layout: {}, sources: { schema: "{}", layout: "null" } }),
+		);
+		expect(saveDraft(storage, "one", sources)).toBe(true);
+		expect(loadDraft(storage, "one")?.sources).toEqual(sources);
+		expect(storage.values.has(legacyDraftKey("one"))).toBe(false);
 	});
 
 	it.each([
@@ -37,15 +49,15 @@ describe("playground storage", () => {
 		["out-of-range savedAt", 9_000_000_000_000_000],
 	])("rejects draft metadata with %s", (_label, savedAt) => {
 		const storage = new MemoryStorage();
-		storage.values.set(draftKey("one"), JSON.stringify({ version: 1, presetKey: "one", savedAt, sources }));
+		storage.values.set(draftKey("one"), JSON.stringify({ version: 2, presetKey: "one", savedAt, sources }));
 		expect(loadDraft(storage, "one")).toBeNull();
 	});
 
 	it.each([
 		["missing version", { presetKey: "one", savedAt: Date.now(), sources }],
-		["missing preset key", { version: 1, savedAt: Date.now(), sources }],
-		["mismatched preset key", { version: 1, presetKey: "two", savedAt: Date.now(), sources }],
-		["missing sources", { version: 1, presetKey: "one", savedAt: Date.now() }],
+		["missing preset key", { version: 2, savedAt: Date.now(), sources }],
+		["mismatched preset key", { version: 2, presetKey: "two", savedAt: Date.now(), sources }],
+		["missing sources", { version: 2, presetKey: "one", savedAt: Date.now() }],
 	])("rejects drafts with %s metadata", (_label, draft) => {
 		const storage = new MemoryStorage();
 		storage.values.set(draftKey("one"), JSON.stringify(draft));
@@ -53,10 +65,10 @@ describe("playground storage", () => {
 	});
 
 	it("uses the authoritative source keys and rejects missing or extra source entries", () => {
-		expect(SOURCE_KEYS).toEqual(["schema", "layout", "rules", "initialData", "initialUiState"]);
+		expect(SOURCE_KEYS).toEqual(["schema", "definition", "initialData"]);
 		const storage = new MemoryStorage();
-		const metadata = { version: 1, presetKey: "one", savedAt: Date.now() };
-		const { rules: _rules, ...missing } = sources;
+		const metadata = { version: 2, presetKey: "one", savedAt: Date.now() };
+		const { definition: _definition, ...missing } = sources;
 		storage.values.set(draftKey("one"), JSON.stringify({ ...metadata, sources: missing }));
 		expect(loadDraft(storage, "one")).toBeNull();
 		storage.values.set(draftKey("one"), JSON.stringify({ ...metadata, sources: { ...sources, extra: "{}" } }));

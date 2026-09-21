@@ -1,39 +1,40 @@
 # @formbar/declarative
 
-Framework-neutral, serialized version 1 form-definition contracts for Formbar.
+Framework-neutral serialized Formbar presentation contracts.
 
-## Contract
+## Owned category: authored presentation intent
 
-`FormDefinition` contains a stable `id`, `version: 1`, one `root` node, and optional stored computations. Domain schemas are separate inputs; this package neither stores nor projects JSON Schema, Zod, or other domain schema objects.
+`FormDefinition` v1 owns concepts meaningful in a hand-authored form with no source schema: node hierarchy, structured bindings and lexical repeater scopes, widget/action/renderer IDs, labels, placeholders expressed as props, responsive spans, conditions, actions, outputs, and computations.
 
-The closed node union contains `group`, `section`, `field`, `repeater`, `action`, `output`, `conditional`, `tabs`, `accordion`, `validation`, and `custom`. Host extensions use explicit string widget, action, and renderer IDs. Their props use the JSON-safe `PropDefinitions` contract from `@formbar/expressions`.
-
-Bindings use `{ namespace, segments, scope? }`. Each segment is a string key or non-negative integer index. A `scope` names a lexically enclosing repeater; nested repeater scopes compose without dotted-path ambiguity.
+The ownership test is: **if a concept is meaningful without ingesting a schema, it belongs here**. For example, a field widget and its binding belong here; a JSON Schema `minimum`, provider capability, or source pointer does not.
 
 ```ts
 import { validateFormDefinition, type FormDefinition } from "@formbar/declarative";
 
 const input: FormDefinition = {
-  version: 1,
-  id: "contact",
-  root: {
-    type: "field",
-    id: "email",
-    binding: { namespace: "data", segments: ["email"] },
-    widget: "email",
-  },
+	version: 1,
+	id: "contact",
+	root: {
+		type: "field",
+		id: "email",
+		binding: { namespace: "data", segments: ["email"] },
+		widget: "email",
+	},
 };
 
 const result = validateFormDefinition(input);
-if (!result.ok) console.error(result.diagnostics);
 ```
 
-## Validation boundary
+Bindings are `{ namespace, segments, scope? }`. A repeater declares a lexical `scope`; descendants bind relative to it. Nested scopes compose without dotted-path parsing.
 
-`validateFormDefinition(unknown)` returns either one complete canonical definition or sorted, path-aware diagnostics. It rejects unsupported versions, unknown keys and built-in node types, malformed or inaccessible scopes, duplicate IDs/scopes/computation targets, invalid expressions, computation self-dependencies/cycles, executable values, accessors, symbols, sparse arrays, non-finite numbers, cycles, and unsafe prototypes.
+## Non-ownership
 
-Expressions, references, prop definitions, compilation, and dependency discovery come from the public `@formbar/expressions` API. This package does not define expression operators, parse expression source, evaluate expressions, or import Kuery/Kalada directly. Conditions are structurally valid expressions; runtime boolean-result enforcement belongs to the runtime layer.
+This package does not import Scheman or `@formbar/from-schema`, compile schemas, own constraints/default/provenance evidence, render React, mutate form state, or choose policy for current visibility/disabled/read-only/required values. Resolved runtime state is #64; DOM and ARIA are #65. Runtime and renderer host ports remain type contracts, not implementations.
 
-## Deliberate non-goals
+## Diagnostics boundary
 
-This package does not compile schemas, render React, execute actions or computations, mutate form state, merge runtime snapshots, or implement registries. Runtime, renderer, action, and widget exports are type-only host ports.
+`validateFormDefinition(unknown)` returns either one canonical `ValidatedFormDefinition` or sorted path-aware **definition diagnostics**. Source diagnostics belong to Scheman, while projection and compilation diagnostics belong to `@formbar/from-schema`; those channels must not be merged into definition diagnostics.
+
+The validator rejects unsupported versions, unknown keys/node types, duplicate IDs/scopes, inaccessible scopes, invalid bindings/expressions/ranges, unsafe or executable data, and computation conflicts/cycles.
+
+See [Schema compilation architecture](../../docs/architecture/schema-compilation.md).

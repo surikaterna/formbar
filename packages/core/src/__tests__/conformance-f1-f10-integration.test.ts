@@ -1,4 +1,4 @@
-import { ingestSchema } from "@formbar/from-schema";
+import { jsonSchemaProvider, projectSchema } from "@formbar/from-schema";
 import { describe, expect, test } from "vitest";
 import {
 	type TransformDefinition,
@@ -62,7 +62,7 @@ describe("F1-F10: Full integration conformance", () => {
 
 	// --- (b) Schema-driven form with validation: F4, F5, F8 ---
 	describe("(b) Schema-driven form — F4 ingestion, F5 validation envelope, F8 ordering", () => {
-		test("ingest JSON schema and create form from fields", () => {
+		test("project JSON schema descriptors and create a form", () => {
 			const jsonSchema = {
 				type: "object" as const,
 				properties: {
@@ -73,24 +73,18 @@ describe("F1-F10: Full integration conformance", () => {
 				required: ["firstName", "lastName"],
 			};
 
-			// F4: schema ingestion
-			const ingestion = ingestSchema(jsonSchema);
-			expect(ingestion.fields.length).toBeGreaterThanOrEqual(3);
+			const { descriptors } = projectSchema(jsonSchema, {
+				provider: jsonSchemaProvider(),
+				side: "input",
+			});
+			const properties = Object.values(descriptors.occurrences).filter((item) => item.relation === "property");
+			expect(properties.map((item) => [item.key, item.presence])).toEqual([
+				["firstName", "required"],
+				["lastName", "required"],
+				["age", "optional"],
+			]);
 
-			const firstNameField = ingestion.fields.find((f) => f.path === "firstName");
-			expect(firstNameField).toBeDefined();
-			expect(firstNameField?.required).toBe(true);
-			expect(firstNameField?.type).toBe("string");
-
-			const ageField = ingestion.fields.find((f) => f.path === "age");
-			expect(ageField).toBeDefined();
-			expect(ageField?.required).toBe(false);
-
-			// Create form using ingested field info
-			const initialData: Record<string, unknown> = {};
-			for (const field of ingestion.fields) {
-				initialData[field.path] = undefined;
-			}
+			const initialData: Record<string, unknown> = Object.fromEntries(properties.map((item) => [item.key, undefined]));
 			const form = createForm({ initialData });
 			form.setValue("firstName", "Jane");
 			form.setValue("lastName", "Doe");

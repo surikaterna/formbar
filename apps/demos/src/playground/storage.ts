@@ -1,7 +1,8 @@
 import { type PlaygroundSources, SOURCE_KEYS, TOTAL_LIMIT_BYTES } from "./contracts";
 
-const DRAFT_VERSION = 1;
-const PREFIX = "formbar:playground:draft:v1:";
+const DRAFT_VERSION = 2;
+const PREFIX = "formbar:playground:draft:v2:";
+const LEGACY_PREFIX = "formbar:playground:draft:v1:";
 
 export interface StoredDraft {
 	readonly version: typeof DRAFT_VERSION;
@@ -21,6 +22,10 @@ export function draftKey(presetKey: string): string {
 	return `${PREFIX}${presetKey}`;
 }
 
+export function legacyDraftKey(presetKey: string): string {
+	return `${LEGACY_PREFIX}${presetKey}`;
+}
+
 function isSources(value: unknown): value is PlaygroundSources {
 	if (typeof value !== "object" || value === null) return false;
 	const source = value as Record<string, unknown>;
@@ -33,10 +38,15 @@ function isSavedAt(value: unknown): value is number {
 }
 
 export function loadDraft(storage: StorageLike, presetKey: string): StoredDraft | null {
+	clearLegacyDraft(storage, presetKey);
 	try {
 		const raw = storage.getItem(draftKey(presetKey));
 		if (!raw || new Blob([raw]).size > TOTAL_LIMIT_BYTES) return null;
 		const value = JSON.parse(raw) as Partial<StoredDraft>;
+		if ((value as { readonly version?: unknown }).version === 1) {
+			storage.removeItem(draftKey(presetKey));
+			return null;
+		}
 		if (
 			value.version !== DRAFT_VERSION ||
 			value.presetKey !== presetKey ||
@@ -47,6 +57,14 @@ export function loadDraft(storage: StorageLike, presetKey: string): StoredDraft 
 		return value as StoredDraft;
 	} catch {
 		return null;
+	}
+}
+
+function clearLegacyDraft(storage: StorageLike, presetKey: string): void {
+	try {
+		storage.removeItem(legacyDraftKey(presetKey));
+	} catch {
+		// Legacy cleanup is best-effort and must not block a valid v2 recovery.
 	}
 }
 

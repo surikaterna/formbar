@@ -1,5 +1,6 @@
 import type { PlaygroundDocument, PlaygroundSources, SourceErrors } from "./contracts";
 import { parseDocument, stringifyDocument } from "./document";
+import { type StorageLike, loadDraft } from "./storage";
 
 export interface PlaygroundSession {
 	readonly sources: PlaygroundSources;
@@ -10,6 +11,16 @@ export interface PlaygroundSession {
 
 export function createPlaygroundSession(document: PlaygroundDocument): PlaygroundSession {
 	return { sources: stringifyDocument(document), applied: document, revision: 0, errors: {} };
+}
+
+export function restorePlaygroundSession(
+	document: PlaygroundDocument,
+	presetKey: string,
+	storage: StorageLike,
+): PlaygroundSession {
+	const session = createPlaygroundSession(document);
+	const draft = loadDraft(storage, presetKey);
+	return draft ? { ...session, sources: draft.sources } : session;
 }
 
 export function updateSource(

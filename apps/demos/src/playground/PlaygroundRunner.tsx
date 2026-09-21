@@ -1,22 +1,12 @@
-import { DemoFormRoot, type DemoFormSnapshot } from "../renderers/DemoFormRoot";
+import { CompilationPreview } from "../renderers/CompilationPreview";
 import type { PlaygroundDocument } from "./contracts";
 
-interface PlaygroundRunnerProps {
-	readonly document: PlaygroundDocument;
-	readonly onSnapshot: (snapshot: DemoFormSnapshot) => void;
-}
-
-export function PlaygroundRunner({ document, onSnapshot }: PlaygroundRunnerProps) {
+export function PlaygroundRunner({ document }: { readonly document: PlaygroundDocument }) {
 	return (
-		<DemoFormRoot
+		<CompilationPreview
 			schema={document.schema}
-			data={document.initialData}
-			{...(document.layout ? { layout: document.layout } : {})}
-			rules={document.rules}
-			initialUiState={document.initialUiState}
-			onChange={() => undefined}
-			onSnapshot={onSnapshot}
-			responsive
+			{...(document.definition ? { definition: document.definition } : {})}
+			initialData={document.initialData}
 		/>
 	);
 }

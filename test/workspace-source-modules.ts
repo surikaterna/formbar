@@ -1,26 +1,29 @@
 import { mock } from "bun:test";
+import { workspaceSourceModules } from "./workspace-source-aliases";
 
-import * as corePath from "../packages/core/src/path.entry.ts";
-import * as coreTransforms from "../packages/core/src/transforms.entry.ts";
-import * as coreValidation from "../packages/core/src/validation.entry.ts";
-import * as expressions from "../packages/expressions/src/index.ts";
-
+const expressions = await import(workspaceSourceModules["@formbar/expressions"]);
 mock.module("@formbar/expressions", () => expressions);
 
-const core = await import("../packages/core/src/index.ts");
+const corePath = await import(workspaceSourceModules["@formbar/core/path"]);
+const coreTransforms = await import(workspaceSourceModules["@formbar/core/transforms"]);
+const coreValidation = await import(workspaceSourceModules["@formbar/core/validation"]);
+const core = await import(workspaceSourceModules["@formbar/core"]);
 mock.module("@formbar/core", () => core);
 mock.module("@formbar/core/path", () => corePath);
 mock.module("@formbar/core/transforms", () => coreTransforms);
 mock.module("@formbar/core/validation", () => coreValidation);
 
-const fromSchema = await import("../packages/from-schema/src/index.ts");
+const declarative = await import(workspaceSourceModules["@formbar/declarative"]);
+mock.module("@formbar/declarative", () => declarative);
+
+const fromSchema = await import(workspaceSourceModules["@formbar/from-schema"]);
 mock.module("@formbar/from-schema", () => fromSchema);
 
-const react = await import("../packages/react/src/index.ts");
+const react = await import(workspaceSourceModules["@formbar/react"]);
 mock.module("@formbar/react", () => react);
 
-const reactSchema = await import("../packages/react-schema/src/index.ts");
+const reactSchema = await import(workspaceSourceModules["@formbar/react-schema"]);
 mock.module("@formbar/react-schema", () => reactSchema);
 
-const arbiter = await import("../packages/arbiter/src/index.ts");
+const arbiter = await import(workspaceSourceModules["@formbar/arbiter"]);
 mock.module("@formbar/arbiter", () => arbiter);

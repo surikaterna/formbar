@@ -2,7 +2,7 @@
 	"name": "@formbar/react-schema",
 	"version": "0.4.0",
 	"type": "module",
-	"description": "Schema-driven React form rendering — layout trees, renderers, and useSchemaForm hook",
+	"description": "React preparation hook for schema-compiled forms",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -28,6 +28,7 @@
 	},
 	"dependencies": {
 		"@formbar/core": "^0.4.0",
+		"@formbar/declarative": "^0.5.0",
 		"@formbar/react": "^0.4.0",
 		"@formbar/from-schema": "^0.4.0"
 	},

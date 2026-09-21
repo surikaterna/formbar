@@ -54,7 +54,7 @@ export function App() {
 						className="border-primary bg-primary text-primary-foreground"
 						onClick={() => navigate(playgroundRoute(route.demoId))}
 					>
-						Open JSON playground
+						Open compilation playground
 					</Button>
 				</div>
 				{Demo ? <Demo /> : <div className="p-8 text-muted-foreground">No demos available</div>}
@@ -68,7 +68,7 @@ function DemoNavigation(props: { readonly activeDemo: number; readonly onSelect:
 		<aside className="flex w-72 flex-col border-r border-border bg-card">
 			<div className="border-b border-border p-4">
 				<h1 className="text-lg font-bold text-foreground">Formbar Demos</h1>
-				<p className="mt-1 text-xs text-muted-foreground">JSON Schema → Beautiful Forms</p>
+				<p className="mt-1 text-xs text-muted-foreground">JSON Schema → validated FormDefinition</p>
 			</div>
 			<ScrollArea className="flex-1">
 				<nav className="flex flex-col gap-1 p-2">

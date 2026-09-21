@@ -3,10 +3,8 @@ import { type PlaygroundSources, SOURCE_KEYS, type SourceErrors, type SourceKey 
 
 const SOURCE_LABELS = {
 	schema: "Schema",
-	layout: "Layout",
-	rules: "Rules",
+	definition: "FormDefinition",
 	initialData: "Initial Data",
-	initialUiState: "UI State",
 } satisfies Record<SourceKey, string>;
 
 const SOURCE_TABS = SOURCE_KEYS.map((key) => ({ key, label: SOURCE_LABELS[key] }));
