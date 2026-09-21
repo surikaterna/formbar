@@ -19,7 +19,7 @@ beforeAll(async () => {
 		execFileSync("bun", ["run", "--filter", packageName, "build:dist"], { cwd: root, stdio: "inherit" });
 	esm = await import(`${esmPath.href}?parity=${Date.now()}`);
 	cjs = createRequire(import.meta.url)(cjsPath);
-});
+}, 60_000);
 
 describe("built public export parity", () => {
 	it("provides the same runtime values through ESM and CJS", () => {
