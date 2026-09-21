@@ -1,5 +1,11 @@
 # @formbar/from-schema
 
+## 0.6.0
+
+### Minor Changes
+
+- 46c8479: Replace flat Scheman v1 and layout APIs with explicit Scheman v2 descriptor projection and validated FormDefinition compilation.
+
 ## 0.4.0
 
 ### Minor Changes
