@@ -66,6 +66,7 @@ jobs:
           issue_is_pr="$(gh api "repos/$GITHUB_REPOSITORY/issues/$RECOVERY_ISSUE" --jq 'has("pull_request")')"
           [[ "$issue_state" == "open" ]] || fail "Recovery issue is not open"
           [[ "$issue_is_pr" == "false" ]] || fail "recovery_issue must identify an issue, not a pull request"
+          printf 'RECOVERY_EVIDENCE recovery_issue=%s expected_main_sha=%s\n' "$RECOVERY_ISSUE" "$EXPECTED_MAIN_SHA"
 
       - name: Checkout
         uses: actions/checkout@v5

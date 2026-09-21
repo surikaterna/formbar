@@ -9,7 +9,9 @@ async function scriptFor(file: string, job: string): Promise<string> {
 
 describe("executable exact-SHA recovery guard", () => {
 	it.each(workflowCases)("accepts the authorized current main SHA for $file", async ({ file, job }) => {
-		await expect(runGuard(file, await scriptFor(file, job))).resolves.toMatchObject({ stdout: "" });
+		await expect(runGuard(file, await scriptFor(file, job))).resolves.toMatchObject({
+			stdout: `RECOVERY_EVIDENCE recovery_issue=103 expected_main_sha=${expectedSha}\n`,
+		});
 	});
 
 	const environmentFailures = [
