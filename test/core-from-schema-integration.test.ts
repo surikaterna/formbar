@@ -1,5 +1,3 @@
-import { jsonSchemaProvider, projectSchema } from "@formbar/from-schema";
-import { describe, expect, test } from "vitest";
 import {
 	type TransformDefinition,
 	createDateEgressTransform,
@@ -10,7 +8,9 @@ import {
 	sortIssues,
 	toDot,
 	toPointer,
-} from "../index.js";
+} from "@formbar/core";
+import { jsonSchemaProvider, projectSchema } from "@formbar/from-schema";
+import { describe, expect, test } from "vitest";
 
 describe("F1-F10: Full integration conformance", () => {
 	// --- (a) Simple contact form: F1, F6, F7 ---
