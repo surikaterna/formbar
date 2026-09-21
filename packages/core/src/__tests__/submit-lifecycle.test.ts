@@ -1,13 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import { createForm } from "../create-form.js";
+import type { FormPlugin } from "../plugin-types.js";
 import type { ValidationIssue } from "../state.js";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((complete) => {
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((complete, fail) => {
 		resolve = complete;
+		reject = fail;
 	});
-	return { promise, resolve };
+	return { promise, resolve, reject };
+}
+
+function runtimePluginGate(id: string, gate: () => unknown): FormPlugin {
+	const plugin: FormPlugin = { id };
+	Object.defineProperty(plugin, "beforeSubmit", { value: gate });
+	return plugin;
+}
+
+function flushUnhandledRejections(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function issue(code: string): ValidationIssue {
@@ -121,31 +134,98 @@ describe("snapshot-safe submit", () => {
 });
 
 describe("submit cancellation lifecycle", () => {
-	it("contains throwing and rejecting plugin gates without leaking the running lock", async () => {
-		for (const failure of [
-			() => {
-				throw new Error("thrown gate");
-			},
-			() => Promise.reject(new Error("rejected gate")),
-		] as const) {
-			let shouldFail = true;
-			const form = createForm({
-				plugins: [
-					{
-						id: "gate",
-						beforeSubmit: (() => {
-							if (!shouldFail) return [];
-							return failure();
-						}) as never,
+	it("contains synchronous plugin gate throws without leaking the running lock", async () => {
+		let shouldFail = true;
+		const form = createForm({
+			plugins: [
+				{
+					id: "gate",
+					beforeSubmit: () => {
+						if (shouldFail) throw new Error("thrown gate");
+						return [];
 					},
-				],
-			});
+				},
+			],
+		});
+		const failed = await form.submit();
+		expect(failed).toMatchObject({ ok: false, message: "thrown gate" });
+		expect(form.getState().meta.submission?.status).toBe("failed");
+		shouldFail = false;
+		expect((await form.submit()).ok).toBe(true);
+		form.dispose();
+	});
+
+	it("fails closed on an immediate rejected thenable before a later synchronous throw", async () => {
+		const unhandled: unknown[] = [];
+		const capture = (reason: unknown) => unhandled.push(reason);
+		let valid = false;
+		const laterGate = vi.fn(() => {
+			if (!valid) throw new Error("later throw");
+			return [];
+		});
+		const form = createForm({
+			plugins: [
+				runtimePluginGate("thenable", () => (valid ? [] : Promise.reject(new Error("rejected thenable")))),
+				{ id: "later", beforeSubmit: laterGate },
+			],
+		});
+		process.on("unhandledRejection", capture);
+		try {
 			const failed = await form.submit();
-			expect(failed.ok).toBe(false);
+			expect(failed).toMatchObject({
+				ok: false,
+				message: 'Plugin "thenable" beforeSubmit must return issues synchronously',
+			});
+			expect(laterGate).not.toHaveBeenCalled();
 			expect(form.getState().meta.submission?.status).toBe("failed");
-			shouldFail = false;
+			await flushUnhandledRejections();
+			expect(unhandled).toEqual([]);
+			valid = true;
 			expect((await form.submit()).ok).toBe(true);
+		} finally {
+			process.off("unhandledRejection", capture);
 			form.dispose();
+		}
+	});
+
+	it("ignores a deferred thenable resolution across reset and permits a later submit", async () => {
+		const gate = deferred<readonly ValidationIssue[]>();
+		let valid = false;
+		const form = createForm({
+			plugins: [runtimePluginGate("deferred", () => (valid ? [] : gate.promise))],
+		});
+		const submission = form.submit();
+		expect(form.getState().meta.submission?.status).toBe("failed");
+		form.reset();
+		const failed = await submission;
+		expect(failed).toMatchObject({ ok: false, message: expect.stringContaining("must return issues synchronously") });
+		gate.resolve([issue("LATE_GATE")]);
+		await Promise.resolve();
+		expect(form.getState().issues).toEqual([]);
+		expect(form.getState().meta.submission?.status).toBe("idle");
+		valid = true;
+		expect((await form.submit()).ok).toBe(true);
+		form.dispose();
+	});
+
+	it("ignores a deferred thenable rejection across dispose without an unhandled rejection", async () => {
+		const gate = deferred<readonly ValidationIssue[]>();
+		const unhandled: unknown[] = [];
+		const capture = (reason: unknown) => unhandled.push(reason);
+		const form = createForm({ plugins: [runtimePluginGate("deferred", () => gate.promise)] });
+		process.on("unhandledRejection", capture);
+		try {
+			const submission = form.submit();
+			expect(form.getState().meta.submission?.status).toBe("failed");
+			form.dispose();
+			const failed = await submission;
+			expect(failed.ok).toBe(false);
+			gate.reject(new Error("late rejection"));
+			await flushUnhandledRejections();
+			expect(unhandled).toEqual([]);
+			expect(form.getState().issues).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", capture);
 		}
 	});
 

@@ -35,6 +35,28 @@ function getEgressTransforms(options: CreateFormOptions<unknown, unknown>): read
 	);
 }
 
+function rejectThenablePluginGate(pluginId: string, result: unknown): void {
+	if ((typeof result !== "object" && typeof result !== "function") || result === null) return;
+	let then: unknown;
+	try {
+		then = Reflect.get(result, "then");
+	} catch {
+		throw new FormbarError(
+			"FORMBAR_ASYNC_IN_SYNC_PIPELINE",
+			`Plugin "${pluginId}" beforeSubmit must return issues synchronously`,
+		);
+	}
+	if (typeof then !== "function") return;
+	void Promise.resolve(result).then(
+		() => undefined,
+		() => undefined,
+	);
+	throw new FormbarError(
+		"FORMBAR_ASYNC_IN_SYNC_PIPELINE",
+		`Plugin "${pluginId}" beforeSubmit must return issues synchronously`,
+	);
+}
+
 interface ActiveSubmit {
 	readonly generation: number;
 	readonly submitId: string;
@@ -167,20 +189,15 @@ class SubmitRuntime<TData, TUi> {
 		return issues;
 	}
 
-	private runPluginGates(): readonly ValidationIssue[] | Promise<readonly ValidationIssue[]> {
+	private runPluginGates(): readonly ValidationIssue[] {
 		const issues: ValidationIssue[] = [];
-		const pending: Promise<readonly ValidationIssue[] | undefined>[] = [];
 		const state = this.deps.store.getState();
 		for (const plugin of this.deps.plugins) {
 			const result = plugin.beforeSubmit?.({ data: state.data, uiState: state.uiState });
-			if (result instanceof Promise) pending.push(result.then((value) => value ?? undefined));
-			else if (result) issues.push(...result);
+			rejectThenablePluginGate(plugin.id, result);
+			if (result) issues.push(...result);
 		}
-		if (pending.length === 0) return this.commitPluginIssues(issues);
-		return Promise.all(pending).then((results) => {
-			for (const result of results) if (result) issues.push(...result);
-			return this.commitPluginIssues(issues);
-		});
+		return this.commitPluginIssues(issues);
 	}
 
 	private payloadFrom(snapshot: FormState<TData, TUi>): TData {
@@ -282,8 +299,7 @@ class SubmitRuntime<TData, TUi> {
 			const submitContext = this.buildContext(context, run.submitId);
 			const pipeline = this.runPipeline(submitContext);
 			if (!pipeline.ok) return this.fail(run, undefined, pipeline.vetoReason ?? pipeline.error ?? "Pipeline failed");
-			const pluginGate = this.runPluginGates();
-			if (pluginGate instanceof Promise) await pluginGate;
+			this.runPluginGates();
 			const snapshot = this.deps.store.getState();
 			const failure = await this.validateRun(run, snapshot);
 			return failure ?? this.executeHandler(run, submitContext, snapshot);

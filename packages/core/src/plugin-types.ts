@@ -74,7 +74,7 @@ export interface PluginSubmitContext<TData = unknown, TUi = unknown> {
  * Lifecycle:
  * 1. onInit — called once when form is created. Return a cleanup function.
  * 2. evaluate — synchronous, runs inside each pipeline tick. Returns writes + field policy.
- * 3. beforeSubmit — called during submit. Return issues to block submission.
+ * 3. beforeSubmit — called synchronously during submit. Return issues to block submission.
  * 4. onReset — called on form.reset().
  * 5. onDispose — called on form.dispose().
  *
@@ -87,6 +87,7 @@ export interface FormPlugin<TData = unknown, TUi = unknown> {
 	onInit?(ctx: PluginInitContext<TData, TUi>): void | (() => void);
 	// biome-ignore lint/suspicious/noConfusingVoidType: Plugin callbacks intentionally permit ignored return values.
 	evaluate?(ctx: PluginEvaluateContext<TData, TUi>): PluginEvaluateResult | void;
+	/** Synchronous gate. Runtime thenables are rejected and their eventual values are ignored. */
 	// biome-ignore lint/suspicious/noConfusingVoidType: Plugin callbacks intentionally permit ignored return values.
 	beforeSubmit?(ctx: PluginSubmitContext<TData, TUi>): readonly ValidationIssue[] | void;
 	onReset?(): void;
