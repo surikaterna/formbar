@@ -1,5 +1,16 @@
 # @formbar/arbiter
 
+## 0.7.0
+
+### Minor Changes
+
+- 23caf3b: Add producer-aware reactive field-policy contributions and generation-safe scoped async validation and submission lifecycles. Remove legacy plugin field metadata and Arbiter's interim `$meta` policy extraction.
+
+### Patch Changes
+
+- Updated dependencies [23caf3b]
+  - @formbar/core@0.7.0
+
 ## 0.4.0
 
 ### Minor Changes

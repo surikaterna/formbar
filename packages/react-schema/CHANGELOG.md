@@ -1,5 +1,15 @@
 # @formbar/react-schema
 
+## 0.7.0
+
+### Patch Changes
+
+- Updated dependencies [23caf3b]
+  - @formbar/core@0.7.0
+  - @formbar/declarative@0.7.0
+  - @formbar/from-schema@0.7.0
+  - @formbar/react@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
