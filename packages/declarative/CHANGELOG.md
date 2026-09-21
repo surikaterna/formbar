@@ -1,5 +1,12 @@
 # @formbar/declarative
 
+## 0.7.0
+
+### Patch Changes
+
+- Updated dependencies [23caf3b]
+  - @formbar/core@0.7.0
+
 ## 0.5.0
 
 ### Minor Changes
