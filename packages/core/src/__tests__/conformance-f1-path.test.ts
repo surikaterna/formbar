@@ -28,9 +28,9 @@ describe("F1: Path grammar + namespace conformance", () => {
 		expect(result).toEqual({ namespace: "ui", segments: ["visible"] });
 	});
 
-	test("F1.06: $ui namespace via pointer", () => {
+	test("F1.06: $ui is a literal data segment via pointer", () => {
 		const result = parsePath("/$ui/visible");
-		expect(result).toEqual({ namespace: "ui", segments: ["visible"] });
+		expect(result).toEqual({ namespace: "data", segments: ["$ui", "visible"] });
 	});
 
 	test("F1.07: REJECT $ui/ mixed style", () => {

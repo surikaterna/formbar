@@ -34,7 +34,7 @@
 			"require": "./dist/validation.entry.cjs"
 		}
 	},
-	"files": ["dist", "src"],
+	"files": ["dist", "src/*.ts"],
 	"sideEffects": false,
 	"scripts": {
 		"build": "tsc --noEmit",
@@ -43,8 +43,5 @@
 	},
 	"dependencies": {
 		"@formbar/expressions": "^0.4.0"
-	},
-	"devDependencies": {
-		"@formbar/from-schema": "^0.6.0"
 	}
 }

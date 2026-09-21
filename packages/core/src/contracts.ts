@@ -1,3 +1,4 @@
+import type { DataPathInput } from "./field-policy.js";
 import type { CanonicalPath } from "./path.js";
 import type { StandardSchemaLike } from "./standard-schema.js";
 import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
@@ -42,21 +43,28 @@ export type SchemaValidator<TData = unknown, TUi = unknown> = ValidatorFn<TData,
 
 /** Async validator config — function + metadata for scheduling */
 export interface AsyncValidatorConfig<TData = unknown, TUi = unknown> {
+	/** Stable unique identity used for cancellation and issue ownership. */
+	readonly id: string;
 	/** The validation function. MUST respect signal for cancellation. */
 	readonly validate: (input: {
 		readonly data: TData;
 		readonly uiState: TUi;
 		readonly signal: AbortSignal;
 	}) => Promise<readonly ValidationIssue[]>;
-	/** Dot paths this validator watches. Empty/undefined = form-level. */
-	readonly fields?: readonly string[];
+	/** Absolute data paths this validator watches. Empty/undefined = form-level. */
+	readonly fields?: readonly DataPathInput[];
 	/** Debounce in ms. Default: 300. */
 	readonly debounceMs?: number;
 	/** Event trigger. Default: 'onChange'. */
 	readonly trigger?: "onChange" | "onBlur";
-	/** Dedup label. Auto-generated from fields if omitted. */
+	/** Display/debug label. It has no identity semantics. */
 	readonly label?: string;
 }
+
+export type AsyncValidationResult =
+	| { readonly status: "completed"; readonly issues: readonly ValidationIssue[] }
+	| { readonly status: "superseded"; readonly issues: readonly ValidationIssue[] }
+	| { readonly status: "aborted"; readonly issues: readonly ValidationIssue[] };
 
 /** ADR section 9 — Middleware decision for veto-capable hooks */
 export type MiddlewareDecision = { readonly action: "continue" } | { readonly action: "veto"; readonly reason: string };
@@ -152,6 +160,7 @@ export interface SubmitExecutionContext<TData, TUi> {
 	readonly form: FormApi<TData, TUi>;
 	readonly submitContext: SubmitContext;
 	readonly payload: TData;
+	readonly signal: AbortSignal;
 }
 
 /** ADR section 9 — SubmitResult */
@@ -159,6 +168,7 @@ export interface SubmitResult {
 	readonly ok: boolean;
 	readonly submitId: string;
 	readonly message?: string;
+	readonly reason?: "validation-failed" | "validation-superseded" | "aborted";
 	/** Shorthand: { fieldPath: errorMessage } — auto-converted to ValidationIssue[] */
 	readonly fieldErrors?: Readonly<Record<string, string>>;
 	readonly fieldIssues?: readonly ValidationIssue[];
@@ -225,8 +235,6 @@ export interface FieldApi<TData, TUi, TPath extends string> {
 	isDirty(): boolean;
 	isValidating(): boolean;
 	markTouched(): void;
-	/** Plugin-contributed field metadata for this field */
-	pluginMeta(): import("./plugin-types.js").PluginFieldMeta | undefined;
 	/** Set field value — wraps set(). Ready to bind to onChange. */
 	handleChange(value: DeepValue<TData, TPath>): FormDispatchResult;
 	/** Mark field as touched — wraps markTouched(). Ready to bind to onBlur. */
@@ -254,14 +262,15 @@ export interface FormApi<TData, TUi> {
 	dispatch(action: FormAction): FormDispatchResult;
 	setValue<P extends string & DeepKeys<TData>>(path: P, value: DeepValue<TData, P>): FormDispatchResult;
 	validate(stage?: string): readonly ValidationIssue[];
-	submit(context?: Partial<SubmitContext>): Promise<SubmitResult>;
+	validateAsync(scope?: DataPathInput, signal?: AbortSignal): Promise<AsyncValidationResult>;
+	submit(context?: Partial<SubmitContext>, signal?: AbortSignal): Promise<SubmitResult>;
 	field<P extends string & DeepKeys<TData>>(path: P, config?: FieldConfig): FieldApiWithArray<TData, TUi, P>;
 	/** Get a FieldApi for a dynamic (runtime) path — skips deep keypath validation */
 	fieldDynamic(path: string, config?: FieldConfig): FieldApiWithArray<TData, TUi, string>;
 	subscribe(listener: (state: FormState<TData, TUi>) => void): () => void;
 	/** Reset form to initial or provided state */
 	reset(nextInitial?: { readonly data?: TData; readonly uiState?: TUi }): void;
-	/** True when no error-severity issues exist and not currently submitting */
+	/** True when no error-severity issues exist and not currently validating/submitting */
 	canSubmit(): boolean;
 	/** True when form data equals initial data */
 	isPristine(): boolean;

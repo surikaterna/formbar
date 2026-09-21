@@ -1,3 +1,4 @@
+import type { FieldPolicyContribution } from "./field-policy.js";
 import type { CanonicalPath } from "./path.js";
 
 /** ADR section 6.2 */
@@ -52,6 +53,7 @@ export interface FormState<TData, TUi> {
 		readonly submitted?: boolean;
 		readonly validation: {
 			readonly lastValidatedAt?: string; // ISO-8601 UTC
+			readonly validating?: boolean;
 		};
 		readonly submission?: {
 			readonly status: "idle" | "running" | "succeeded" | "failed";
@@ -62,6 +64,7 @@ export interface FormState<TData, TUi> {
 		};
 	};
 	readonly fieldMeta: Readonly<Record<string, FieldMetaEntry>>;
+	readonly fieldPolicy: readonly FieldPolicyContribution[];
 	readonly issues: readonly ValidationIssue[];
 }
 
@@ -88,7 +91,7 @@ export interface CreateFormOptions<TData, TUi> {
 	readonly clock?: () => string;
 	/** Injectable ID generator for deterministic testing. Defaults to Date.now + Math.random. */
 	readonly idGenerator?: () => string;
-	readonly asyncValidators?: readonly AsyncValidatorConfig[];
+	readonly asyncValidators?: readonly AsyncValidatorConfig<TData, TUi>[];
 }
 
 // Imports for CreateFormOptions references

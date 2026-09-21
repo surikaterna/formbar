@@ -4,11 +4,14 @@ import { runNotifyHooksAsync } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
 import { executePipeline } from "./pipeline.js";
 import type { FormPlugin } from "./plugin-types.js";
-import type { CreateFormOptions, SubmitContext, ValidationIssue } from "./state.js";
+import type { CreateFormOptions, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import type { FormStore } from "./store.js";
 import { applySubmitOutcome } from "./submit.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS, withTimeout } from "./timeout.js";
 import { type TransformDefinition, runTransforms } from "./transforms.js";
+import type { ValidationCoordinator } from "./validation-coordinator.js";
+
+const ABORTED = Symbol("submit-aborted");
 
 function normalizeFieldErrors(fieldErrors: Readonly<Record<string, string>>): ValidationIssue[] {
 	return Object.entries(fieldErrors).map(([path, message]) => ({
@@ -21,15 +24,45 @@ function normalizeFieldErrors(fieldErrors: Readonly<Record<string, string>>): Va
 }
 
 function generateSubmitId(idGenerator?: () => string): string {
-	if (idGenerator) return idGenerator();
-	return `submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	return idGenerator ? idGenerator() : `submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function getEgressTransforms(options: CreateFormOptions<unknown, unknown>): readonly TransformDefinition[] {
 	if (!options.transforms?.length) return [];
 	return options.transforms.filter(
-		(t): t is TransformDefinition => "transform" in t && typeof (t as TransformDefinition).transform === "function",
+		(transform): transform is TransformDefinition =>
+			"transform" in transform && typeof (transform as TransformDefinition).transform === "function",
 	);
+}
+
+function rejectThenablePluginGate(pluginId: string, result: unknown): void {
+	if ((typeof result !== "object" && typeof result !== "function") || result === null) return;
+	let then: unknown;
+	try {
+		then = Reflect.get(result, "then");
+	} catch {
+		throw new FormbarError(
+			"FORMBAR_ASYNC_IN_SYNC_PIPELINE",
+			`Plugin "${pluginId}" beforeSubmit must return issues synchronously`,
+		);
+	}
+	if (typeof then !== "function") return;
+	void Promise.resolve(result).then(
+		() => undefined,
+		() => undefined,
+	);
+	throw new FormbarError(
+		"FORMBAR_ASYNC_IN_SYNC_PIPELINE",
+		`Plugin "${pluginId}" beforeSubmit must return issues synchronously`,
+	);
+}
+
+interface ActiveSubmit {
+	readonly generation: number;
+	readonly submitId: string;
+	readonly controller: AbortController;
+	readonly callerSignal?: AbortSignal;
+	readonly callerAbort?: () => void;
 }
 
 export interface SubmitHandlerDeps<TData, TUi> {
@@ -38,17 +71,32 @@ export interface SubmitHandlerDeps<TData, TUi> {
 	readonly pipelineOptions: CreateFormOptions<unknown, unknown>;
 	readonly options: CreateFormOptions<TData, TUi>;
 	readonly plugins: readonly FormPlugin<TData, TUi>[];
+	readonly coordinator: ValidationCoordinator<TData, TUi>;
 	readonly getApi: () => FormApi<TData, TUi>;
-	/** Hook called before onSubmit execution — run async validators, return merged issues */
-	readonly beforeOnSubmit?: (() => Promise<readonly ValidationIssue[]>) | undefined;
 }
 
-export function createSubmitHandler<TData, TUi>(deps: SubmitHandlerDeps<TData, TUi>) {
-	const { store, pipelineStore, pipelineOptions, options } = deps;
-	const plugins = deps.plugins;
+export interface SubmitHandler {
+	submit(context?: Partial<SubmitContext>, signal?: AbortSignal): Promise<SubmitResult>;
+	reset(): void;
+	dispose(): void;
+}
 
-	function buildSubmitContext(context: Partial<SubmitContext> | undefined, submitId: string): SubmitContext {
-		const clock = deps.options.clock ?? (() => new Date().toISOString());
+class SubmitRuntime<TData, TUi> {
+	private generation = 0;
+	private active: ActiveSubmit | undefined;
+
+	constructor(private readonly deps: SubmitHandlerDeps<TData, TUi>) {}
+
+	api(): SubmitHandler {
+		return {
+			submit: (context, signal) => this.submit(context, signal),
+			reset: () => this.abortActive(),
+			dispose: () => this.abortActive(),
+		};
+	}
+
+	private buildContext(context: Partial<SubmitContext> | undefined, submitId: string): SubmitContext {
+		const clock = this.deps.options.clock ?? (() => new Date().toISOString());
 		return {
 			requestId: context?.requestId ?? submitId,
 			at: context?.at ?? clock(),
@@ -57,154 +105,222 @@ export function createSubmitHandler<TData, TUi>(deps: SubmitHandlerDeps<TData, T
 		};
 	}
 
-	function markSubmissionRunning(submitId: string): void {
-		const clock = deps.options.clock ?? (() => new Date().toISOString());
-		const tx = store.beginTransaction();
-		tx.mutate((draft) => ({
-			...draft,
+	private isCurrent(run: ActiveSubmit): boolean {
+		return this.active === run && this.generation === run.generation;
+	}
+
+	private markRunning(run: ActiveSubmit): void {
+		const clock = this.deps.options.clock ?? (() => new Date().toISOString());
+		const tx = this.deps.store.beginTransaction();
+		tx.mutate((state) => ({
+			...state,
 			meta: {
-				...draft.meta,
+				...state.meta,
 				submitted: true,
-				submission: { status: "running" as const, submitId, lastAttemptAt: clock() },
+				submission: { status: "running", submitId: run.submitId, lastAttemptAt: clock() },
 			},
 		}));
-		store.commitTransaction(tx);
+		this.deps.store.commitTransaction(tx);
 	}
 
-	function runSubmitPipeline(submitContext: SubmitContext) {
-		return executePipeline({
+	private complete(run: ActiveSubmit, result: SubmitResult, commitIssues = true): SubmitResult {
+		if (!this.isCurrent(run))
+			return { ok: false, submitId: run.submitId, reason: "aborted", message: "Submission aborted" };
+		const canonical = { ...result, submitId: run.submitId };
+		const fieldErrors = canonical.fieldErrors ? normalizeFieldErrors(canonical.fieldErrors) : [];
+		const tx = this.deps.store.beginTransaction();
+		tx.mutate((state) => ({
+			...state,
+			meta: applySubmitOutcome(state.meta, canonical.ok, run.submitId),
+			issues: [
+				...state.issues,
+				...(commitIssues ? fieldErrors : []),
+				...(commitIssues ? (canonical.fieldIssues ?? []) : []),
+				...(commitIssues ? (canonical.globalIssues ?? []) : []),
+			],
+		}));
+		this.deps.store.commitTransaction(tx);
+		this.removeCallerListener(run);
+		this.active = undefined;
+		return canonical;
+	}
+
+	private fail(
+		run: ActiveSubmit,
+		reason: SubmitResult["reason"],
+		message: string,
+		issues: readonly ValidationIssue[] = [],
+	): SubmitResult {
+		return this.complete(
+			run,
+			{
+				ok: false,
+				submitId: run.submitId,
+				...(reason ? { reason } : {}),
+				message,
+				fieldIssues: issues,
+			},
+			false,
+		);
+	}
+
+	private runPipeline(submitContext: SubmitContext) {
+		const before = this.deps.store.getState();
+		const result = executePipeline({
 			action: { type: "submit" } as FormAction,
-			store: pipelineStore,
-			options: pipelineOptions,
+			store: this.deps.pipelineStore,
+			options: this.deps.pipelineOptions,
 			submitContext,
 			isSubmit: true,
-			plugins,
+			plugins: this.deps.plugins,
 		});
+		const after = this.deps.store.getState();
+		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState)) {
+			this.deps.coordinator.onMutation();
+		}
+		return result;
 	}
 
-	function handlePipelineFailure(
-		pipelineResult: {
-			readonly ok: boolean;
-			readonly vetoReason?: string;
-			readonly error?: string;
-			readonly issues?: readonly ValidationIssue[];
-		},
-		submitId: string,
-	): SubmitResult {
-		const tx = store.beginTransaction();
-		tx.mutate((draft) => ({ ...draft, meta: applySubmitOutcome(draft.meta, false, submitId) }));
-		store.commitTransaction(tx);
-		return {
-			ok: false,
-			submitId,
-			message: pipelineResult.vetoReason ?? pipelineResult.error ?? "Pipeline failed",
-			...(pipelineResult.issues !== undefined ? { fieldIssues: pipelineResult.issues } : {}),
-		};
+	private commitPluginIssues(issues: readonly ValidationIssue[]): readonly ValidationIssue[] {
+		if (issues.length === 0) return issues;
+		const tx = this.deps.store.beginTransaction();
+		tx.mutate((draft) => ({ ...draft, issues: [...draft.issues, ...issues] }));
+		this.deps.store.commitTransaction(tx);
+		return issues;
 	}
 
-	function handleValidationFailure(currentIssues: readonly ValidationIssue[], submitId: string): SubmitResult {
-		const tx = store.beginTransaction();
-		tx.mutate((draft) => ({ ...draft, meta: applySubmitOutcome(draft.meta, false, submitId) }));
-		store.commitTransaction(tx);
-		return { ok: false, submitId, message: "Validation failed", fieldIssues: currentIssues };
+	private runPluginGates(): readonly ValidationIssue[] {
+		const issues: ValidationIssue[] = [];
+		const state = this.deps.store.getState();
+		for (const plugin of this.deps.plugins) {
+			const result = plugin.beforeSubmit?.({ data: state.data, uiState: state.uiState });
+			rejectThenablePluginGate(plugin.id, result);
+			if (result) issues.push(...result);
+		}
+		return this.commitPluginIssues(issues);
 	}
 
-	async function executeOnSubmit(submitContext: SubmitContext, submitId: string): Promise<SubmitResult> {
-		const submitAction: FormAction = { type: "submit" };
+	private payloadFrom(snapshot: FormState<TData, TUi>): TData {
+		const transforms = getEgressTransforms(this.deps.pipelineOptions);
+		if (transforms.length === 0) return snapshot.data;
+		return runTransforms(transforms, "egress", snapshot.data, { state: snapshot }) as TData;
+	}
+
+	private createAbortWaiter(signal: AbortSignal) {
+		if (signal.aborted) return { promise: Promise.resolve(ABORTED), cleanup: () => {} };
+		let resolve!: (value: typeof ABORTED) => void;
+		const onAbort = () => resolve(ABORTED);
+		const promise = new Promise<typeof ABORTED>((complete) => {
+			resolve = complete;
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+		return { promise, cleanup: () => signal.removeEventListener("abort", onAbort) };
+	}
+
+	private async executeHandler(
+		run: ActiveSubmit,
+		submitContext: SubmitContext,
+		snapshot: FormState<TData, TUi>,
+	): Promise<SubmitResult> {
+		if (!this.deps.options.onSubmit) return this.complete(run, { ok: true, submitId: run.submitId });
 		try {
-			const rawData = store.getState().data;
-			const transformDefs = getEgressTransforms(pipelineOptions);
-			const payload = (
-				transformDefs.length > 0
-					? runTransforms(transformDefs, "egress", rawData, { state: store.getState() })
-					: rawData
-			) as TData;
-
-			const submitPromise = options.onSubmit?.({ form: deps.getApi(), submitContext, payload });
-			if (!submitPromise) {
-				throw new FormbarError("FORMBAR_SUBMIT_NO_HANDLER", "onSubmit handler is not defined");
-			}
-			const result = await withTimeout(
-				submitPromise,
-				options.timeouts?.submit ?? DEFAULT_RUNTIME_CONSTRAINTS.submitTimeout,
+			const handler = this.deps.options.onSubmit({
+				form: this.deps.getApi(),
+				submitContext,
+				payload: this.payloadFrom(snapshot),
+				signal: run.controller.signal,
+			});
+			const timed = withTimeout(
+				handler,
+				this.deps.options.timeouts?.submit ?? DEFAULT_RUNTIME_CONSTRAINTS.submitTimeout,
 				"onSubmit callback timed out",
 			);
-
-			const normalizedFieldErrors = result.fieldErrors ? normalizeFieldErrors(result.fieldErrors) : [];
-			const txResult = store.beginTransaction();
-			txResult.mutate((draft) => ({
-				...draft,
-				meta: applySubmitOutcome(draft.meta, result.ok, submitId),
-				issues: [
-					...draft.issues,
-					...normalizedFieldErrors,
-					...(result.fieldIssues ?? []),
-					...(result.globalIssues ?? []),
-				],
-			}));
-			store.commitTransaction(txResult);
-
-			await runNotifyHooksAsync(
-				(options.middleware ?? []) as readonly Middleware[],
-				"afterSubmit",
-				{ action: submitAction, state: store.getState(), result },
-				options.timeouts?.middleware ?? DEFAULT_RUNTIME_CONSTRAINTS.middlewareTimeout,
-			);
-			return result;
-		} catch (err) {
-			const txErr = store.beginTransaction();
-			txErr.mutate((draft) => ({ ...draft, meta: applySubmitOutcome(draft.meta, false, submitId) }));
-			store.commitTransaction(txErr);
-			return { ok: false, submitId, message: err instanceof Error ? err.message : String(err) };
+			const abortWaiter = this.createAbortWaiter(run.controller.signal);
+			const result = await Promise.race([timed, abortWaiter.promise]).finally(abortWaiter.cleanup);
+			if (result === ABORTED || !this.isCurrent(run)) return this.fail(run, "aborted", "Submission aborted");
+			return await this.finishHandler(run, result);
+		} catch (error) {
+			run.controller.abort();
+			return this.fail(run, undefined, error instanceof Error ? error.message : String(error));
 		}
 	}
 
-	return async function submit(context?: Partial<SubmitContext>): Promise<SubmitResult> {
-		const state = store.getState();
-		if (state.meta.submission?.status === "running") {
-			return Promise.reject(
-				new FormbarError("FORMBAR_SUBMIT_CONCURRENT", "Submit rejected: a submission is already in progress"),
-			);
-		}
-		const submitId = generateSubmitId(deps.options.idGenerator);
-		const submitContext = buildSubmitContext(context, submitId);
-		markSubmissionRunning(submitId);
-		const pipelineResult = runSubmitPipeline(submitContext);
-		if (!pipelineResult.ok) return handlePipelineFailure(pipelineResult, submitId);
+	private async finishHandler(run: ActiveSubmit, result: SubmitResult): Promise<SubmitResult> {
+		const completed = this.complete(run, result);
+		await runNotifyHooksAsync(
+			(this.deps.options.middleware ?? []) as readonly Middleware[],
+			"afterSubmit",
+			{ action: { type: "submit" }, state: this.deps.store.getState(), result: completed },
+			this.deps.options.timeouts?.middleware ?? DEFAULT_RUNTIME_CONSTRAINTS.middlewareTimeout,
+		);
+		return completed;
+	}
 
-		// Plugin beforeSubmit gating
-		if (plugins.length > 0) {
-			const pluginIssues: ValidationIssue[] = [];
-			const state = store.getState();
-			for (const plugin of plugins) {
-				if (!plugin.beforeSubmit) continue;
-				const result = plugin.beforeSubmit({ data: state.data, uiState: state.uiState });
-				if (result) pluginIssues.push(...result);
-			}
-			if (pluginIssues.length > 0) {
-				const tx = store.beginTransaction();
-				tx.mutate((draft) => ({ ...draft, issues: [...draft.issues, ...pluginIssues] }));
-				store.commitTransaction(tx);
-			}
-		}
+	private createRun(signal?: AbortSignal): ActiveSubmit {
+		const controller = new AbortController();
+		const callerAbort = () => controller.abort();
+		const run: ActiveSubmit = {
+			generation: ++this.generation,
+			submitId: generateSubmitId(this.deps.options.idGenerator),
+			controller,
+			...(signal ? { callerSignal: signal, callerAbort } : {}),
+		};
+		this.active = run;
+		if (signal?.aborted) controller.abort();
+		else signal?.addEventListener("abort", callerAbort, { once: true });
+		this.markRunning(run);
+		return run;
+	}
 
-		// Run async validators before checking issues
-		if (deps.beforeOnSubmit) {
-			const asyncIssues = await deps.beforeOnSubmit();
-			if (asyncIssues.length > 0) {
-				const tx = store.beginTransaction();
-				tx.mutate((draft) => ({ ...draft, issues: [...draft.issues, ...asyncIssues] }));
-				store.commitTransaction(tx);
-			}
+	private async validateRun(run: ActiveSubmit, snapshot: FormState<TData, TUi>): Promise<SubmitResult | undefined> {
+		const validation = await this.deps.coordinator.validateSnapshot(
+			{ data: snapshot.data, uiState: snapshot.uiState },
+			this.deps.coordinator.revision(),
+			run.controller.signal,
+		);
+		if (validation.status === "aborted") return this.fail(run, "aborted", "Submission aborted");
+		if (validation.status === "superseded") {
+			return this.fail(run, "validation-superseded", "Validation snapshot was superseded");
 		}
+		if (!this.isCurrent(run)) return this.fail(run, "aborted", "Submission aborted");
+		const issues = this.deps.store.getState().issues;
+		if (issues.some((issue) => issue.severity === "error")) {
+			return this.fail(run, "validation-failed", "Validation failed", issues);
+		}
+	}
 
-		const currentIssues = store.getState().issues;
-		if (currentIssues.some((i) => i.severity === "error")) return handleValidationFailure(currentIssues, submitId);
-		if (options.onSubmit) return executeOnSubmit(submitContext, submitId);
-		// No onSubmit — succeed as no-op
-		const txDone = store.beginTransaction();
-		txDone.mutate((draft) => ({ ...draft, meta: applySubmitOutcome(draft.meta, true, submitId) }));
-		store.commitTransaction(txDone);
-		return { ok: true, submitId };
-	};
+	private async submit(context?: Partial<SubmitContext>, signal?: AbortSignal): Promise<SubmitResult> {
+		if (this.active) {
+			throw new FormbarError("FORMBAR_SUBMIT_CONCURRENT", "Submit rejected: a submission is already in progress");
+		}
+		const run = this.createRun(signal);
+		if (run.controller.signal.aborted) return this.fail(run, "aborted", "Submission aborted");
+		try {
+			const submitContext = this.buildContext(context, run.submitId);
+			const pipeline = this.runPipeline(submitContext);
+			if (!pipeline.ok) return this.fail(run, undefined, pipeline.vetoReason ?? pipeline.error ?? "Pipeline failed");
+			this.runPluginGates();
+			const snapshot = this.deps.store.getState();
+			const failure = await this.validateRun(run, snapshot);
+			return failure ?? this.executeHandler(run, submitContext, snapshot);
+		} catch (error) {
+			run.controller.abort();
+			return this.fail(run, undefined, error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	private removeCallerListener(run: ActiveSubmit): void {
+		if (run.callerSignal && run.callerAbort) run.callerSignal.removeEventListener("abort", run.callerAbort);
+	}
+
+	private abortActive(): void {
+		this.generation += 1;
+		if (this.active) this.removeCallerListener(this.active);
+		this.active?.controller.abort();
+		this.active = undefined;
+	}
+}
+
+export function createSubmitHandler<TData, TUi>(deps: SubmitHandlerDeps<TData, TUi>): SubmitHandler {
+	return new SubmitRuntime(deps).api();
 }

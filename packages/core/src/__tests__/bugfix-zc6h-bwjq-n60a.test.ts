@@ -51,6 +51,7 @@ describe("n60a: store dispose rollbacks active transaction", () => {
 			uiState: {},
 			meta: { stage: "draft", validation: {} },
 			fieldMeta: {},
+			fieldPolicy: [],
 			issues: [],
 		};
 		const store = new FormStore(initial);

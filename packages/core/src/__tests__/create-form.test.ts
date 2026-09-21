@@ -22,7 +22,7 @@ describe("createForm", () => {
 		expect(state.uiState).toEqual({});
 		expect(state.meta.stage).toBeUndefined();
 		expect(state.issues).toEqual([]);
-		expect(state.meta.validation).toEqual({});
+		expect(state.meta.validation).toEqual({ validating: false });
 	});
 
 	it("getState uses provided initialData and initialUiState", () => {

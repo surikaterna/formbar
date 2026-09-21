@@ -1,12 +1,6 @@
 import { createSession } from "@arbitre/core";
 import type { FiringResult, ProductionRule, RuleSession } from "@arbitre/core";
-import type {
-	FormPlugin,
-	PluginEvaluateContext,
-	PluginEvaluateResult,
-	PluginFieldMeta,
-	PluginWrite,
-} from "@formbar/core";
+import type { FormPlugin, PluginEvaluateContext, PluginEvaluateResult, PluginWrite } from "@formbar/core";
 import { isArbiterInternalPath } from "./internal-paths.js";
 
 export interface ArbiterPluginOptions {
@@ -16,85 +10,45 @@ export interface ArbiterPluginOptions {
 	readonly session?: RuleSession;
 }
 
+function resolveSession(options: ArbiterPluginOptions): { session: RuleSession; owned: boolean } {
+	if (options.session) return { session: options.session, owned: false };
+	if (options.rules) return { session: createSession({ rules: options.rules as ProductionRule[] }), owned: true };
+	throw new Error("createArbiterPlugin requires either `rules` or `session`");
+}
+
+function syncSession(session: RuleSession, ctx: PluginEvaluateContext): void {
+	const data = ctx.data as Record<string, unknown>;
+	for (const key of Object.keys(data)) session.assert(key, data[key]);
+	const uiState = ctx.uiState as Record<string, unknown>;
+	for (const key of Object.keys(uiState)) session.assert(`$ui.${key}`, uiState[key]);
+}
+
+function toWrites(result: FiringResult): readonly PluginWrite[] {
+	return result.changes
+		.filter((change) => !isArbiterInternalPath(change.path))
+		.map((change) => ({ path: change.path, value: change.newValue, mode: "set" as const }));
+}
+
+function evaluateSession(session: RuleSession, ctx: PluginEvaluateContext): PluginEvaluateResult | undefined {
+	if (ctx.origin.startsWith("plugin:arbiter")) return;
+	if (!ctx.change.dataChanged && !ctx.change.uiChanged) return;
+	syncSession(session, ctx);
+	const writes = toWrites(session.fire());
+	return { writes: writes.length > 0 ? writes : undefined };
+}
+
 /**
  * Creates a FormPlugin that bridges @arbitre/core into the formbar pipeline.
  * Syncs form data into the rule session, fires rules, and converts results
- * into PluginWrite[] and PluginFieldMeta records.
+ * into PluginWrite[] records.
  */
 export function createArbiterPlugin(options: ArbiterPluginOptions): FormPlugin {
-	const { rules, session: externalSession } = options;
-
-	let session: RuleSession;
-	let ownsSession: boolean;
-
-	if (externalSession) {
-		session = externalSession;
-		ownsSession = false;
-	} else if (rules) {
-		session = createSession({ rules: rules as ProductionRule[] });
-		ownsSession = true;
-	} else {
-		throw new Error("createArbiterPlugin requires either `rules` or `session`");
-	}
-
+	const { session, owned } = resolveSession(options);
 	return {
 		id: "arbiter",
-
-		evaluate(ctx: PluginEvaluateContext): PluginEvaluateResult | undefined {
-			// Prevent re-entry from own writes
-			if (ctx.origin.startsWith("plugin:arbiter")) return;
-
-			// Short-circuit when nothing relevant changed
-			if (!ctx.change.dataChanged && !ctx.change.uiChanged) return;
-
-			// Sync form data fields into the session
-			const data = ctx.data as Record<string, unknown>;
-			for (const key of Object.keys(data)) {
-				session.assert(key, data[key]);
-			}
-
-			// Sync $ui.* state
-			const uiState = ctx.uiState as Record<string, unknown>;
-			for (const key of Object.keys(uiState)) {
-				session.assert(`$ui.${key}`, uiState[key]);
-			}
-
-			// Fire rules
-			const result: FiringResult = session.fire();
-
-			// Convert changes to PluginWrite[], filtering internal paths
-			const writes: PluginWrite[] = [];
-			for (const change of result.changes) {
-				if (isArbiterInternalPath(change.path)) continue;
-				writes.push({
-					path: change.path,
-					value: change.newValue,
-					mode: "set",
-				});
-			}
-
-			// Derive field meta from session state
-			const fieldMeta: Record<string, PluginFieldMeta> = {};
-			const state = session.getState();
-			for (const [path, value] of Object.entries(state)) {
-				if (!path.startsWith("$meta.")) continue;
-				// Convention: $meta.<fieldPath> holds { visible, disabled, required, readOnly, label }
-				const fieldPath = path.slice("$meta.".length);
-				if (typeof value === "object" && value !== null) {
-					fieldMeta[fieldPath] = value as PluginFieldMeta;
-				}
-			}
-
-			return {
-				writes: writes.length > 0 ? writes : undefined,
-				fieldMeta: Object.keys(fieldMeta).length > 0 ? fieldMeta : undefined,
-			};
-		},
-
+		evaluate: (ctx) => evaluateSession(session, ctx),
 		onDispose() {
-			if (ownsSession) {
-				session.dispose();
-			}
+			if (owned) session.dispose();
 		},
 	};
 }

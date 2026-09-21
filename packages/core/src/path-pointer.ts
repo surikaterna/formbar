@@ -1,19 +1,9 @@
 import { FormbarError } from "./errors.js";
-import type { NamespaceConfig } from "./path-parser.js";
 import type { CanonicalPath, CanonicalSegment } from "./path.js";
 
-export function parsePointer(input: string, namespaces: readonly NamespaceConfig[]): CanonicalPath {
+export function parsePointer(input: string): CanonicalPath {
 	const parts = input.split("/");
 	const rawSegments = parts.slice(1);
-
-	if (rawSegments.length > 0) {
-		const matched = namespaces.find((ns) => rawSegments[0] === ns.prefix);
-		if (matched) {
-			const nsSegments = rawSegments.slice(1).map(decodePointerSegment);
-			return { namespace: matched.namespace, segments: nsSegments };
-		}
-	}
-
 	const segments: CanonicalSegment[] = rawSegments.map(decodePointerSegment);
 	return { namespace: "data", segments };
 }

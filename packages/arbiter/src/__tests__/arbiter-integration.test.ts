@@ -86,6 +86,8 @@ describe("createArbiterPlugin with pre-configured session", () => {
 		expect((state.uiState as Record<string, unknown>).visible).toBe(true);
 		// data writes should pass through
 		expect((state.data as Record<string, unknown>).name).toBe("kept");
+		// $meta remains internal; Arbiter policy production is intentionally deferred.
+		expect(state.fieldPolicy).toEqual([]);
 		form.dispose();
 	});
 });
