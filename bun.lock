@@ -37,10 +37,10 @@
     },
     "packages/arbiter": {
       "name": "@formbar/arbiter",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
-        "@formbar/core": "^0.3.0",
-        "@formbar/expressions": "^0.0.0",
+        "@formbar/core": "^0.4.0",
+        "@formbar/expressions": "^0.4.0",
       },
       "devDependencies": {
         "@arbitre/core": "^0.3.0",
@@ -53,26 +53,34 @@
     },
     "packages/core": {
       "name": "@formbar/core",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "dependencies": {
-        "@formbar/expressions": "^0.0.0",
+        "@formbar/expressions": "^0.4.0",
       },
       "devDependencies": {
-        "@formbar/from-schema": "^0.3.1",
+        "@formbar/from-schema": "^0.4.0",
+      },
+    },
+    "packages/declarative": {
+      "name": "@formbar/declarative",
+      "version": "0.0.0",
+      "dependencies": {
+        "@formbar/core": "^0.4.0",
+        "@formbar/expressions": "^0.4.0",
       },
     },
     "packages/expressions": {
       "name": "@formbar/expressions",
-      "version": "0.0.0",
+      "version": "0.4.0",
       "dependencies": {
         "kuery": "^2.1.0",
       },
     },
     "packages/from-schema": {
       "name": "@formbar/from-schema",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "dependencies": {
-        "@formbar/core": "^0.3.1",
+        "@formbar/core": "^0.4.0",
         "@scheman/core": "^1.0.0",
       },
       "devDependencies": {
@@ -91,10 +99,10 @@
     },
     "packages/react": {
       "name": "@formbar/react",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "dependencies": {
-        "@formbar/core": "^0.3.1",
-        "@formbar/expressions": "^0.0.0",
+        "@formbar/core": "^0.4.0",
+        "@formbar/expressions": "^0.4.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -109,11 +117,11 @@
     },
     "packages/react-schema": {
       "name": "@formbar/react-schema",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
-        "@formbar/core": "^0.3.0",
-        "@formbar/from-schema": "^0.3.0",
-        "@formbar/react": "^0.3.0",
+        "@formbar/core": "^0.4.0",
+        "@formbar/from-schema": "^0.4.0",
+        "@formbar/react": "^0.4.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -286,6 +294,8 @@
     "@formbar/arbiter": ["@formbar/arbiter@workspace:packages/arbiter"],
 
     "@formbar/core": ["@formbar/core@workspace:packages/core"],
+
+    "@formbar/declarative": ["@formbar/declarative@workspace:packages/declarative"],
 
     "@formbar/demos": ["@formbar/demos@workspace:apps/demos"],
 
