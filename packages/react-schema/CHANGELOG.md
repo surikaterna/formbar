@@ -1,5 +1,16 @@
 # @formbar/react-schema
 
+## 0.6.0
+
+### Minor Changes
+
+- 46c8479: Replace renderer and resolved-state APIs with the preparation-only useSchemaForm hook.
+
+### Patch Changes
+
+- Updated dependencies [46c8479]
+  - @formbar/from-schema@0.6.0
+
 ## 0.4.0
 
 ### Minor Changes
