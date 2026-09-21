@@ -1,38 +1,48 @@
 # Formbar
 
-Headless, schema-driven form tooling for TypeScript and React.
+Headless form state, schema compilation, and presentation contracts for TypeScript and React.
 
-## Packages
+## Responsibility matrix
 
-| Package | Description |
-| --- | --- |
-| [`@formbar/core`](./packages/core) | Headless form state, validation, transforms, middleware, and plugin runtime. |
-| [`@formbar/from-schema`](./packages/from-schema) | JSON Schema, Zod, and Standard Schema ingestion with layout compilation. |
-| [`@formbar/react`](./packages/react) | React hooks and accessibility helpers for forms built with `@formbar/core`. |
-| [`@formbar/react-schema`](./packages/react-schema) | Schema-driven React form hook, layout rendering, and renderer registry. |
-| [`@formbar/arbiter`](./packages/arbiter) | Bridge from Arbitre production rules into the Formbar plugin pipeline. |
-| [`@formbar/expressions`](./packages/expressions) | Authorized reactive expressions using Kuery's strict whole-AST core. |
+| Category | Owner | Includes | Does not include |
+| --- | --- | --- | --- |
+| Schema evidence | [`@formbar/from-schema`](./packages/from-schema) | Recursive descriptor documents, constraints, presence, defaults, metadata, provenance, capabilities, source diagnostics, validation handles | Visibility policy, current values, DOM, ARIA, rendering |
+| Authored presentation intent | [`@formbar/declarative`](./packages/declarative) | Versioned `FormDefinition`, nodes, bindings/scopes, widget/action/renderer IDs, labels, conditions, outputs, computations | Scheman/provider concepts or resolved runtime state |
+| Resolved runtime state | Future #64 with core inputs from #62 | Current values, visibility, disabled/read-only/required state, issues, lifecycle | Implemented by schema compilation |
+| React DOM and ARIA | Future #65 | Rendering and view identity | Implemented by `@formbar/react-schema` today |
 
-Private workspace apps:
+Other packages remain focused: `@formbar/core` owns headless form state, `@formbar/react` owns React bindings, `@formbar/expressions` owns authorized expressions, and `@formbar/arbiter` adapts Arbitre rules to the core plugin pipeline.
 
-| App | Description |
-| --- | --- |
-| `@formbar/demos` | Private demo app used for local development; not published. |
+## Schema data flow
 
-Use only the packages needed for your stack: `@formbar/core` for a headless engine, `@formbar/react` for React bindings, `@formbar/from-schema` for schema ingestion, `@formbar/react-schema` for schema-driven React rendering, and `@formbar/arbiter` for rule-engine integration.
-
-## Quick Start
-
-```bash
-bun install
-bun run build
-bun test
+```text
+schema + explicit Scheman provider + input/output side
+  -> @scheman/core SchemaDocument
+  -> @formbar/from-schema DescriptorDocument
+  -> deterministic validated @formbar/declarative FormDefinition v1
+  -> [future #64 runtime resolution]
+  -> [future #65 React DOM/ARIA rendering]
 ```
+
+The dependency direction is one-way: `from-schema -> declarative`. Declarative never imports Scheman or from-schema. From-schema never imports React, React-schema, Arbiter, or TUI packages.
+
+## Greenfield policy and current demos
+
+Formbar currently has no compatibility commitment to the removed Scheman v1 flat-field, layout, renderer-registry, or state-pruning APIs. They were deleted rather than translated or shimmed. Persisted playground documents use version 2 and older documents are rejected rather than migrated.
+
+The demo app is intentionally a **read-only compilation preview**. It displays descriptors, a validated definition, separated diagnostics, and current core data. It does not render `FormDefinition` controls or claim interactive schema-form support; that awaits #64 and #65.
+
+See [Schema compilation architecture](./docs/architecture/schema-compilation.md).
 
 ## Development
 
 ```bash
-bun run dev  # starts demo app at localhost:5174
+bun install
+bun run lint
+bun run test
+bun run build
+bun run --filter @formbar/demos typecheck
+bun run --filter @formbar/demos build
 ```
 
 ## License

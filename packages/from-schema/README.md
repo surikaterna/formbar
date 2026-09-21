@@ -1,128 +1,59 @@
 # @formbar/from-schema
 
-Schema ingestion utilities for turning JSON Schema, Zod, and Standard Schema definitions into Formbar field metadata, validators, defaults, and layout trees.
+Projects explicit Scheman v2 schema documents into Formbar-owned neutral descriptor documents and compiles deterministic, validated `@formbar/declarative` FormDefinition v1 values.
 
-## Install
+## Explicit provider and side
 
-```bash
-bun add @formbar/from-schema @formbar/core
-# or
-npm install @formbar/from-schema @formbar/core
-```
-
-Install Zod only if you ingest Zod schemas:
-
-```bash
-bun add zod
-# or
-npm install zod
-```
-
-## Minimal usage
+There is no provider autodetection and no fallback to the opposite side.
 
 ```ts
-import { createForm } from "@formbar/core";
-import { createSchemaForm } from "@formbar/from-schema";
+import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 
-const schema = {
-	type: "object",
-	properties: {
-		name: { type: "string" },
-		email: { type: "string", format: "email" },
+const prepared = createSchemaForm(
+	{ type: "object", properties: { email: { type: "string", format: "email" } } },
+	{
+		provider: jsonSchemaProvider({ dialect: "draft-2020-12" }),
+		side: "input",
 	},
-	required: ["name", "email"],
-} as const;
+);
 
-const prepared = createSchemaForm(schema);
-const form = createForm({
-	initialData: prepared.defaults,
-	validators: prepared.validators,
-});
-
-console.log(prepared.fields.map((field) => field.path));
-console.log(prepared.layout.type);
-form.dispose();
+console.log(prepared.descriptors);
+console.log(prepared.definition); // already passed validateFormDefinition
 ```
 
-## When to use this package
+`projectSchema` performs ingestion plus projection. `projectSchemaDocument` projects an existing Scheman v2 document. `compileDefaultFormDefinition` compiles descriptors without choosing union/intersection branches. `createSchemaForm` combines those steps and accepts either an authored `definition` or `generation` options, never both.
 
-- Use `@formbar/from-schema` when you need schema extraction, schema-backed validators, default values, or compiled layout nodes without React.
-- Use `@formbar/core` alone when fields and validation are defined directly in application code.
-- Use `@formbar/react-schema` when you want this schema preparation combined with React hooks and renderers.
+## Descriptor graph
 
-## Formbar options and JSON Schema `enum`
+`DescriptorDocument` has a node table that preserves graph identity and a separate occurrence table that preserves path-bound uses. References, sharing, cycles, wrappers, ordered unions/intersections, tuples, records, applicators, definitions, boolean schemas, unknown/opaque/unavailable evidence, capabilities, raw metadata/constraints, and source diagnostics remain observable. Unsupported presentation choices become explicit fallback nodes and diagnostics rather than disappearing.
 
-Standard JSON Schema `enum` is a validation assertion. It remains authoritative for stored values and rendered order. `x-formbar.options` is a Formbar presentation annotation and cannot add, remove, coerce, or reorder enum values.
+Raw owned metadata and constraints are preserved. Normalized evidence is limited to unambiguous primitive, literal, enum, default annotation/wrapper, numeric/string/array bounds, pattern, and format values. `const` is a literal, not a default. Factories are never run to manufacture defaults.
 
-```ts
-import { createSchemaForm, normalizeFormbarOptions } from "@formbar/from-schema";
+Formbar presentation metadata is read only from exact provider locations: JSON/Standard JSON `metadata.extensions["x-formbar"]` and Zod `metadata.extensions.formbar`. There is no deep alias lookup or metadata merge.
 
-const schema = {
-	type: "object",
-	properties: {
-		scope: {
-			type: "string",
-			enum: ["any", "documents", "legacy"],
-			"x-formbar": {
-				options: [
-					{ value: "documents", title: "Documents" },
-					{ value: "any", title: "Any field" },
-					{ value: "legacy", title: "Legacy scope", disabled: true },
-				],
-			},
-		},
-	},
-} as const;
+## Trust and limits
 
-const prepared = createSchemaForm(schema);
-const scopeField = prepared.fields.find((field) => field.path === "scope");
-const normalized = normalizeFormbarOptions(scopeField?.metadata, { path: "scope" });
-const preparedOptions = prepared.optionsByPath.get("scope");
-// normalized.options stays ordered as: any, documents, legacy.
-// The UI title never replaces the stored string value.
-```
+Scheman document limits are forwarded with `limits`. Formbar occurrence expansion adds bounded `maxOccurrences`, `maxOccurrenceDepth`, and `maxDefinitionExpansions` under `projectionLimits`.
 
-A structured option record has this exact public shape:
+Zod shape, lazy, and metadata execution permissions remain independently deny-by-default:
 
 ```ts
-type FormbarOptionRecord = {
-	value: string | number | boolean | null;
-	title?: string;
-	disabled?: boolean;
-};
-```
+import { projectSchema, zod4Provider } from "@formbar/from-schema";
 
-Primitive entries such as `options: ["small", "large"]` remain supported. Matching against `enum` uses exact primitive value and type, so `1` and `"1"` are different. Partial metadata is allowed; unmatched enum values remain available with fallback titles. Duplicate records use deterministic first-wins behavior.
-
-Malformed, duplicate, and unmatched records are ignored and returned as structured warnings. `normalizeFormbarOptions` returns `{ options, warnings }`. `createSchemaForm` exposes normalized choices through `SchemaFormResult.optionsByPath` and aggregated warnings through `SchemaFormResult.warnings`. Every warning has a stable `code`, `path`, `index`, `value`, and `message`; it is not logged and is not a validation issue.
-
-An optional synchronous resolver can supply a title for a call. Title resolution order is resolver result, literal `title`, then `String(value)`:
-
-```ts
-const prepared = createSchemaForm(schema, {
-	resolveOptionTitle: ({ value, literalTitle }) => (value === "any" ? "All fields" : literalTitle),
+projectSchema(trustedSchema, {
+	provider: zod4Provider({ execution: { shape: "allow", lazy: "allow", metadata: "allow" } }),
+	side: "input",
 });
 ```
 
-`disabled` is presentation-only, not authorization or schema validation. A UI must prevent newly selecting a disabled option and combine it with whole-field disabled/read-only state. An already selected disabled value remains visible, stored, and schema-valid; it is never automatically cleared. Programmatic form updates and schema validation remain authoritative.
+Only grant permissions to trusted schemas. Standard JSON conversion similarly requires `standardJsonSchemaProvider({ target, execution: "allow" })`; deny mode does not call conversion callbacks.
 
-Without `enum`, `x-formbar.options` defines renderer choices and their order only. It does not constrain validation; use a standard schema keyword when values must be restricted.
+## Diagnostics and validation
 
-With Zod, the same annotation flows through Scheman's generic metadata extraction:
+`SchemaFormResult.diagnostics` keeps `source`, `projection`, `compilation`, and declarative `definition` diagnostics separate and deterministically ordered. The optional source Standard validator handle is returned as `sourceValidator`; caller-provided core validators remain in `validators`. Structural availability is not a validation promise.
 
-```ts
-const zodSchema = z.object({
-	scope: z.enum(["any", "documents"]).meta({
-		formbar: { options: [{ value: "documents", title: "Documents" }] },
-	}),
-});
-```
+## Greenfield migration
 
-Formbar intentionally does not inspect Zod internals. With the current Scheman metadata model, metadata attached to a Zod array element schema is not exposed as a field, so primitive-array item options from Zod cannot yet be prepared at `path[]`. Scalar Zod fields continue to work as shown above. JSON Schema array item annotations are prepared because their source structure is public, including supported local `$ref` item schemas.
+The Scheman v1 flat result/extractor registry/detection/dereference exports and Formbar 0.4 layout compiler, registry, middleware, overrides, UI helpers, handwritten JSON validator, and compatibility aliases were removed. Migrate by selecting a provider and side, reading `descriptors`, and supplying or compiling a FormDefinition. There is no flat-field or layout translation API.
 
-Objects placed directly in standard `enum` are enum values and are stored as objects. They are not interpreted as Formbar option records; put presentation records in `x-formbar.options`.
-
-## Dependencies
-
-- Depends on `@formbar/core` and `@scheman/core`.
-- Peer dependency: `zod >=3.24.0 <4 || >=4.0.0 <5`, marked optional. It is required only for Zod schema ingestion.
+See [Schema compilation architecture](../../docs/architecture/schema-compilation.md).
