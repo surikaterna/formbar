@@ -115,7 +115,6 @@ describe("default FormDefinition compilation", () => {
 			zod3Provider({ execution: { shape: "allow", metadata: "allow" } }),
 		);
 		const zod4Schema = z4.object({ name: z4.string() }).describe("Person section");
-		expect(zod4Schema.meta()).toMatchObject({ description: "Person section" });
 		const zod4 = compile(zod4Schema, zod4Provider({ execution: { shape: "allow", metadata: "allow" } }));
 		expect(json.definition?.root).toMatchObject({ type: "section", description: "Person section" });
 		expect(zod3.definition?.root).toMatchObject({ type: "section", description: "Person section" });
@@ -127,7 +126,6 @@ describe("default FormDefinition compilation", () => {
 
 	it("compiles trusted Zod 4 title and description annotations without aliases", () => {
 		const schema = z4.object({ name: z4.string() }).meta({ title: "Person", description: "Person section" });
-		expect(schema.meta()).toMatchObject({ title: "Person", description: "Person section" });
 		const result = compile(schema, zod4Provider({ execution: { shape: "allow", metadata: "allow" } }));
 		expect(result.definition?.root).toMatchObject({
 			type: "section",

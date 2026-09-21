@@ -14,8 +14,8 @@ export {
 	standardJsonSchemaProvider,
 	standardSchemaProvider,
 	zod3Provider,
-	zod4Provider,
 } from "@scheman/core";
+export { zod4Provider } from "./providers/zod4.js";
 export type {
 	CompileDefaultFormDefinitionOptions,
 	CompileDefaultFormDefinitionResult,

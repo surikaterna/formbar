@@ -24,6 +24,8 @@ Scheman's owned raw `metadata` and `constraints` values are retained exactly. No
 
 Formbar metadata has exact locations only: JSON and Standard JSON use `extensions["x-formbar"]`; Zod uses `extensions.formbar`. Container title/description annotations use JSON/Standard JSON and Zod 4 `metadata.annotations`, while Zod 3 descriptions use `metadata.description`. Compiler presentation allowlisting performs no deep aliases, cross-side/branch merge, or arbitrary UI metadata interpretation.
 
+Zod `>=3.24 <4` and `>=4 <5` are the supported peer ranges, with 3.24.0, 3.25.76, 4.0.0, and 4.5.4 in the fixture matrix. Zod 4.5 moved public methods to prototype getters that materialize an own bound method on first access, while Scheman v2 intentionally accepts only own evidence. Formbar's explicit `zod4Provider` boundary adapts that public API only under `execution.metadata: "allow"`, including nested visits; deny mode does not access it. This is not provider autodetection and reads no private Zod internals.
+
 ## Default definitions and repeater scopes
 
 Compilation is deterministic. IDs derive from provider/side and occurrence IDs. Titled/described objects become sections; other objects become groups. Object properties become structured data bindings. Arrays become repeaters with lexical scopes; primitive items bind to an empty path in that scope, object properties bind relative segments, and nested arrays introduce a new nested scope. Unsupported primitives and constructs produce diagnosed `unsupported` fallback fields. Generated definitions pass the public `validateFormDefinition` API.

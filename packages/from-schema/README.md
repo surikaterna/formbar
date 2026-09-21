@@ -48,6 +48,8 @@ projectSchema(trustedSchema, {
 
 Only grant permissions to trusted schemas. Standard JSON conversion similarly requires `standardJsonSchemaProvider({ target, execution: "allow" })`; deny mode does not call conversion callbacks.
 
+The supported peer range is Zod `>=3.24 <4` and `>=4 <5`; fixtures exercise 3.24.0, 3.25.76, 4.0.0, and 4.5.4. When and only when Zod 4 metadata execution is explicitly allowed, Formbar's provider wrapper reads the public `meta` method so Zod 4.5's lazy public method is materialized before Scheman performs its own-property evidence check. Deny mode delegates untouched and performs no metadata access. The wrapper does not inspect Zod internals or infer a provider.
+
 ## Diagnostics and validation
 
 `SchemaFormResult.diagnostics` keeps `source`, `projection`, `compilation`, and declarative `definition` diagnostics separate and deterministically ordered. The optional source Standard validator handle is returned as `sourceValidator`; caller-provided core validators remain in `validators`. Structural availability is not a validation promise.
