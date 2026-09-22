@@ -115,4 +115,37 @@ describe("runtime subscriptions", () => {
 		port.observeForm();
 		expect(owned.size).toBe(0);
 	});
+
+	it("releases synchronous connections when the core form is already disposed", () => {
+		const formDefinition = definition([field("name", ["name"])]);
+		const created = runtime(formDefinition, { initialData: { name: "Ada" } });
+		created.form.dispose();
+		const port = createFormRuntime({ form: created.form, definition: formDefinition });
+		const observation = port.observeForm();
+		const stop = observation.subscribe(() => {});
+		const runtimeState = port as unknown as {
+			disposed: boolean;
+			cleanup?: () => void;
+			listeners: Set<unknown>;
+			observations: Set<unknown>;
+		};
+		const observationState = observation as unknown as {
+			disposed: boolean;
+			cleanup?: () => void;
+			listeners: Set<unknown>;
+		};
+
+		expect(runtimeState).toMatchObject({ disposed: true, cleanup: undefined });
+		expect(runtimeState.listeners.size).toBe(0);
+		expect(runtimeState.observations.size).toBe(0);
+		expect(observationState).toMatchObject({ disposed: true, cleanup: undefined });
+		expect(observationState.listeners.size).toBe(0);
+		expect(() => {
+			stop();
+			observation.dispose();
+			port.dispose();
+		}).not.toThrow();
+		expect(runtimeState.cleanup).toBeUndefined();
+		expect(observationState.cleanup).toBeUndefined();
+	});
 });

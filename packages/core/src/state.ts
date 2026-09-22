@@ -68,6 +68,13 @@ export interface FormState<TData, TUi> {
 	readonly issues: readonly ValidationIssue[];
 }
 
+/** One coherent current-state and initial-baseline capture. */
+export interface FormStateCapture<TData, TUi> {
+	readonly state: FormState<TData, TUi>;
+	readonly initialData: TData;
+	readonly initialUiState: TUi;
+}
+
 /** ADR section 9 — CreateFormOptions */
 export interface CreateFormOptions<TData, TUi> {
 	readonly schema?: unknown;

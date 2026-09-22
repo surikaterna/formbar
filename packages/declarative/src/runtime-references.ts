@@ -1,4 +1,5 @@
-import type { FormState, ValidationIssue } from "@formbar/core";
+import { structuredEqual, toDot } from "@formbar/core";
+import type { FormState, FormStateCapture, ValidationIssue } from "@formbar/core";
 import type { JsonValue, NamespaceProvider, Scopes, StateRef } from "@formbar/expressions";
 import { readOwn, resolveRef } from "@formbar/expressions";
 import type { Binding } from "./bindings.js";
@@ -41,14 +42,19 @@ export function exactIssues(state: FormState<unknown, unknown>, binding: StateRe
 	);
 }
 
-export function directFieldLifecycle(state: FormState<unknown, unknown>, binding: StateRef): DirectFieldLifecycle {
+export function directFieldLifecycle(
+	capture: FormStateCapture<unknown, unknown>,
+	binding: StateRef,
+): DirectFieldLifecycle {
+	const state = capture.state;
 	const issues = exactIssues(state, binding);
 	const valid = !issues.some((issue) => issue.severity === "error");
-	const metadata = binding.namespace === "data" ? state.fieldMeta[fieldMetadataKey(binding)] : undefined;
+	const metadataKey = fieldMetadataKey(binding);
+	const metadata = metadataKey === undefined ? undefined : state.fieldMeta[metadataKey];
 	return Object.freeze({
 		valid,
 		validating: metadata?.isValidating ?? false,
-		dirty: metadata?.dirty ?? false,
+		dirty: bindingDirty(capture, binding),
 		touched: metadata?.touched ?? false,
 	});
 }
@@ -94,11 +100,33 @@ function scopePrefix(candidate: RuntimeNodeInstance, current: RuntimeNodeInstanc
 	});
 }
 
-function fieldMetadataKey(binding: StateRef): string {
+function fieldMetadataKey(binding: StateRef): string | undefined {
+	if (binding.namespace === "ui") {
+		try {
+			return toDot({ namespace: "ui", segments: binding.segments });
+		} catch {
+			return undefined;
+		}
+	}
+	if (binding.namespace !== "data") return undefined;
 	const segments = binding.segments.map(normalizeMetadataSegment);
 	const dotSafe = segments.every((segment) => typeof segment === "number" || !segment.includes("."));
 	if (segments[0] !== "$ui" && dotSafe) return segments.join(".");
 	return `/${segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
+function bindingDirty(capture: FormStateCapture<unknown, unknown>, binding: StateRef): boolean {
+	const currentRoot = binding.namespace === "data" ? capture.state.data : capture.state.uiState;
+	const initialRoot = binding.namespace === "data" ? capture.initialData : capture.initialUiState;
+	return !structuredEqual(readPath(currentRoot, binding), readPath(initialRoot, binding));
+}
+
+function readPath(root: unknown, binding: StateRef): unknown {
+	try {
+		return readOwn(root, binding.segments);
+	} catch {
+		return undefined;
+	}
 }
 
 const normalizeMetadataSegment = (segment: string | number): string | number =>

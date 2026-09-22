@@ -1,6 +1,6 @@
+import { structuredEqual } from "@formbar/core";
 import { CallbackBoundary } from "@formbar/expressions";
 import type { Observation } from "@formbar/expressions";
-import { runtimeValueEqual } from "./runtime-equality.js";
 
 export class RuntimeObservation<T> implements Observation<T> {
 	private readonly lifecycle = new CallbackBoundary();
@@ -19,7 +19,7 @@ export class RuntimeObservation<T> implements Observation<T> {
 	getSnapshot = (): T => {
 		if (!this.read) return this.snapshot as T;
 		const next = this.read();
-		if (!this.initialized || !runtimeValueEqual(this.snapshot, next)) this.snapshot = next;
+		if (!this.initialized || !structuredEqual(this.snapshot, next)) this.snapshot = next;
 		this.initialized = true;
 		return this.snapshot as T;
 	};
@@ -30,12 +30,20 @@ export class RuntimeObservation<T> implements Observation<T> {
 		if (this.disposed) return () => {};
 		const callback = () => listener();
 		this.listeners.add(callback);
-		if (!this.cleanup && this.connect) this.cleanup = this.connect(this.notify);
+		if (!this.cleanup && this.connect) this.connectOnce();
 		return () => {
 			if (!this.listeners.delete(callback) || this.listeners.size) return;
 			this.disconnect();
 		};
 	};
+
+	private connectOnce(): void {
+		const connect = this.connect;
+		if (!connect) return;
+		const cleanup = connect(this.notify);
+		if (this.disposed || !this.listeners.size) this.lifecycle.run(cleanup);
+		else this.cleanup = cleanup;
+	}
 
 	private notify = (): void => {
 		const previous = this.snapshot;

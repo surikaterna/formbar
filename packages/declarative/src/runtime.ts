@@ -1,4 +1,4 @@
-import { createCoreExpressionNamespaces } from "@formbar/core";
+import { createCoreExpressionNamespaces, structuredEqual } from "@formbar/core";
 import type { FormApi } from "@formbar/core";
 import { CallbackBoundary, createExpressionService, failure } from "@formbar/expressions";
 import type { JsonValue, Observation, Segment, StateRef, WriteResult } from "@formbar/expressions";
@@ -10,7 +10,6 @@ import type {
 	RuntimePort,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
-import { runtimeValueEqual } from "./runtime-equality.js";
 import { RuntimeObservation } from "./runtime-observation.js";
 import { projectRuntime } from "./runtime-projection.js";
 
@@ -41,7 +40,7 @@ class DeclarativeRuntime implements RuntimePort {
 			definition: this.options.definition,
 			...(this.options.baseline ? { baseline: this.options.baseline } : {}),
 		});
-		if (!this.snapshot || !runtimeValueEqual(this.snapshot, next)) this.snapshot = next;
+		if (!this.snapshot || !structuredEqual(this.snapshot, next)) this.snapshot = next;
 		return this.snapshot;
 	};
 
@@ -84,7 +83,15 @@ class DeclarativeRuntime implements RuntimePort {
 
 	private attach(): void {
 		const state = this.options.form.subscribe(this.notify);
+		if (this.disposed) {
+			this.lifecycle.run(state);
+			return;
+		}
 		const disposal = this.options.form.onDispose(this.dispose);
+		if (this.disposed) {
+			this.lifecycle.runAll([state, disposal]);
+			return;
+		}
 		this.cleanup = () => this.lifecycle.runAll([state, disposal]);
 	}
 

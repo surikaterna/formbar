@@ -1,4 +1,5 @@
-import type { FormApi, FormState } from "@formbar/core";
+import { structuredEqual } from "@formbar/core";
+import type { FormApi, FormState, FormStateCapture } from "@formbar/core";
 import { createExpressionService } from "@formbar/expressions";
 import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
@@ -42,6 +43,7 @@ interface ExpandFrame {
 }
 
 interface ProjectionContext {
+	readonly capture: FormStateCapture<unknown, unknown>;
 	readonly state: FormState<unknown, unknown>;
 	readonly formStatus: RuntimeFormStatus;
 	readonly concrete: readonly ConcreteNode[];
@@ -57,13 +59,14 @@ export interface ProjectRuntimeOptions {
 }
 
 export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot {
-	const state = options.form.getState() as FormState<unknown, unknown>;
+	const capture = options.form.captureState() as FormStateCapture<unknown, unknown>;
+	const state = capture.state;
 	const concrete = expandDefinition(options.definition, state);
 	const diagnostics: RuntimeDiagnostic[] = [];
 	const baselines = normalizeBaselines(options.definition, options.baseline ?? [], diagnostics);
-	const formStatus = resolveFormStatus(state);
+	const formStatus = resolveFormStatus(capture);
 	const fields = concreteFields(concrete);
-	const context = { state, formStatus, concrete, fields, baselines, diagnostics };
+	const context = { capture, state, formStatus, concrete, fields, baselines, diagnostics };
 	const resolved = resolveNodes(context);
 	return Object.freeze({
 		data: state.data as JsonValue,
@@ -204,6 +207,7 @@ function resolveNode(
 		evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
 	const baseline = context.baselines.get(concrete.node.id);
 	const field = resolveFieldState({
+		capture: context.capture,
 		state: context.state,
 		node: concrete.node,
 		instance: concrete.instance,
@@ -281,17 +285,18 @@ function expressionFailure(
 
 function expressionProviders(context: ProjectionContext, concrete: ConcreteNode) {
 	const fieldSnapshot = contextualFieldSnapshot(concrete.instance, context.fields, (binding) =>
-		directFieldLifecycle(context.state, binding),
+		directFieldLifecycle(context.capture, binding),
 	);
 	return createSnapshotProviders(context.state, context.formStatus, fieldSnapshot);
 }
 
-function resolveFormStatus(state: FormState<unknown, unknown>): RuntimeFormStatus {
+function resolveFormStatus(capture: FormStateCapture<unknown, unknown>): RuntimeFormStatus {
+	const state = capture.state;
 	return Object.freeze({
 		valid: !state.issues.some((issue) => issue.severity === "error"),
 		validating: state.meta.validation.validating === true,
 		submitting: state.meta.submission?.status === "running",
-		dirty: Object.values(state.fieldMeta).some((entry) => entry.dirty),
+		dirty: !structuredEqual(state.data, capture.initialData),
 		touched: Object.values(state.fieldMeta).some((entry) => entry.touched),
 		submitted: state.meta.submitted === true,
 	});
