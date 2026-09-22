@@ -22,7 +22,6 @@ import {
 	arbiterSectionsRules,
 	arbiterSectionsSchema,
 } from "../demos/21-arbiter-dynamic-sections";
-import type { SchemaDemoSource } from "../demos/baseline-contracts";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 const fixtures = [conditionalFieldsDemo, surveyDemo, arbiterVisibilityDemo, arbiterDynamicSectionsDemo];
@@ -44,13 +43,6 @@ function fields(definition: (typeof fixtures)[number]["sources"][number]["defini
 
 function schemaProperties(schema: { readonly properties: Readonly<Record<string, unknown>> }) {
 	return Object.keys(schema.properties);
-}
-
-function authoredOptions(definition: NonNullable<SchemaDemoSource["definition"]>, id: string) {
-	const node = nodes(definition.root).find((candidate) => candidate.id === id);
-	if (node?.type !== "field") throw new Error(`Missing field ${id}`);
-	const options = node.props?.options;
-	return options?.mode === "literal" ? options.value : undefined;
 }
 
 function policy<TData, TUi>(form: FormApi<TData, TUi>) {
@@ -188,11 +180,22 @@ describe("conditional fixture fidelity", () => {
 			"British Columbia",
 			"Alberta",
 		]);
-		expect(arbiterVisibilityData).toEqual({ country: "", state: "", province: "", region: "" });
-		const definition = arbiterVisibilityDemo.sources[0].definition;
-		expect(authoredOptions(definition, "f-country")).toEqual(["", "US", "CA", "UK", "DE"]);
-		expect(authoredOptions(definition, "f-state")).toEqual(["", "California", "New York", "Texas", "Florida"]);
-		expect(authoredOptions(definition, "f-province")).toEqual(["", "Ontario", "Quebec", "British Columbia", "Alberta"]);
+		const historicalInitialData = { country: "", state: "", province: "", region: "" };
+		expect(arbiterVisibilityData).toEqual({ region: "" });
+		expect(Object.keys(historicalInitialData).filter((key) => !(key in arbiterVisibilityData))).toEqual([
+			"country",
+			"state",
+			"province",
+		]);
+		expect(arbiterVisibilityDemo.copy).toContain("renderer-owned blank placeholder");
+		const selects = nodes(arbiterVisibilityDemo.sources[0].definition.root).filter(
+			(node) => node.type === "field" && node.widget === "select",
+		);
+		expect(selects.map((node) => node.type === "field" && node.props?.options)).toEqual([
+			undefined,
+			undefined,
+			undefined,
+		]);
 		expect(fields(arbiterVisibilityDemo.sources[0].definition)).toEqual([
 			["country", "select", "Country"],
 			["state", "select", "State"],

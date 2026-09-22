@@ -35,20 +35,9 @@ const selectedCountry: Expression = {
 	],
 };
 
-function field(id: string, path: string, widget: string, label: string, options?: readonly string[]): FormNode {
-	return {
-		type: "field",
-		id,
-		binding: { namespace: "data", segments: [path] },
-		widget,
-		label,
-		...(options ? { props: { options: { mode: "literal" as const, value: options } } } : {}),
-	};
+function field(id: string, path: string, widget: string, label: string): FormNode {
+	return { type: "field", id, binding: { namespace: "data", segments: [path] }, widget, label };
 }
-
-const countries = ["", "US", "CA", "UK", "DE"] as const;
-const states = ["", "California", "New York", "Texas", "Florida"] as const;
-const provinces = ["", "Ontario", "Quebec", "British Columbia", "Alberta"] as const;
 
 export const arbiterVisibilityDefinition = {
 	version: 1,
@@ -57,7 +46,7 @@ export const arbiterVisibilityDefinition = {
 		type: "group",
 		id: "root",
 		children: [
-			field("f-country", "country", "select", "Country", countries),
+			field("f-country", "country", "select", "Country"),
 			{
 				type: "conditional",
 				id: "when-country-selected",
@@ -69,8 +58,8 @@ export const arbiterVisibilityDefinition = {
 						id: "regional-details",
 						title: "Regional Details",
 						children: [
-							field("f-state", "state", "select", "State", states),
-							field("f-province", "province", "select", "Province", provinces),
+							field("f-state", "state", "select", "State"),
+							field("f-province", "province", "select", "Province"),
 							field("f-region", "region", "text", "Region"),
 						],
 					},
@@ -94,13 +83,13 @@ export const arbiterVisibilitySchema = {
 	},
 } as const;
 
-export const arbiterVisibilityData = { country: "", state: "", province: "", region: "" } as const;
+export const arbiterVisibilityData = { region: "" } as const;
 
 export const arbiterVisibilityDemo = {
 	id: "arbiter-visibility",
 	title: "18. Arbiter: Conditional Visibility",
 	subtitle: "Normalized regional field policy",
-	copy: "A native gate owns the empty country state. For a selected country, Arbiter alone projects the complete regional visibility policy and releases stale policy on clear.",
+	copy: "The renderer-owned blank placeholder represents historical empty select values without adding them to the typed enum domain. A native gate owns that state; Arbiter alone projects regional visibility and releases stale policy on clear.",
 	category: "conditional",
 	sources: [
 		{

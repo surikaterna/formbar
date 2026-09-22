@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createArbiterPlugin } from "@formbar/arbiter";
 import { createForm } from "@formbar/core";
 import type { FormDefinition } from "@formbar/declarative";
 import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
@@ -9,7 +10,13 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { conditionalFieldsDemo } from "../demos/07-conditional-fields";
 import { surveyDemo } from "../demos/12-survey-questionnaire";
-import { arbiterVisibilityDemo } from "../demos/18-arbiter-visibility";
+import {
+	arbiterVisibilityData,
+	arbiterVisibilityDefinition,
+	arbiterVisibilityDemo,
+	arbiterVisibilityRules,
+	arbiterVisibilitySchema,
+} from "../demos/18-arbiter-visibility";
 import { arbiterDynamicSectionsDemo } from "../demos/21-arbiter-dynamic-sections";
 import type { SchemaDemoFixture } from "../demos/baseline-contracts";
 import { SchemaDemoHost } from "../renderers/SchemaDemoHost";
@@ -19,11 +26,15 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 interface MountedView {
 	readonly container: HTMLDivElement;
 	readonly root: Root;
+	readonly dispose?: () => void;
 }
 
 const mounted: MountedView[] = [];
 afterEach(async () => {
-	for (const view of mounted.splice(0)) act(() => view.root.unmount());
+	for (const view of mounted.splice(0)) {
+		act(() => view.root.unmount());
+		view.dispose?.();
+	}
 	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 	document.body.replaceChildren();
 });
@@ -41,6 +52,30 @@ function mount(fixture: SchemaDemoFixture, strict = false): MountedView {
 
 function node(view: MountedView, id: string): HTMLElement | null {
 	return view.container.querySelector(`[data-formbar-node="${id}"]`);
+}
+
+function optionSnapshot(select: HTMLSelectElement): readonly (readonly [string, string])[] {
+	return [...select.options].map((option) => [option.textContent ?? "", option.value] as const);
+}
+
+function mountVisibilityProbe() {
+	const prepared = createSchemaForm(arbiterVisibilitySchema, {
+		provider: jsonSchemaProvider(),
+		side: "input",
+		definition: arbiterVisibilityDefinition,
+	});
+	const form = createForm<Record<string, unknown>, Record<string, never>>({
+		initialData: arbiterVisibilityData,
+		initialUiState: {},
+		plugins: [createArbiterPlugin({ rules: arbiterVisibilityRules })],
+	});
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	act(() => root.render(<FormRenderer {...prepared} form={form} />));
+	const view = { container, root, dispose: () => form.dispose() };
+	mounted.push(view);
+	return { view, form };
 }
 
 function labelled(view: MountedView, text: string): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
@@ -167,6 +202,51 @@ describe("native conditional demos", () => {
 });
 
 describe("Arbiter-backed host transitions", () => {
+	it("renders one typed placeholder and preserves clear/reset data semantics for every regional select", () => {
+		const { view, form } = mountVisibilityProbe();
+		const country = labelled(view, "Country") as HTMLSelectElement;
+		expect(optionSnapshot(country)).toEqual([
+			["", ""],
+			["US", "option-0"],
+			["CA", "option-1"],
+			["UK", "option-2"],
+			["DE", "option-3"],
+		]);
+		expect([country.selectedIndex, form.getState().data]).toEqual([0, { region: "" }]);
+		select(view, "Country", "US");
+		expect(form.getState().data.country).toBe("US");
+		const state = labelled(view, "State") as HTMLSelectElement;
+		expect(optionSnapshot(state)).toEqual([
+			["", ""],
+			["California", "option-0"],
+			["New York", "option-1"],
+			["Texas", "option-2"],
+			["Florida", "option-3"],
+		]);
+		expect(state.selectedIndex).toBe(0);
+		select(view, "State", "Texas");
+		select(view, "Country", "CA");
+		const province = labelled(view, "Province") as HTMLSelectElement;
+		expect(optionSnapshot(province)).toEqual([
+			["", ""],
+			["Ontario", "option-0"],
+			["Quebec", "option-1"],
+			["British Columbia", "option-2"],
+			["Alberta", "option-3"],
+		]);
+		expect(province.selectedIndex).toBe(0);
+		select(view, "Province", "Ontario");
+		expect(form.getState().data.province).toBe("Ontario");
+		select(view, "Province", "");
+		expect(form.getState().data).toMatchObject({ country: "CA", state: "Texas", province: undefined });
+		select(view, "Country", "");
+		expect(form.getState().data.country).toBeUndefined();
+		act(() => form.reset());
+		expect(form.getState().data).toEqual({ region: "" });
+		expect((labelled(view, "Country") as HTMLSelectElement).selectedIndex).toBe(0);
+		expect(node(view, "regional-details")).toBeNull();
+	});
+
 	it("handles US/CA/UK/DE/clear without stale visibility and retains hidden regional data", () => {
 		const view = mount(arbiterVisibilityDemo);
 		expect(node(view, "regional-details")).toBeNull();
