@@ -1,5 +1,11 @@
 # @formbar/arbiter
 
+## 0.9.0
+
+### Minor Changes
+
+- a74cb4f: Translate strict `$formbar.fieldPolicy.<outputId>` rule outputs into normalized Formbar field policy contributions.
+
 ## 0.8.0
 
 ### Patch Changes
