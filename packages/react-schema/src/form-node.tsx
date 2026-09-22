@@ -2,6 +2,8 @@ import type { FormNode, ResolvedFieldState, ResolvedNodeState } from "@formbar/d
 import { fieldId } from "@formbar/react";
 import { memo } from "react";
 import type { ReactElement } from "react";
+import { AccordionView, TabsView } from "./collection-nodes.js";
+import { CustomNodeView } from "./extension-node.js";
 import { FormField, FormValidation } from "./form-field.js";
 import { DiagnosticFallback, layoutProps } from "./renderer-elements.js";
 import { domIdToken, spanOutput } from "./renderer-evidence.js";
@@ -28,6 +30,36 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 	if (node.type === "group") return renderGroup(node, environment, layout);
 	if (node.type === "section") return renderSection(node, environment, layout);
 	if (node.type === "conditional") return renderConditional(node, state.branch, environment, layout);
+	if (node.type === "tabs")
+		return (
+			<TabsView
+				node={node}
+				environment={environment}
+				layout={layout}
+				renderChildren={(children) => renderChildren(children, environment)}
+			/>
+		);
+	if (node.type === "accordion")
+		return (
+			<AccordionView
+				node={node}
+				environment={environment}
+				layout={layout}
+				renderChildren={(children) => renderChildren(children, environment)}
+			/>
+		);
+	if (node.type === "custom")
+		return (
+			<CustomNodeView
+				node={node}
+				state={state}
+				environment={environment}
+				layout={layout}
+				renderChild={(child) => (
+					<FormNodeView node={child} environment={{ ...environment, extensionFailureCode: "extension-child-failed" }} />
+				)}
+			/>
+		);
 	return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 });
 
@@ -90,6 +122,16 @@ function renderConditional(
 
 function NodeChildren(props: { readonly nodes: readonly FormNode[]; readonly environment: RendererEnvironment }) {
 	return props.nodes.map((node) => <FormNodeView key={node.id} node={node} environment={props.environment} />);
+}
+
+function renderChildren(nodes: readonly FormNode[], environment: RendererEnvironment): ReactElement {
+	return (
+		<>
+			{nodes.map((node) => (
+				<FormNodeView key={node.id} node={node} environment={environment} />
+			))}
+		</>
+	);
 }
 
 function isResolvedFieldState(state: ResolvedNodeState): state is ResolvedFieldState {

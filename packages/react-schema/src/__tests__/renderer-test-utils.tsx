@@ -6,6 +6,7 @@ import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { FormRenderer } from "../index.js";
+import type { RendererExtensions } from "../index.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -19,17 +20,18 @@ export interface MountedForm<TData extends object, TUi extends object> {
 
 export function mountForm<TData extends object, TUi extends object = Record<string, never>>(options: {
 	readonly schema: unknown;
-	readonly definition: FormDefinition;
+	readonly definition?: FormDefinition;
 	readonly data: TData;
 	readonly uiState?: TUi;
 	readonly formOptions?: Omit<CreateFormOptions<TData, TUi>, "initialData" | "initialUiState">;
 	readonly strict?: boolean;
 	readonly prepareForm?: (form: FormApi<TData, TUi>) => void;
+	readonly extensions?: RendererExtensions;
 }): MountedForm<TData, TUi> {
 	const prepared = createSchemaForm<TData, TUi>(options.schema, {
 		provider: jsonSchemaProvider(),
 		side: "input",
-		definition: options.definition,
+		...(options.definition ? { definition: options.definition } : {}),
 	});
 	const form = createForm<TData, TUi>({
 		initialData: options.data,
@@ -40,7 +42,9 @@ export function mountForm<TData extends object, TUi extends object = Record<stri
 	document.body.append(container);
 	const root = createRoot(container);
 	options.prepareForm?.(form);
-	const renderer = <FormRenderer {...prepared} form={form} />;
+	const renderer = (
+		<FormRenderer {...prepared} form={form} {...(options.extensions ? { extensions: options.extensions } : {})} />
+	);
 	act(() => root.render(options.strict ? <StrictMode>{renderer}</StrictMode> : renderer));
 	return {
 		container,

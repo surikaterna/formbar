@@ -10,6 +10,14 @@ import type {
 import type { DescriptorDocument, NormalizedEvidence } from "@formbar/from-schema";
 
 export type RendererDiagnostic =
+	| "duplicate-extension-id"
+	| "extension-child-failed"
+	| "extension-render-failed"
+	| "extension-validator-failed"
+	| "invalid-extension-props"
+	| "invalid-extension-registration"
+	| "missing-extension"
+	| "reserved-widget-id"
 	| "unsupported-node"
 	| "unsupported-widget"
 	| "unsupported-binding"
@@ -50,7 +58,7 @@ const NUMERIC_SEGMENT = /^(?:0|[1-9]\d*)$/;
 const BREAKPOINTS = ["base", "sm", "md", "lg", "xl"] as const;
 const STRING_FORMATS = new Set(["email", "url", "tel", "date", "time"]);
 const MAX_NATIVE_DATE = { year: "275760", monthDay: "09-13" } as const;
-const WIDGETS = new Set([
+export const NATIVE_WIDGET_IDS = new Set([
 	"text",
 	"textarea",
 	"number",
@@ -81,6 +89,17 @@ export function descriptorEvidence(document: DescriptorDocument, binding: Bindin
 	const merged: NormalizedEvidence = {};
 	for (const occurrence of matches) Object.assign(merged, document.evidence[occurrence.nodeId]);
 	return Object.freeze(merged);
+}
+
+export function descriptorDescription(document: DescriptorDocument, binding: Binding): string | undefined {
+	if (binding.namespace !== "data") return undefined;
+	const occurrence = Object.values(document.occurrences)
+		.filter((candidate) => samePath(candidate.path, binding.segments))
+		.sort((left, right) => left.id.localeCompare(right.id))[0];
+	if (!occurrence) return undefined;
+	const metadata = record(document.nodes[occurrence.nodeId]?.metadata);
+	const annotations = record(metadata?.annotations) ?? metadata;
+	return typeof annotations?.description === "string" ? annotations.description : undefined;
 }
 
 export function literalProp(field: Pick<FieldNode, "props">, key: string): JsonValue | undefined {
@@ -124,7 +143,7 @@ export function resolveFieldEvidence(
 ): FieldRenderEvidence {
 	const path = editablePath(node.binding);
 	if (!path) return { ok: false, diagnostic: "unsupported-binding" };
-	if (!WIDGETS.has(node.widget)) return { ok: false, diagnostic: "unsupported-widget" };
+	if (!NATIVE_WIDGET_IDS.has(node.widget)) return { ok: false, diagnostic: "unsupported-widget" };
 	const evidence = descriptorEvidence(document, node.binding);
 	if (node.widget === "select" || node.widget === "radio") {
 		const options = optionEvidence(node, evidence);
@@ -182,6 +201,12 @@ function scalar(value: JsonValue): value is ScalarOption {
 		typeof value === "boolean" ||
 		(typeof value === "number" && Number.isFinite(value))
 	);
+}
+
+function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Readonly<Record<string, unknown>>)
+		: undefined;
 }
 
 function samePath(left: readonly (string | number | "*")[], right: readonly (string | number)[]): boolean {
