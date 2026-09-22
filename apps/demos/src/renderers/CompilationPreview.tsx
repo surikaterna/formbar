@@ -23,7 +23,7 @@ export function CompilationPreview({ schema, definition, initialData }: Compilat
 			<section className="rounded-lg border border-info bg-info-background p-4">
 				<h1 className="text-xl font-bold">Schema compilation preview</h1>
 				<p className="mt-2 text-sm text-muted-foreground">
-					This view is read-only. FormDefinition rendering and interactive domain controls await issues #64 and #65.
+					This playground remains a read-only compiler view. Numbered demos use the interactive production renderer.
 				</p>
 			</section>
 			<div className="mt-6 grid gap-4 lg:grid-cols-2">

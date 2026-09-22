@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import "./globals.css";
 import { demos } from "./demos/index";
 import { PlaygroundPage } from "./playground/PlaygroundPage";
-import { getCompatibility } from "./playground/presets";
+import { compatibilityMatrix, getCompatibility } from "./playground/presets";
 import { type AppRoute, readRoute, routeUrl } from "./playground/route";
 import { Button, ScrollArea, cn } from "./ui";
 
@@ -33,7 +33,8 @@ function playgroundRoute(demoId: string): AppRoute {
 
 export function App() {
 	const { route, navigate } = useAppRoute();
-	if (route.mode === "playground") {
+	const hasPlayground = compatibilityMatrix.some((entry) => entry.demoId === route.demoId);
+	if (route.mode === "playground" && hasPlayground) {
 		return (
 			<PlaygroundPage
 				demoId={route.demoId}
@@ -49,14 +50,16 @@ export function App() {
 		<div className="flex h-screen">
 			<DemoNavigation activeDemo={activeDemo} onSelect={(demoId) => navigate({ mode: "demo", demoId })} />
 			<main className="flex-1 overflow-auto">
-				<div className="sticky top-0 z-10 flex justify-end border-b border-border bg-background/95 px-4 py-2">
-					<Button
-						className="border-primary bg-primary text-primary-foreground"
-						onClick={() => navigate(playgroundRoute(route.demoId))}
-					>
-						Open compilation playground
-					</Button>
-				</div>
+				{hasPlayground ? (
+					<div className="sticky top-0 z-10 flex justify-end border-b border-border bg-background/95 px-4 py-2">
+						<Button
+							className="border-primary bg-primary text-primary-foreground"
+							onClick={() => navigate(playgroundRoute(route.demoId))}
+						>
+							Open compilation playground
+						</Button>
+					</div>
+				) : null}
 				{Demo ? <Demo /> : <div className="p-8 text-muted-foreground">No demos available</div>}
 			</main>
 		</div>

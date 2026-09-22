@@ -8,8 +8,8 @@ Headless form state, schema compilation, and presentation contracts for TypeScri
 | --- | --- | --- | --- |
 | Schema evidence | [`@formbar/from-schema`](./packages/from-schema) | Recursive descriptor documents, constraints, presence, defaults, metadata, provenance, capabilities, source diagnostics, validation handles | Visibility policy, current values, DOM, ARIA, rendering |
 | Authored presentation intent | [`@formbar/declarative`](./packages/declarative) | Versioned `FormDefinition`, nodes, bindings/scopes, widget/action/renderer IDs, labels, conditions, outputs, computations | Scheman/provider concepts or resolved runtime state |
-| Resolved runtime state | Future #64 with core inputs from #62 | Current values, visibility, disabled/read-only/required state, issues, lifecycle | Implemented by schema compilation |
-| React DOM and ARIA | Future #65 | Rendering and view identity | Implemented by `@formbar/react-schema` today |
+| Resolved runtime state | `@formbar/declarative` with core inputs | Current values, visibility, disabled/read-only/required state, issues, lifecycle | Implemented by schema compilation |
+| React DOM and ARIA | `@formbar/react-schema` | Production rendering and view identity | App-owned renderer or binding layers |
 
 Other packages remain focused: `@formbar/core` owns headless form state, `@formbar/react` owns React bindings, `@formbar/expressions` owns authorized expressions, and `@formbar/arbiter` adapts Arbitre rules to the core plugin pipeline.
 
@@ -20,8 +20,8 @@ schema + explicit Scheman provider + input/output side
   -> @scheman/core SchemaDocument
   -> @formbar/from-schema DescriptorDocument
   -> deterministic validated @formbar/declarative FormDefinition v1
-  -> [future #64 runtime resolution]
-  -> [future #65 React DOM/ARIA rendering]
+  -> schema-agnostic runtime resolution
+  -> @formbar/react-schema React DOM/ARIA rendering
 ```
 
 The dependency direction is one-way: `from-schema -> declarative`. Declarative never imports Scheman or from-schema. From-schema never imports React, React-schema, Arbiter, or TUI packages.
@@ -30,7 +30,7 @@ The dependency direction is one-way: `from-schema -> declarative`. Declarative n
 
 Formbar currently has no compatibility commitment to the removed Scheman v1 flat-field, layout, renderer-registry, or state-pruning APIs. They were deleted rather than translated or shimmed. Persisted playground documents use version 2 and older documents are rejected rather than migrated.
 
-The demo app is intentionally a **read-only compilation preview**. It displays descriptors, a validated definition, separated diagnostics, and current core data. It does not render `FormDefinition` controls or claim interactive schema-form support; that awaits #64 and #65.
+The demo app keeps a read-only compilation playground and also provides numbered, interactive examples rendered by the production `useSchemaForm` → `FormRenderer` path.
 
 See [Schema compilation architecture](./docs/architecture/schema-compilation.md).
 

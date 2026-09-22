@@ -23,7 +23,7 @@ describe("CompilationPreview", () => {
 		const element = CompilationPreview({ schema: { type: "string" } });
 		const serialized = JSON.stringify(element);
 		expect(serialized).toContain("read-only");
-		expect(serialized).toContain("await issues #64 and #65");
+		expect(serialized).toContain("read-only compiler view");
 		expect(serialized).toContain("Descriptor document and evidence");
 		expect(serialized).toContain('"evidence":{"n1":{"primitive":"string","minLength":2}}');
 		expect(serialized).not.toContain('"type":"input"');

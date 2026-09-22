@@ -4,8 +4,10 @@ import { parseDocument, stringifyDocument } from "../playground/document";
 import { compatibilityMatrix } from "../playground/presets";
 
 describe("compilation preview presets", () => {
-	it("publishes only the truthful compilation preview", () => {
-		expect(demos.map((demo) => [demo.id, demo.category])).toEqual([["schema-compilation", "compilation"]]);
+	it("keeps only the truthful compilation preview in the unchanged preset matrix", () => {
+		expect(demos.filter((demo) => demo.category === "compilation").map((demo) => demo.id)).toEqual([
+			"schema-compilation",
+		]);
 		expect(compatibilityMatrix.map(({ demoId, support }) => [demoId, support])).toEqual([
 			["schema-compilation", "full"],
 		]);

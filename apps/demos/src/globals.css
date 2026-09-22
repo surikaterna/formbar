@@ -149,3 +149,57 @@
 		color: var(--popover-foreground);
 	}
 }
+
+.schema-demo-host button,
+.schema-demo-host select,
+.schema-demo-form input,
+.schema-demo-form select,
+.schema-demo-form textarea {
+	border: 1px solid var(--input);
+	border-radius: var(--radius-sm);
+	background: var(--surface-inset);
+	color: var(--foreground);
+	padding: 0.55rem 0.7rem;
+}
+
+.schema-demo-host button {
+	cursor: pointer;
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.schema-demo-form form > [data-formbar-node],
+.schema-demo-form fieldset,
+.schema-demo-form section {
+	display: grid;
+	grid-template-columns: repeat(12, minmax(0, 1fr));
+	gap: 1rem;
+}
+
+.schema-demo-form [data-formbar-node] > [data-formbar-node] {
+	grid-column: span var(--formbar-span-base, 12);
+}
+
+.schema-demo-form h2,
+.schema-demo-form section > p,
+.schema-demo-form legend {
+	grid-column: 1 / -1;
+	font-weight: 600;
+}
+
+.schema-demo-form label {
+	display: block;
+	margin-bottom: 0.35rem;
+}
+
+.schema-demo-form input:not([type="checkbox"]):not([type="radio"]),
+.schema-demo-form select,
+.schema-demo-form textarea {
+	width: 100%;
+}
+
+@media (min-width: 48rem) {
+	.schema-demo-form [data-formbar-node] > [data-formbar-node] {
+		grid-column: span var(--formbar-span-md, var(--formbar-span-base, 12));
+	}
+}
