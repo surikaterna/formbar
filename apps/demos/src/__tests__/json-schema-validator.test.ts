@@ -28,7 +28,7 @@ const unsupportedAsync = {
 describe("Draft 2020-12 JSON Schema adapter", () => {
 	it("compiles every shared fixture source, including multi-source and Arbiter demos", () => {
 		const sources = baselineFixtures.flatMap((fixture) => fixture.sources);
-		expect(sources).toHaveLength(14);
+		expect(sources).toHaveLength(18);
 		for (const source of sources) {
 			expect(() => createJsonSchemaValidator(source.schema), source.key).not.toThrow();
 		}

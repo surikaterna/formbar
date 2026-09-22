@@ -25,7 +25,7 @@ describe("baseline demo architecture", () => {
 		expect(host).toContain("createJsonSchemaValidators(source.schema)");
 		expect(host).toContain("validators,");
 		expect(host).not.toMatch(/useFormSelector|useField|fieldDynamic|<(?:input|textarea)\b/);
-		expect(host.match(/<select\b/g)).toHaveLength(1);
+		expect(host.match(/<select\b/g)).toHaveLength(2);
 	});
 
 	it("preserves baseline routes while registering conditional scenarios in numeric order", async () => {
@@ -42,10 +42,12 @@ describe("baseline demo architecture", () => {
 			"survey",
 			"multi-schema-sources",
 			"kitchen-sink",
+			"custom-renderers",
+			"custom-layout-types",
 			"arbiter-visibility",
 			"arbiter-dynamic-sections",
 		]);
 		expect(demos.at(-1)?.id).toBe("schema-compilation");
-		expect(demos).toHaveLength(14);
+		expect(demos).toHaveLength(16);
 	});
 });

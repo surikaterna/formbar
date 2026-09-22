@@ -3,7 +3,7 @@ import type { SubmitExecutionContext } from "@formbar/core";
 import { jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer, useSchemaForm } from "@formbar/react-schema";
 import { useEffect, useId, useState } from "react";
-import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
+import type { SchemaDemoFixture, SchemaDemoRuntimeProfile, SchemaDemoSource } from "../demos/baseline-contracts";
 import { createJsonSchemaValidators } from "../validation/json-schema-validator";
 import { CodeBlock } from "./CodeBlock";
 
@@ -36,19 +36,46 @@ export function SchemaDemoHost({ fixture, onSubmit }: SchemaDemoHostProps) {
 					</label>
 				) : null}
 			</header>
-			<PreparedDemo key={`${fixture.id}:${source.key}`} source={source} onSubmit={onSubmit} />
+			<PreparedDemo
+				key={`${fixture.id}:${source.key}`}
+				source={source}
+				runtimeProfile={fixture.runtimeProfile}
+				onSubmit={onSubmit}
+			/>
 		</main>
 	);
 }
 
 function PreparedDemo({
 	source,
+	runtimeProfile,
 	onSubmit,
-}: { readonly source: SchemaDemoSource; readonly onSubmit?: SchemaDemoHostProps["onSubmit"] }) {
+}: {
+	readonly source: SchemaDemoSource;
+	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
+	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
+}) {
 	const committed = useCommittedArbiterPlugin(source.arbiterRules);
-	if (!source.arbiterRules) return <RenderedDemo key="plain" source={source} plugins={noPlugins} onSubmit={onSubmit} />;
+	if (!source.arbiterRules)
+		return (
+			<RenderedDemo
+				key="plain"
+				source={source}
+				plugins={noPlugins}
+				runtimeProfile={runtimeProfile}
+				onSubmit={onSubmit}
+			/>
+		);
 	if (!committed || committed.rules !== source.arbiterRules || !committed.active) return <PreparingRules />;
-	return <RenderedDemo key="arbiter" source={source} plugins={committed.plugins} onSubmit={onSubmit} />;
+	return (
+		<RenderedDemo
+			key="arbiter"
+			source={source}
+			plugins={committed.plugins}
+			runtimeProfile={runtimeProfile}
+			onSubmit={onSubmit}
+		/>
+	);
 }
 
 interface CommittedPlugin {
@@ -87,16 +114,21 @@ function PreparingRules() {
 interface RenderedDemoProps {
 	readonly source: SchemaDemoSource;
 	readonly plugins: typeof noPlugins;
+	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
 	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
 }
 
-function RenderedDemo({ source, plugins, onSubmit }: RenderedDemoProps) {
+function RenderedDemo({ source, plugins, runtimeProfile, onSubmit }: RenderedDemoProps) {
 	const [lastSubmission, setLastSubmission] = useState<string>();
+	const variants = source.definitionVariants;
+	const [variantKey, setVariantKey] = useState(variants?.[0].key);
+	const activeVariant = variants?.find((variant) => variant.key === variantKey) ?? variants?.[0];
+	const definition = activeVariant?.definition ?? source.definition;
 	const validators = createJsonSchemaValidators(source.schema);
 	const prepared = useSchemaForm<Record<string, unknown>, Record<string, never>>(source.schema, {
 		provider,
 		side: "input",
-		...(source.definition ? { definition: source.definition } : {}),
+		...(definition ? { definition } : {}),
 		initialData: source.initialData,
 		plugins,
 		validators,
@@ -110,7 +142,23 @@ function RenderedDemo({ source, plugins, onSubmit }: RenderedDemoProps) {
 	return (
 		<>
 			<section className="schema-demo-form mt-6 rounded-lg border border-border bg-card p-5">
-				<FormRenderer {...prepared} />
+				{variants ? (
+					<label className="mb-5 block text-sm font-medium">
+						Definition mode
+						<select
+							className="ml-3"
+							value={activeVariant?.key}
+							onChange={(event) => setVariantKey(event.currentTarget.value)}
+						>
+							{variants.map((variant) => (
+								<option key={variant.key} value={variant.key}>
+									{variant.label}
+								</option>
+							))}
+						</select>
+					</label>
+				) : null}
+				<FormRenderer {...prepared} extensions={runtimeProfile?.extensions} />
 				<div className="schema-demo-actions mt-5 flex gap-3 border-t border-border pt-4">
 					<button type="button" onClick={() => void prepared.form.submit().catch(() => undefined)}>
 						Submit
