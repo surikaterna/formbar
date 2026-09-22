@@ -4,12 +4,39 @@ export interface AppRoute {
 	readonly preset?: string;
 }
 
-export function readRoute(url: URL, demoIds: readonly string[]): AppRoute {
+export interface RouteCompatibility {
+	readonly demoId: string;
+	readonly support: "full" | "unsupported";
+	readonly presets: readonly { readonly variant: string }[];
+}
+
+export function readRoute(
+	url: URL,
+	demoIds: readonly string[],
+	compatibility: readonly RouteCompatibility[],
+): AppRoute {
 	const requestedDemo = url.searchParams.get("demo");
 	const demoId = requestedDemo && demoIds.includes(requestedDemo) ? requestedDemo : (demoIds[0] ?? "");
-	const mode = url.searchParams.get("mode") === "playground" ? "playground" : "demo";
-	const preset = url.searchParams.get("preset") || undefined;
-	return { mode, demoId, ...(preset ? { preset } : {}) };
+	const requestedPlayground = url.searchParams.get("mode") === "playground";
+	const entry = compatibility.find((candidate) => candidate.demoId === demoId && candidate.support === "full");
+	if (!requestedPlayground || !entry || entry.presets.length === 0) return { mode: "demo", demoId };
+	const requestedPreset = url.searchParams.get("preset") || undefined;
+	if (!requestedPreset) return { mode: "playground", demoId };
+	const preset = entry.presets.some((candidate) => candidate.variant === requestedPreset)
+		? requestedPreset
+		: entry.presets[0].variant;
+	return { mode: "playground", demoId, preset };
+}
+
+export function resolveRoute(
+	current: URL,
+	requested: AppRoute,
+	demoIds: readonly string[],
+	compatibility: readonly RouteCompatibility[],
+) {
+	const requestedUrl = routeUrl(current, requested);
+	const route = readRoute(requestedUrl, demoIds, compatibility);
+	return { route, url: routeUrl(requestedUrl, route) };
 }
 
 export function routeUrl(current: URL, route: AppRoute): URL {

@@ -4,7 +4,7 @@
 
 1. **Schema evidence** belongs to `@formbar/from-schema`: raw and normalized constraints, property presence, defaults, metadata/extensions, source identity and pointers, provider/selected side, capabilities, source diagnostics, and validation handles.
 2. **Authored presentation intent** belongs to `@formbar/declarative`: FormDefinition nodes, bindings/scopes, widget/action/renderer IDs, labels/placeholders, responsive spans, conditions, actions, outputs, and computations.
-3. **Resolved runtime state** is not schema compilation. Current values, visibility, disabled/read-only/required state, issues, and lifecycle belong to #64 with core inputs from #62. React DOM/ARIA and view identity belong to #65.
+3. **Resolved runtime state** is not schema compilation. Current values, visibility, disabled/read-only/required state, issues, and lifecycle are resolved by the schema-agnostic declarative runtime with core inputs. `@formbar/react-schema` owns React DOM/ARIA and view identity.
 
 There is no generic `PresentationModel`. Declarative is schema-agnostic and the dependency direction is `from-schema -> declarative`.
 
@@ -45,4 +45,4 @@ Channels are independently sorted and never converted into core validation issue
 
 Issue #63 removes Scheman v1 flat ingestion, extractor registries/autodetection/dereference, from-schema layout compiler/registry/middleware/override and UI compatibility helpers, React-schema tree rendering/registry/resolved-state/pruning, app-local renderers, and playground layout documents. No alias, shim, private bridge, or persisted-document migration remains.
 
-The intermediate demo and playground display only compilation artifacts and current core data. #62 may add core lifecycle inputs, #64 may resolve schema-agnostic runtime state, #65 may render React DOM/ARIA, #69 may add future registries, and #101/TUI work remains separate.
+The playground remains a read-only compiler view, while numbered demos exercise the interactive production renderer. #69 may add future registries, and #101/TUI work remains separate.
