@@ -54,6 +54,10 @@ describe("baseline demo fixtures", () => {
 		const contactNodes = nodes(contact.definition.root);
 		expect(contactNodes.find((node) => node.type === "field" && node.widget === "textarea")).toBeDefined();
 		expect(contact.baseline.filter((item) => item.required).map((item) => item.label)).toEqual(["Full Name", "Email"]);
+		expect(evidenceAt(contact, "name").minLength).toBe(1);
+		expect(baselineFixtures.find((fixture) => fixture.id === "basic-contact")?.copy).toContain(
+			"requires name and email properties; minLength separately",
+		);
 		const addresses = compile("nested-address");
 		expect(
 			nodes(addresses.definition.root)

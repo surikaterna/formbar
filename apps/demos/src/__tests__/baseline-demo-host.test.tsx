@@ -104,7 +104,7 @@ describe("generated and schema-evidence behavior", () => {
 		expect(control(contact, "Message")).toBeInstanceOf(HTMLTextAreaElement);
 
 		const addresses = mount(nestedAddressDemo);
-		expect([...addresses.container.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+		expect([...addresses.container.querySelectorAll("form h2")].map((heading) => heading.textContent)).toEqual([
 			"Home Address",
 			"Work Address",
 		]);
@@ -145,7 +145,7 @@ describe("generated and schema-evidence behavior", () => {
 		).toContain("Electronics");
 
 		const vessel = mount(customLayoutDemo);
-		expect([...vessel.container.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+		expect([...vessel.container.querySelectorAll("form h2")].map((heading) => heading.textContent)).toEqual([
 			"Vessel Identity",
 			"Classification",
 			"Dimensions & Capacity",
@@ -157,6 +157,10 @@ describe("generated and schema-evidence behavior", () => {
 describe("lifecycle and accessibility", () => {
 	it("submits valid data and resets edited data through FormApi", async () => {
 		const view = mount(userProfileDemo);
+		input(control(view, "First Name") as HTMLInputElement, "Ada");
+		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
+		input(control(view, "Email") as HTMLInputElement, "ada@example.com");
+		change(control(view, "Role") as HTMLSelectElement, "option-0");
 		const age = control(view, "Age") as HTMLInputElement;
 		input(age, "42");
 		await click(view, "Submit");

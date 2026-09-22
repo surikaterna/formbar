@@ -190,7 +190,10 @@ describe("native conditional demos", () => {
 		input(view, "Email", "person@example.com");
 		input(view, "Email", "");
 		await nativeSubmit(view);
-		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
+		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain(
+			"Must contain at least 1 character(s).",
+		);
+		input(view, "Email", "person@example.com");
 		await clickButton(view, "Submit");
 		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
 		input(view, "Email", "retained@example.com");

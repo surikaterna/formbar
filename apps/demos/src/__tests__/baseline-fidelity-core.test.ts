@@ -18,7 +18,7 @@ describe("baseline fixture fidelity: demos 1-5", () => {
 		const schema = objectSchema(source);
 		expect(schema.required).toEqual(["name", "email"]);
 		expect(schema.properties).toEqual({
-			name: { type: "string", title: "Full Name", description: "Your full legal name" },
+			name: { type: "string", title: "Full Name", minLength: 1, description: "Your full legal name" },
 			email: { type: "string", title: "Email", format: "email", description: "We will never share your email" },
 			phone: { type: "string", title: "Phone Number" },
 			message: { type: "string", title: "Message", maxLength: 500, "x-formbar": { widget: "textarea" } },

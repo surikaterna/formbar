@@ -4,17 +4,18 @@ export const basicContactDemo = {
 	id: "basic-contact",
 	title: "1. Basic Contact Form",
 	subtitle: "Generated contact form",
-	copy: "Simple contact form with text, email, and textarea fields. Auto-generated layout from JSON Schema.",
+	copy: "JSON Schema requires name and email properties; minLength separately makes the present name non-empty, and email format is asserted during core submit.",
 	category: "baseline",
 	sources: [
 		{
 			key: "default",
 			label: "Contact schema",
 			schema: {
+				$schema: "https://json-schema.org/draft/2020-12/schema",
 				type: "object",
 				required: ["name", "email"],
 				properties: {
-					name: { type: "string", title: "Full Name", description: "Your full legal name" },
+					name: { type: "string", title: "Full Name", minLength: 1, description: "Your full legal name" },
 					email: {
 						type: "string",
 						title: "Email",

@@ -1,14 +1,21 @@
 import { createArbiterPlugin } from "@formbar/arbiter";
+import type { SubmitExecutionContext } from "@formbar/core";
 import { jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer, useSchemaForm } from "@formbar/react-schema";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
+import { createJsonSchemaValidators } from "../validation/json-schema-validator";
 import { CodeBlock } from "./CodeBlock";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 const noPlugins: readonly ReturnType<typeof detachedPlugin>[] = [];
 
-export function SchemaDemoHost({ fixture }: { readonly fixture: SchemaDemoFixture }) {
+interface SchemaDemoHostProps {
+	readonly fixture: SchemaDemoFixture;
+	readonly onSubmit?: (payload: Readonly<Record<string, unknown>>) => void;
+}
+
+export function SchemaDemoHost({ fixture, onSubmit }: SchemaDemoHostProps) {
 	const [sourceKey, setSourceKey] = useState(fixture.sources[0].key);
 	const source = fixture.sources.find((candidate) => candidate.key === sourceKey) ?? fixture.sources[0];
 	return (
@@ -29,16 +36,19 @@ export function SchemaDemoHost({ fixture }: { readonly fixture: SchemaDemoFixtur
 					</label>
 				) : null}
 			</header>
-			<PreparedDemo key={`${fixture.id}:${source.key}`} source={source} />
+			<PreparedDemo key={`${fixture.id}:${source.key}`} source={source} onSubmit={onSubmit} />
 		</main>
 	);
 }
 
-function PreparedDemo({ source }: { readonly source: SchemaDemoSource }) {
+function PreparedDemo({
+	source,
+	onSubmit,
+}: { readonly source: SchemaDemoSource; readonly onSubmit?: SchemaDemoHostProps["onSubmit"] }) {
 	const committed = useCommittedArbiterPlugin(source.arbiterRules);
-	if (!source.arbiterRules) return <RenderedDemo key="plain" source={source} plugins={noPlugins} />;
+	if (!source.arbiterRules) return <RenderedDemo key="plain" source={source} plugins={noPlugins} onSubmit={onSubmit} />;
 	if (!committed || committed.rules !== source.arbiterRules || !committed.active) return <PreparingRules />;
-	return <RenderedDemo key="arbiter" source={source} plugins={committed.plugins} />;
+	return <RenderedDemo key="arbiter" source={source} plugins={committed.plugins} onSubmit={onSubmit} />;
 }
 
 interface CommittedPlugin {
@@ -74,14 +84,28 @@ function PreparingRules() {
 	);
 }
 
-function RenderedDemo({ source, plugins }: { readonly source: SchemaDemoSource; readonly plugins: typeof noPlugins }) {
+interface RenderedDemoProps {
+	readonly source: SchemaDemoSource;
+	readonly plugins: typeof noPlugins;
+	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
+}
+
+function RenderedDemo({ source, plugins, onSubmit }: RenderedDemoProps) {
+	const [lastSubmission, setLastSubmission] = useState<string>();
+	const validators = createJsonSchemaValidators(source.schema);
 	const prepared = useSchemaForm<Record<string, unknown>, Record<string, never>>(source.schema, {
 		provider,
 		side: "input",
 		...(source.definition ? { definition: source.definition } : {}),
 		initialData: source.initialData,
 		plugins,
-		onSubmit: async () => ({ ok: true, submitId: "demo-submit" }),
+		validators,
+		onSubmit: async ({ payload }: SubmitExecutionContext<Record<string, unknown>, Record<string, never>>) => {
+			const snapshot = immutableSnapshot(payload);
+			setLastSubmission(JSON.stringify(snapshot, null, 2));
+			onSubmit?.(snapshot);
+			return { ok: true, submitId: "demo-submit" };
+		},
 	});
 	return (
 		<>
@@ -96,10 +120,41 @@ function RenderedDemo({ source, plugins }: { readonly source: SchemaDemoSource; 
 					</button>
 				</div>
 			</section>
+			<SubmissionResult json={lastSubmission} />
 			<section className="mt-6 grid gap-4 lg:grid-cols-2" aria-label="Compiled source">
 				<CodeBlock title={source.label} code={source.schema} />
 				<CodeBlock title="Validated FormDefinition v1" code={prepared.definition} />
 			</section>
 		</>
+	);
+}
+
+function immutableSnapshot<T>(value: T): T {
+	return deepFreeze(structuredClone(value));
+}
+
+function deepFreeze<T>(value: T): T {
+	if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+	for (const child of Object.values(value)) deepFreeze(child);
+	return Object.freeze(value);
+}
+
+function SubmissionResult({ json }: { readonly json?: string }) {
+	const headingId = useId();
+	return (
+		<section
+			className="mt-6 rounded-lg border border-border bg-card p-5"
+			aria-labelledby={headingId}
+			aria-live="polite"
+		>
+			<h2 id={headingId} className="font-semibold">
+				Last successful submission
+			</h2>
+			{json === undefined ? (
+				<p className="mt-2 text-sm text-muted-foreground">No successful submission yet.</p>
+			) : (
+				<pre className="mt-2 overflow-auto rounded bg-muted p-3 text-sm">{json}</pre>
+			)}
+		</section>
 	);
 }
