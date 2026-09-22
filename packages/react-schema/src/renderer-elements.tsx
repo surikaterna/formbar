@@ -29,7 +29,11 @@ export function DiagnosticFallback(props: {
 			{...props.layout?.attributes}
 			style={props.layout?.style}
 		>
-			This form item cannot be rendered.
+			{outputDiagnostic(props.code) ? "Calculated value is unavailable." : "This form item cannot be rendered."}
 		</div>
 	);
+}
+
+function outputDiagnostic(code: RendererDiagnostic): boolean {
+	return code === "output-unresolved" || code === "unsupported-output-value";
 }

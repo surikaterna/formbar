@@ -1,5 +1,6 @@
+import { createForm } from "@formbar/core";
 import { describe, expect, it } from "vitest";
-import { validateFormDefinition } from "../index.js";
+import { createFormRuntime, validateFormDefinition } from "../index.js";
 import { binding, literal, ref } from "./fixtures.js";
 
 const definition = (computations: readonly unknown[]) => ({
@@ -22,6 +23,18 @@ describe("stored computation graph", () => {
 			]),
 		);
 		expect(result.ok).toBe(true);
+	});
+
+	it("keeps accepted stored declarations validation-only pending issue 129", () => {
+		const result = validateFormDefinition(
+			definition([{ id: "total", target: binding(["total"]), expression: ref(["quantity"]) }]),
+		);
+		if (!result.ok) throw new Error("Expected a valid declaration");
+		const form = createForm({ initialData: { quantity: 2 }, initialUiState: {} });
+		const runtime = createFormRuntime({ form, definition: result.value });
+		runtime.getSnapshot();
+		expect(form.getState().data).toEqual({ quantity: 2 });
+		expect(form.isDirty()).toBe(false);
 	});
 
 	it.each([

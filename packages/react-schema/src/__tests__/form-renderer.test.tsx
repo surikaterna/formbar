@@ -152,7 +152,6 @@ describe("FormRenderer evidence and fallbacks", () => {
 		expect(codes).toEqual([
 			"unsupported-node",
 			"unsupported-node",
-			"unsupported-node",
 			"missing-extension",
 			"missing-extension",
 			"unsupported-binding",
@@ -160,6 +159,7 @@ describe("FormRenderer evidence and fallbacks", () => {
 			"unsupported-options",
 			"conditional-unresolved",
 		]);
+		expect(view.container.querySelector('[data-formbar-node="output"] output')?.textContent).toBe("summary");
 		expect(view.container.textContent).not.toContain("private");
 	});
 

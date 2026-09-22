@@ -13,6 +13,7 @@ export type DefinitionDiagnosticCode =
 	| "unknown-scope"
 	| "invalid-expression"
 	| "invalid-range"
+	| "unsupported-output-format"
 	| "duplicate-computation-id"
 	| "duplicate-computation-target"
 	| "self-dependency"

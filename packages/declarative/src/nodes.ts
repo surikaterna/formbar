@@ -51,10 +51,13 @@ export interface ActionNode extends BaseNode {
 	readonly props?: ExtensionProps;
 }
 
+export type OutputFormat = "plain" | "number" | "currency-usd" | "percent";
+
 export interface OutputNode extends BaseNode {
 	readonly type: "output";
 	readonly value: Expression;
-	readonly format?: string;
+	readonly label?: string;
+	readonly format?: OutputFormat;
 	readonly props?: ExtensionProps;
 }
 

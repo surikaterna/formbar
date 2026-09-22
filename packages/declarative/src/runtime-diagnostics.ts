@@ -1,15 +1,10 @@
 import type { DiagnosticCode } from "@formbar/expressions";
-import type {
-	RuntimeDiagnostic,
-	RuntimeDiagnosticCode,
-	RuntimeExpressionProperty,
-	RuntimeNodeInstance,
-} from "./runtime-contracts.js";
+import type { RuntimeDiagnostic, RuntimeDiagnosticCode, RuntimeNodeInstance } from "./runtime-contracts.js";
 
 export function runtimeDiagnostic(
 	code: RuntimeDiagnosticCode,
 	instance: RuntimeNodeInstance,
-	property: RuntimeExpressionProperty | "baseline",
+	property: RuntimeDiagnostic["property"],
 	expressionCode?: DiagnosticCode,
 ): RuntimeDiagnostic {
 	return Object.freeze({

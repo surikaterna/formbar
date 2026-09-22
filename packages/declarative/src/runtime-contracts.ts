@@ -49,6 +49,21 @@ export interface ResolvedFieldState extends ResolvedNodeState {
 	readonly label: string;
 }
 
+export type ResolvedOutput =
+	| { readonly status: "hidden" }
+	| { readonly status: "ready"; readonly value: JsonValue }
+	| { readonly status: "error"; readonly code: DiagnosticCode };
+
+export interface ResolvedOutputState extends ResolvedNodeState {
+	readonly type: "output";
+	readonly output: ResolvedOutput;
+}
+
+export type RuntimeResolvedNodeState =
+	| ResolvedFieldState
+	| ResolvedOutputState
+	| (ResolvedNodeState & { readonly type: Exclude<FormNode["type"], "field" | "output"> });
+
 export interface RuntimeFieldBaseline {
 	readonly nodeId: string;
 	readonly required?: boolean;
@@ -56,7 +71,7 @@ export interface RuntimeFieldBaseline {
 }
 
 export type RuntimeDiagnosticCode = "duplicate-baseline" | "expression" | "invalid-baseline" | "non-boolean";
-export type RuntimeExpressionProperty = "condition" | "disabled" | "readOnly" | "required" | "visible";
+export type RuntimeExpressionProperty = "condition" | "disabled" | "readOnly" | "required" | "value" | "visible";
 
 export interface RuntimeDiagnostic {
 	readonly code: RuntimeDiagnosticCode;
@@ -68,7 +83,7 @@ export interface RuntimeDiagnostic {
 
 export interface RuntimeSnapshot extends RuntimeFormState<JsonValue, JsonValue> {
 	readonly form: RuntimeFormStatus;
-	readonly nodes: readonly ResolvedNodeState[];
+	readonly nodes: readonly RuntimeResolvedNodeState[];
 	readonly fields: readonly ResolvedFieldState[];
 	readonly diagnostics: readonly RuntimeDiagnostic[];
 	readonly namespaces?: Readonly<Record<string, JsonValue>>;
@@ -80,6 +95,6 @@ export interface RuntimePort {
 	write(namespace: string, segments: readonly Segment[], value: JsonValue): WriteResult;
 	subscribe(listener: () => void): () => void;
 	observeForm(): Observation<RuntimeFormStatus>;
-	observeNode(instanceKey: string): Observation<ResolvedNodeState | undefined>;
+	observeNode(instanceKey: string): Observation<RuntimeResolvedNodeState | undefined>;
 	dispose(): void;
 }

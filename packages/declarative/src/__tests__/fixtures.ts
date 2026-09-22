@@ -52,7 +52,7 @@ const variants: readonly FormNode[] = [
 		payload: ref(["name"]),
 		props: { tone: { mode: "literal", value: "primary" } },
 	},
-	{ type: "output", id: "summary", value: ref(["name"]), format: "plain" },
+	{ type: "output", id: "summary", value: ref(["name"]), label: "Summary", format: "plain" },
 	{
 		type: "conditional",
 		id: "details",

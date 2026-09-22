@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFormRuntime } from "../index.js";
-import { definition, field, node, runtime } from "./runtime-fixtures.js";
+import { dataRef, definition, field, node, runtime } from "./runtime-fixtures.js";
 
 describe("runtime subscriptions", () => {
 	it("attaches one core subscription lazily and releases it after final unsubscribe", () => {
@@ -34,6 +34,21 @@ describe("runtime subscriptions", () => {
 		form.setValue("other", 1);
 		expect(listener).not.toHaveBeenCalled();
 		expect(observation.getSnapshot()).toBe(first);
+		stop();
+	});
+
+	it("suppresses selected output notifications when its raw value is unchanged", () => {
+		const formDefinition = definition([{ type: "output", id: "total", value: dataRef(["total"]) }]);
+		const { form, runtime: port } = runtime(formDefinition, { initialData: { total: 4, unrelated: 0 } });
+		const observation = port.observeNode(node(port, "total")?.instance.instanceKey ?? "");
+		const listener = vi.fn();
+		const first = observation.getSnapshot();
+		const stop = observation.subscribe(listener);
+		form.setValue("unrelated", 1);
+		expect(listener).not.toHaveBeenCalled();
+		expect(observation.getSnapshot()).toBe(first);
+		form.setValue("total", 5);
+		expect(listener).toHaveBeenCalledOnce();
 		stop();
 	});
 

@@ -11,6 +11,45 @@ import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
 describe("renderer SSR", () => {
+	it("renders and hydrates output labels and values without mismatches", async () => {
+		const definition: FormDefinition = {
+			version: 1,
+			id: "output-ssr",
+			root: {
+				type: "output",
+				id: "total",
+				label: "Total",
+				format: "currency-usd",
+				value: { kind: "ref", ref: binding("total") },
+			},
+		};
+		const prepared = createSchemaForm(
+			{ type: "object", properties: { total: { type: "number" } } },
+			{ provider: jsonSchemaProvider(), side: "input", definition },
+		);
+		const form = createForm({ initialData: { total: 12.5 }, initialUiState: {} });
+		const renderer = <FormRenderer {...prepared} form={form} />;
+		const html = renderToString(renderer);
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		document.body.append(container);
+		const serverOutput = container.querySelector("output");
+		const serverLabel = serverOutput?.getAttribute("aria-labelledby");
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		let root: ReturnType<typeof hydrateRoot>;
+		await act(async () => {
+			root = hydrateRoot(container, renderer);
+			await Promise.resolve();
+		});
+		expect(container.querySelector("output")?.textContent).toBe("$12.50");
+		expect(container.querySelector("output")?.getAttribute("aria-labelledby")).toBe(serverLabel);
+		expect(error).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		error.mockRestore();
+		container.remove();
+		form.dispose();
+	});
+
 	it("renders and hydrates stable IDs without mismatch diagnostics", async () => {
 		const definition: FormDefinition = {
 			version: 1,
