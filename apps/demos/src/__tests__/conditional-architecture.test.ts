@@ -24,13 +24,14 @@ describe("conditional demo architecture", () => {
 		expect(source).not.toMatch(/Object\.(?:keys|values|entries)\([^)]*properties|properties.*\.(?:map|forEach)/);
 	});
 
-	it("extends the sole schema host with one memoized released Arbiter plugin path", () => {
+	it("extends the sole schema host with one commit-phase released Arbiter plugin path", () => {
 		expect(host.match(/const prepared = useSchemaForm/g)).toHaveLength(1);
 		expect(host.match(/<FormRenderer/g)).toHaveLength(1);
-		expect(host.match(/createArbiterPlugin/g)).toHaveLength(2);
-		expect(host).toContain("[source.arbiterRules]");
+		expect(host.match(/createArbiterPlugin\(\{/g)).toHaveLength(1);
+		expect(host).toMatch(/useEffect\(\(\) => \{[\s\S]*createArbiterPlugin/);
+		expect(host).toContain("[rules]");
 		expect(host).toContain("plugins,");
-		expect(host).not.toMatch(/useFormSelector|useField|form\.subscribe|setFieldPolicy|createForm\(/);
+		expect(host).not.toMatch(/useMemo|useRef|useFormSelector|useField|form\.subscribe|setFieldPolicy|createForm\(/);
 	});
 
 	it("contains normalized policy records only in the two Arbiter fixtures", () => {

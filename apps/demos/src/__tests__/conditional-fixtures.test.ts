@@ -22,6 +22,7 @@ import {
 	arbiterSectionsRules,
 	arbiterSectionsSchema,
 } from "../demos/21-arbiter-dynamic-sections";
+import type { SchemaDemoSource } from "../demos/baseline-contracts";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 const fixtures = [conditionalFieldsDemo, surveyDemo, arbiterVisibilityDemo, arbiterDynamicSectionsDemo];
@@ -43,6 +44,13 @@ function fields(definition: (typeof fixtures)[number]["sources"][number]["defini
 
 function schemaProperties(schema: { readonly properties: Readonly<Record<string, unknown>> }) {
 	return Object.keys(schema.properties);
+}
+
+function authoredOptions(definition: NonNullable<SchemaDemoSource["definition"]>, id: string) {
+	const node = nodes(definition.root).find((candidate) => candidate.id === id);
+	if (node?.type !== "field") throw new Error(`Missing field ${id}`);
+	const options = node.props?.options;
+	return options?.mode === "literal" ? options.value : undefined;
 }
 
 function policy<TData, TUi>(form: FormApi<TData, TUi>) {
@@ -151,7 +159,7 @@ describe("conditional fixture fidelity", () => {
 			["Performance", "Documentation", "Onboarding", "Pricing", "Mobile Experience"],
 			["Daily", "Weekly", "Monthly", "Rarely"],
 		]);
-		expect(surveyDemo.sources[0].initialData).toEqual({ contactForFollowUp: false });
+		expect(surveyDemo.sources[0].initialData).toEqual({});
 		const authored = fields(surveyDemo.sources[0].definition);
 		expect(authored.map(([path]) => path)).toEqual(schemaProperties(surveySchema));
 		expect(authored.map(([, widget]) => widget)).toEqual([
@@ -180,7 +188,11 @@ describe("conditional fixture fidelity", () => {
 			"British Columbia",
 			"Alberta",
 		]);
-		expect(arbiterVisibilityData).toEqual({ region: "" });
+		expect(arbiterVisibilityData).toEqual({ country: "", state: "", province: "", region: "" });
+		const definition = arbiterVisibilityDemo.sources[0].definition;
+		expect(authoredOptions(definition, "f-country")).toEqual(["", "US", "CA", "UK", "DE"]);
+		expect(authoredOptions(definition, "f-state")).toEqual(["", "California", "New York", "Texas", "Florida"]);
+		expect(authoredOptions(definition, "f-province")).toEqual(["", "Ontario", "Quebec", "British Columbia", "Alberta"]);
 		expect(fields(arbiterVisibilityDemo.sources[0].definition)).toEqual([
 			["country", "select", "Country"],
 			["state", "select", "State"],

@@ -7,6 +7,7 @@ export interface SchemaDemoSource {
 	readonly schema: Readonly<Record<string, unknown>>;
 	readonly definition?: FormDefinition;
 	readonly initialData: Readonly<Record<string, unknown>>;
+	/** Immutable JSON-serializable module constant; structural changes replace this reference. */
 	readonly arbiterRules?: NonNullable<ArbiterPluginOptions["rules"]>;
 }
 

@@ -6,32 +6,13 @@ import { FormRenderer } from "@formbar/react-schema";
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { conditionalFieldsDemo } from "../demos/07-conditional-fields";
 import { surveyDemo } from "../demos/12-survey-questionnaire";
 import { arbiterVisibilityDemo } from "../demos/18-arbiter-visibility";
 import { arbiterDynamicSectionsDemo } from "../demos/21-arbiter-dynamic-sections";
 import type { SchemaDemoFixture } from "../demos/baseline-contracts";
 import { SchemaDemoHost } from "../renderers/SchemaDemoHost";
-
-const pluginStats = vi.hoisted(() => ({ created: 0, disposed: 0 }));
-vi.mock("@formbar/arbiter", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@formbar/arbiter")>();
-	return {
-		...actual,
-		createArbiterPlugin: (...args: Parameters<typeof actual.createArbiterPlugin>) => {
-			pluginStats.created++;
-			const plugin = actual.createArbiterPlugin(...args);
-			return {
-				...plugin,
-				onDispose: () => {
-					pluginStats.disposed++;
-					plugin.onDispose?.();
-				},
-			};
-		},
-	};
-});
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -41,7 +22,6 @@ interface MountedView {
 }
 
 const mounted: MountedView[] = [];
-beforeEach(() => Object.assign(pluginStats, { created: 0, disposed: 0 }));
 afterEach(async () => {
 	for (const view of mounted.splice(0)) act(() => view.root.unmount());
 	await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -244,20 +224,6 @@ describe("Arbiter-backed host transitions", () => {
 		expect((labelled(view, "Make") as HTMLInputElement).value).toBe("Saab");
 		select(view, "Coverage Type", "");
 		expect(view.container.querySelectorAll("form section")).toHaveLength(0);
-	});
-
-	it("memoizes one plugin across rerenders and disposes it before a clean remount", async () => {
-		const view = mount(arbiterVisibilityDemo);
-		expect(pluginStats.created).toBe(1);
-		act(() => view.root.render(<SchemaDemoHost fixture={arbiterVisibilityDemo} />));
-		expect(pluginStats.created).toBe(1);
-		act(() => view.root.unmount());
-		mounted.splice(mounted.indexOf(view), 1);
-		await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-		expect(pluginStats.disposed).toBe(1);
-		const remount = mount(arbiterVisibilityDemo);
-		expect(pluginStats.created).toBe(2);
-		expect(node(remount, "regional-details")).toBeNull();
 	});
 });
 

@@ -4,8 +4,11 @@ import type { SchemaDemoFixture } from "./baseline-contracts";
 const contactRef: Expression = { kind: "ref", ref: { namespace: "data", segments: ["contactForFollowUp"] } };
 export const followUpCondition: Expression = {
 	kind: "op",
-	op: "eq",
-	args: [contactRef, { kind: "literal", value: true }],
+	op: "and",
+	args: [
+		{ kind: "op", op: "exists", args: [contactRef] },
+		{ kind: "op", op: "eq", args: [contactRef, { kind: "literal", value: true }] },
+	],
 };
 const half = { base: "full", md: 6 } satisfies ResponsiveSpan;
 
@@ -178,7 +181,7 @@ export const surveyDemo = {
 			label: "Customer satisfaction survey schema",
 			schema: surveySchema,
 			definition,
-			initialData: { contactForFollowUp: false },
+			initialData: {},
 		},
 	],
 } as const satisfies SchemaDemoFixture;

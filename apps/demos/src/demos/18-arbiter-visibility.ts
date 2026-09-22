@@ -35,9 +35,20 @@ const selectedCountry: Expression = {
 	],
 };
 
-function field(id: string, path: string, widget: string, label: string): FormNode {
-	return { type: "field", id, binding: { namespace: "data", segments: [path] }, widget, label };
+function field(id: string, path: string, widget: string, label: string, options?: readonly string[]): FormNode {
+	return {
+		type: "field",
+		id,
+		binding: { namespace: "data", segments: [path] },
+		widget,
+		label,
+		...(options ? { props: { options: { mode: "literal" as const, value: options } } } : {}),
+	};
 }
+
+const countries = ["", "US", "CA", "UK", "DE"] as const;
+const states = ["", "California", "New York", "Texas", "Florida"] as const;
+const provinces = ["", "Ontario", "Quebec", "British Columbia", "Alberta"] as const;
 
 export const arbiterVisibilityDefinition = {
 	version: 1,
@@ -46,7 +57,7 @@ export const arbiterVisibilityDefinition = {
 		type: "group",
 		id: "root",
 		children: [
-			field("f-country", "country", "select", "Country"),
+			field("f-country", "country", "select", "Country", countries),
 			{
 				type: "conditional",
 				id: "when-country-selected",
@@ -58,8 +69,8 @@ export const arbiterVisibilityDefinition = {
 						id: "regional-details",
 						title: "Regional Details",
 						children: [
-							field("f-state", "state", "select", "State"),
-							field("f-province", "province", "select", "Province"),
+							field("f-state", "state", "select", "State", states),
+							field("f-province", "province", "select", "Province", provinces),
 							field("f-region", "region", "text", "Region"),
 						],
 					},
@@ -83,7 +94,7 @@ export const arbiterVisibilitySchema = {
 	},
 } as const;
 
-export const arbiterVisibilityData = { region: "" } as const;
+export const arbiterVisibilityData = { country: "", state: "", province: "", region: "" } as const;
 
 export const arbiterVisibilityDemo = {
 	id: "arbiter-visibility",
