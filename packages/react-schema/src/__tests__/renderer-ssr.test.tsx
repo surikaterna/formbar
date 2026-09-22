@@ -118,7 +118,7 @@ describe("renderer SSR", () => {
 			await Promise.resolve();
 		});
 		expect([...container.querySelectorAll<HTMLElement>("[id]")].map((element) => element.id)).toEqual(ids);
-		expect(container.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
+		expect(container.querySelectorAll('[role="tabpanel"]')).toHaveLength(2);
 		expect(container.querySelectorAll('[role="region"]')).toHaveLength(1);
 		expect(error).not.toHaveBeenCalled();
 		act(() => root.unmount());

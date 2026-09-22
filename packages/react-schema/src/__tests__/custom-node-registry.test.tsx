@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import type { FormDefinition } from "@formbar/declarative";
+import { act } from "react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import type { RendererContext, WidgetProps } from "../index.js";
+import { FormRenderer } from "../index.js";
+import type { RendererContext, RendererExtensions, WidgetProps } from "../index.js";
 import { binding, literal, mountForm } from "./renderer-test-utils.js";
 
 function Card(props: RendererContext) {
@@ -177,6 +179,43 @@ describe("trusted custom-node registry", () => {
 		);
 		expect(failedNode).not.toBeNull();
 		expect(failedNode?.querySelector("input")).toBeNull();
+		view.unmount();
+		consoleError.mockRestore();
+	});
+
+	it("retries failed custom nodes for normalized props, renderer IDs, and implementation changes", () => {
+		let attempts = 0;
+		const Throw = () => {
+			attempts += 1;
+			throw new Error("node");
+		};
+		const definition = (renderer: string, tone: string): FormDefinition => ({
+			version: 1,
+			id: "custom-recovery",
+			root: { type: "custom", id: "card", renderer, props: { tone: literal(tone) } },
+		});
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const view = mountForm({
+			schema: { type: "object" },
+			definition: definition("demo.a", "one"),
+			data: {},
+			extensions: { nodes: [{ id: "demo.a", component: Throw }] },
+		});
+		const render = (next: FormDefinition, nodes: NonNullable<RendererExtensions["nodes"]>) =>
+			act(() =>
+				view.root.render(<FormRenderer {...view.prepared} form={view.form} definition={next} extensions={{ nodes }} />),
+			);
+		const initialAttempts = attempts;
+		expect(initialAttempts).toBeGreaterThan(0);
+		render(definition("demo.a", "one"), [{ id: "demo.a", component: Throw }]);
+		expect(attempts).toBe(initialAttempts);
+		render(definition("demo.a", "two"), [{ id: "demo.a", component: Throw }]);
+		const afterProps = attempts;
+		expect(afterProps).toBeGreaterThan(initialAttempts);
+		render(definition("demo.b", "two"), [{ id: "demo.b", component: Throw }]);
+		expect(attempts).toBeGreaterThan(afterProps);
+		render(definition("demo.b", "two"), [{ id: "demo.b", component: Card }]);
+		expect(view.container.querySelector("section")?.getAttribute("data-card")).toBe("two");
 		view.unmount();
 		consoleError.mockRestore();
 	});

@@ -68,20 +68,24 @@ function key(element: Element, value: string): void {
 }
 
 describe("built-in tabs and accordion", () => {
-	it("uses one SSR-stable active tab panel with automatic roving activation", () => {
+	it("keeps every controlled tab panel mounted with one active content tree", () => {
 		const view = mount();
 		const tabs = [...view.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
 		expect(tabs).toHaveLength(2);
 		expect(tabs[0].getAttribute("aria-selected")).toBe("true");
 		expect(tabs[0].tabIndex).toBe(0);
 		expect(tabs[1].tabIndex).toBe(-1);
-		expect(view.container.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
-		expect(view.container.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(tabs[0].id);
-		expect(tabs[0].getAttribute("aria-controls")).toBe(view.container.querySelector('[role="tabpanel"]')?.id);
+		const panels = [...view.container.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+		expect(panels).toHaveLength(2);
+		expect(panels.map((panel) => panel.hidden)).toEqual([false, true]);
+		for (const tab of tabs) expect(document.getElementById(tab.getAttribute("aria-controls") ?? "")).not.toBeNull();
+		expect(panels[0].getAttribute("aria-labelledby")).toBe(tabs[0].id);
 
 		key(tabs[0], "ArrowRight");
 		expect(tabs[1].getAttribute("aria-selected")).toBe("true");
 		expect(document.activeElement).toBe(tabs[1]);
+		expect(panels.map((panel) => panel.hidden)).toEqual([true, false]);
+		expect(panels[0].querySelector("input")).toBeNull();
 		expect(view.container.querySelector('[role="tabpanel"] input')?.getAttribute("type")).toBe("email");
 		key(tabs[1], "Home");
 		expect(tabs[0].getAttribute("aria-selected")).toBe("true");
@@ -96,11 +100,18 @@ describe("built-in tabs and accordion", () => {
 			...view.container.querySelectorAll<HTMLButtonElement>('[data-formbar-node="accordion"] h3 button'),
 		];
 		expect(headers.map((header) => header.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
-		expect(view.container.querySelectorAll('[data-formbar-node="accordion"] [role="region"]')).toHaveLength(1);
+		const initialRegions = [
+			...view.container.querySelectorAll<HTMLElement>('[data-formbar-node="accordion"] [role="region"]'),
+		];
+		expect(initialRegions).toHaveLength(2);
+		expect(initialRegions.map((region) => region.hidden)).toEqual([false, true]);
+		for (const header of headers)
+			expect(document.getElementById(header.getAttribute("aria-controls") ?? "")).not.toBeNull();
 		act(() => headers[1].click());
 		expect(headers.map((header) => header.getAttribute("aria-expanded"))).toEqual(["true", "true"]);
 		const regions = [...view.container.querySelectorAll('[data-formbar-node="accordion"] [role="region"]')];
 		expect(regions).toHaveLength(2);
+		expect(regions.every((region) => !(region as HTMLElement).hidden)).toBe(true);
 		expect(regions[1].getAttribute("aria-labelledby")).toBe(headers[1].id);
 		expect(headers[1].getAttribute("aria-controls")).toBe(regions[1].id);
 		headers[0].focus();

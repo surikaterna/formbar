@@ -46,15 +46,14 @@ export function TabsView({ node, environment, renderChildren, layout }: Collecti
 					);
 				})}
 			</div>
-			{node.tabs[selected] ? (
-				<div
-					id={tabIds(environment.prefix, node.id, node.tabs[selected].id).panel}
-					role="tabpanel"
-					aria-labelledby={tabIds(environment.prefix, node.id, node.tabs[selected].id).tab}
-				>
-					{renderChildren(node.tabs[selected].children)}
-				</div>
-			) : null}
+			{node.tabs.map((tab, index) => {
+				const ids = tabIds(environment.prefix, node.id, tab.id);
+				return (
+					<div key={tab.id} id={ids.panel} role="tabpanel" aria-labelledby={ids.tab} hidden={selected !== index}>
+						{selected === index ? renderChildren(tab.children) : null}
+					</div>
+				);
+			})}
 		</div>
 	);
 }
@@ -94,12 +93,10 @@ export function AccordionView({
 								{item.label}
 							</button>
 						</h3>
-						{expanded.has(index) ? (
-							// biome-ignore lint/a11y/useSemanticElements: The frozen public contract requires explicit labelled regions.
-							<div id={ids.panel} role="region" aria-labelledby={ids.button}>
-								{renderChildren(item.children)}
-							</div>
-						) : null}
+						{/* biome-ignore lint/a11y/useSemanticElements: The frozen public contract requires explicit labelled regions. */}
+						<div id={ids.panel} role="region" aria-labelledby={ids.button} hidden={!expanded.has(index)}>
+							{expanded.has(index) ? renderChildren(item.children) : null}
+						</div>
 					</div>
 				);
 			})}

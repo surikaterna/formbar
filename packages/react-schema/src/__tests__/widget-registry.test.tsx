@@ -186,6 +186,65 @@ describe("trusted widget registry", () => {
 		view.unmount();
 	});
 
+	it("activates callbacks only after commit and invalidates stale render callbacks", () => {
+		const received: WidgetProps[] = [];
+		let effectRan = false;
+		const RenderWriter = (props: WidgetProps) => {
+			received.push(props);
+			props.onChange(99);
+			props.onBlur();
+			useEffect(() => {
+				if (effectRan) return;
+				effectRan = true;
+				props.onBlur();
+			}, [props.onBlur]);
+			return <ReferenceWidget {...props} />;
+		};
+		const view = mountForm({
+			schema: { type: "object", properties: { quality: { type: "integer" } } },
+			definition: {
+				version: 1,
+				id: "commit-gate",
+				root: { type: "field", id: "quality", binding: binding("quality"), widget: "demo.writer" },
+			},
+			data: { quality: 1 },
+			extensions: { widgets: [{ id: "demo.writer", component: RenderWriter }] },
+		});
+		expect(view.form.getState().data).toEqual({ quality: 1 });
+		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(true);
+		const committed = received.at(-1);
+		act(() => committed?.onChange(3));
+		expect(view.form.getState().data).toEqual({ quality: 3 });
+		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(true);
+		act(() => committed?.onChange(4));
+		expect(view.form.getState().data).toEqual({ quality: 3 });
+		view.unmount();
+	});
+
+	it("does not activate callbacks leaked by a failed render", () => {
+		let leaked: WidgetProps | undefined;
+		const ThrowAfterWrite = (props: WidgetProps) => {
+			leaked = props;
+			props.onChange(99);
+			throw new Error("failed render");
+		};
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const view = mountForm({
+			schema: { type: "object", properties: { quality: { type: "integer" } } },
+			definition: {
+				version: 1,
+				id: "failed-commit-gate",
+				root: { type: "field", id: "quality", binding: binding("quality"), widget: "demo.throw" },
+			},
+			data: { quality: 1 },
+			extensions: { widgets: [{ id: "demo.throw", component: ThrowAfterWrite }] },
+		});
+		act(() => leaked?.onChange(2));
+		expect(view.form.getState().data).toEqual({ quality: 1 });
+		view.unmount();
+		consoleError.mockRestore();
+	});
+
 	it("links and focuses a successful custom control from the error summary", async () => {
 		const definition: FormDefinition = {
 			version: 1,
@@ -237,6 +296,7 @@ describe("trusted widget registry", () => {
 			definition,
 			data: { quality: 2 },
 			extensions: { widgets: [{ id: "demo.throw", component: Throw }] },
+			strict: true,
 			formOptions: {
 				validators: [
 					() => [
@@ -257,6 +317,19 @@ describe("trusted widget registry", () => {
 		});
 		expect(view.container.querySelector("[data-formbar-error-summary] a")).toBeNull();
 		expect(document.activeElement).toBe(view.container.querySelector("[data-formbar-error-summary]"));
+		const recovered: FormDefinition = {
+			version: 1,
+			id: definition.id,
+			root: { type: "field", id: "quality", binding: binding("quality"), widget: "number" },
+		};
+		act(() =>
+			view.root.render(
+				<StrictMode>
+					<FormRenderer {...view.prepared} form={view.form} definition={recovered} />
+				</StrictMode>,
+			),
+		);
+		expect(view.container.querySelector("[data-formbar-error-summary] a")).not.toBeNull();
 		view.unmount();
 		consoleError.mockRestore();
 	});
@@ -269,6 +342,7 @@ describe("trusted widget registry", () => {
 			widgets: [
 				rating,
 				rating,
+				{ id: "text", component: ReferenceWidget },
 				{ id: "text", component: ReferenceWidget },
 				{ id: "demo.invalid", component: ReferenceWidget, validateProps: () => false },
 				{ id: "demo.validator", component: ReferenceWidget, validateProps: throwing },
@@ -314,6 +388,7 @@ describe("trusted widget registry", () => {
 				"extension-render-failed",
 			]),
 		);
+		expect(codes.filter((code) => code === "reserved-widget-id")).toHaveLength(1);
 		expect(view.container.textContent).not.toContain("secret");
 		view.unmount();
 		consoleError.mockRestore();
@@ -392,5 +467,53 @@ describe("trusted widget registry", () => {
 		view.unmount();
 		expect(activeA).toBe(0);
 		expect(activeB).toBe(0);
+	});
+
+	it("retries failed widgets only when a composite recovery input changes", () => {
+		let attempts = 0;
+		const Throw = () => {
+			attempts += 1;
+			throw new Error("widget");
+		};
+		const definition = (widget: string, segment: string, marker: string): FormDefinition => ({
+			version: 1,
+			id: "recovery",
+			root: {
+				type: "field",
+				id: "quality",
+				binding: binding(segment),
+				widget,
+				props: { marker: literal(marker) },
+			},
+		});
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const view = mountForm({
+			schema: { type: "object", properties: { bad: { type: "integer" }, good: { type: "integer" } } },
+			definition: definition("demo.a", "bad", "one"),
+			data: { bad: 1, good: 2 },
+			extensions: { widgets: [{ id: "demo.a", component: Throw }] },
+		});
+		const render = (next: FormDefinition, widgets: NonNullable<RendererExtensions["widgets"]>) =>
+			act(() =>
+				view.root.render(
+					<FormRenderer {...view.prepared} form={view.form} definition={next} extensions={{ widgets }} />,
+				),
+			);
+		const initialAttempts = attempts;
+		expect(initialAttempts).toBeGreaterThan(0);
+		render(definition("demo.a", "bad", "one"), [{ id: "demo.a", component: Throw }]);
+		expect(attempts).toBe(initialAttempts);
+		render(definition("demo.a", "bad", "two"), [{ id: "demo.a", component: Throw }]);
+		const afterProps = attempts;
+		expect(afterProps).toBeGreaterThan(initialAttempts);
+		render(definition("demo.a", "good", "two"), [{ id: "demo.a", component: Throw }]);
+		const afterBinding = attempts;
+		expect(afterBinding).toBeGreaterThan(afterProps);
+		render(definition("demo.b", "good", "two"), [{ id: "demo.b", component: Throw }]);
+		expect(attempts).toBeGreaterThan(afterBinding);
+		render(definition("demo.b", "good", "two"), [{ id: "demo.b", component: ReferenceWidget }]);
+		expect(view.container.querySelector("button")?.textContent).toBe("demo.b");
+		view.unmount();
+		consoleError.mockRestore();
 	});
 });

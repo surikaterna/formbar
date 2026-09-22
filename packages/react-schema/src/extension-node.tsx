@@ -37,7 +37,13 @@ export function CustomNodeView(props: CustomNodeViewProps): ReactElement {
 				code={props.environment.extensionFailureCode ?? "extension-render-failed"}
 				nodeId={props.node.id}
 				extensionId={props.node.renderer}
-				resetKey={resolved.registration}
+				resetKey={{
+					rendererId: props.node.renderer,
+					normalizedProps: resolved.props,
+					instanceKey: props.state.instance.instanceKey,
+					component: Component,
+					...(resolved.registration.validateProps ? { validateProps: resolved.registration.validateProps } : {}),
+				}}
 			>
 				<Component
 					nodeId={props.node.id}

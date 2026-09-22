@@ -1,6 +1,6 @@
 import type { FormNode } from "@formbar/declarative";
 import { validateFormDefinition } from "@formbar/declarative";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z as z3 } from "zod3-current";
 import { z as z4 } from "zod4-current";
 import {
@@ -137,6 +137,28 @@ describe("default FormDefinition compilation", () => {
 		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
 		expect(result.definition?.root).not.toHaveProperty("props");
 		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
+	});
+
+	it("rejects non-JSON generated props and Scheman sentinels without invoking accessors", () => {
+		const getter = vi.fn(() => "secret");
+		const accessor = Object.defineProperty({}, "secret", { enumerable: true, get: getter });
+		const inherited = Object.assign(Object.create({ inherited: true }), { value: true });
+		const proxied = new Proxy({ value: true }, { getPrototypeOf: () => Date.prototype });
+		const values = [
+			() => "secret",
+			Number.NaN,
+			accessor,
+			inherited,
+			proxied,
+			{ $type: "unavailable", value: "METADATA_ACCESSOR" },
+		];
+		for (const value of values) {
+			const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: { value } } });
+			expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+			expect(result.definition?.root).not.toHaveProperty("props");
+			expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
+		}
+		expect(getter).not.toHaveBeenCalled();
 	});
 
 	it("fails malformed extension IDs closed", () => {

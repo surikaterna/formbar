@@ -1,5 +1,17 @@
 import type { FieldNode, JsonValue, NodePresentation } from "@formbar/declarative";
+import { copyJson } from "@formbar/expressions";
 import type { DescriptorNode, DescriptorValueRecord } from "../descriptors/contracts.js";
+
+const ownedSentinelTypes = new Set([
+	"bigint",
+	"date",
+	"deferred",
+	"negative-zero",
+	"number",
+	"regexp",
+	"unavailable",
+	"undefined",
+]);
 
 export interface CompiledPresentation {
 	readonly widget: string;
@@ -51,10 +63,16 @@ export function presentationFor(node: DescriptorNode, provider: string): Compile
 
 function extensionProps(value: unknown): { readonly props?: FieldNode["props"]; readonly invalid: boolean } {
 	if (value === undefined) return { invalid: false };
-	if (!plainRecord(value)) return { invalid: true };
+	let copied: JsonValue;
+	try {
+		copied = copyJson(value);
+	} catch {
+		return { invalid: true };
+	}
+	if (!jsonRecord(copied) || containsOwnedSentinel(copied)) return { invalid: true };
 	const output: Record<string, NonNullable<FieldNode["props"]>[string]> = Object.create(null);
-	for (const [key, item] of Object.entries(value)) {
-		if (!safeId(key) || !jsonValue(item)) return { invalid: true };
+	for (const [key, item] of Object.entries(copied)) {
+		if (!safeId(key)) return { invalid: true };
 		output[key] = Object.freeze({ mode: "literal", value: item });
 	}
 	return { props: Object.freeze(output), invalid: false };
@@ -73,18 +91,15 @@ function mergeProps(
 	return Object.keys(output).length ? Object.freeze(output) : undefined;
 }
 
-function jsonValue(value: unknown): value is JsonValue {
-	if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-	if (typeof value === "number") return Number.isFinite(value);
-	if (Array.isArray(value)) return value.every(jsonValue);
-	if (!plainRecord(value)) return false;
-	return Object.entries(value).every(([key, item]) => safeId(key) && jsonValue(item));
+function containsOwnedSentinel(value: JsonValue): boolean {
+	if (value === null || typeof value !== "object") return false;
+	if (!jsonRecord(value)) return value.some(containsOwnedSentinel);
+	if (ownedSentinelTypes.has(typeof value.$type === "string" ? value.$type : "")) return true;
+	return Object.values(value).some(containsOwnedSentinel);
 }
 
-function plainRecord(value: unknown): value is Record<string, unknown> {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-	const prototype = Object.getPrototypeOf(value);
-	return prototype === Object.prototype || prototype === null;
+function jsonRecord(value: JsonValue): value is Readonly<Record<string, JsonValue>> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function safeId(value: unknown): value is string {

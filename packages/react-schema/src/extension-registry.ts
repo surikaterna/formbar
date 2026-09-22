@@ -76,25 +76,25 @@ function registrations<T extends { readonly id: string }>(
 	const output = new Map<string, T>();
 	for (const item of input) {
 		if (!safeId(item.id)) {
-			diagnostics.push({ code: "invalid-extension-registration", extensionId: safeDiagnosticId(item.id) });
+			addDiagnostic(diagnostics, "invalid-extension-registration", safeDiagnosticId(item.id));
 			continue;
 		}
 		if (reserved?.has(item.id)) {
-			diagnostics.push({ code: "reserved-widget-id", extensionId: item.id });
+			addDiagnostic(diagnostics, "reserved-widget-id", item.id);
 			continue;
 		}
 		if ((counts.get(item.id) ?? 0) > 1) {
-			if (
-				!diagnostics.some(
-					(diagnostic) => diagnostic.code === "duplicate-extension-id" && diagnostic.extensionId === item.id,
-				)
-			)
-				diagnostics.push({ code: "duplicate-extension-id", extensionId: item.id });
+			addDiagnostic(diagnostics, "duplicate-extension-id", item.id);
 			continue;
 		}
 		output.set(item.id, item);
 	}
 	return output;
+}
+
+function addDiagnostic(diagnostics: RegistryDiagnostic[], code: RendererDiagnostic, extensionId: string): void {
+	if (diagnostics.some((diagnostic) => diagnostic.code === code && diagnostic.extensionId === extensionId)) return;
+	diagnostics.push({ code, extensionId });
 }
 
 function validateRegistration<T extends { readonly validateProps?: (props: ExtensionProps) => boolean }>(

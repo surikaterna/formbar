@@ -1,5 +1,6 @@
 import type { FieldNode, JsonValue, ResolvedFieldState } from "@formbar/declarative";
 import type { NormalizedEvidence } from "@formbar/from-schema";
+import { useInsertionEffect } from "react";
 import type { ReactElement } from "react";
 import { ExtensionBoundary } from "./extension-boundary.js";
 import { resolveWidget } from "./extension-registry.js";
@@ -10,6 +11,7 @@ import type {
 	WidgetMetadata,
 	WidgetOption,
 	WidgetProps,
+	WidgetRegistration,
 } from "./extension-types.js";
 import { DiagnosticFallback } from "./renderer-elements.js";
 import { editablePath, optionEvidence } from "./renderer-evidence.js";
@@ -41,22 +43,50 @@ export function ExtensionField(props: ExtensionFieldProps): ReactElement {
 	if (!path)
 		return <DiagnosticFallback code="unsupported-binding" nodeId={props.node.id} extensionId={props.node.widget} />;
 	const Component = resolved.registration.component;
-	const componentProps = widgetProps(props, resolved.props, path);
 	return (
 		<ExtensionBoundary
 			code={props.environment.extensionFailureCode ?? "extension-render-failed"}
 			nodeId={props.node.id}
 			extensionId={props.node.widget}
-			resetKey={resolved.registration}
-			onFailure={() => props.environment.extensionFailed(props.node.id)}
-			onRecovery={() => props.environment.extensionRecovered(props.node.id)}
+			resetKey={{
+				rendererId: props.node.widget,
+				normalizedProps: resolved.props,
+				instanceKey: props.state.instance.instanceKey,
+				binding: props.state.binding,
+				component: Component,
+				...(resolved.registration.validateProps ? { validateProps: resolved.registration.validateProps } : {}),
+			}}
+			onFailure={props.environment.extensionFailed}
+			onRecovery={props.environment.extensionRecovered}
 		>
-			<Component {...componentProps} />
+			<CommittedWidget {...props} extensionProps={resolved.props} path={path} Component={Component} />
 		</ExtensionBoundary>
 	);
 }
 
-function widgetProps(props: ExtensionFieldProps, extensionProps: WidgetProps["props"], path: string): WidgetProps {
+interface CommittedWidgetProps extends ExtensionFieldProps {
+	readonly extensionProps: WidgetProps["props"];
+	readonly path: string;
+	readonly Component: WidgetRegistration["component"];
+}
+
+function CommittedWidget({ Component, extensionProps, path, ...props }: CommittedWidgetProps): ReactElement {
+	const lease = { active: false };
+	useInsertionEffect(() => {
+		lease.active = true;
+		return () => {
+			lease.active = false;
+		};
+	});
+	return <Component {...widgetProps(props, extensionProps, path, lease)} />;
+}
+
+function widgetProps(
+	props: ExtensionFieldProps,
+	extensionProps: WidgetProps["props"],
+	path: string,
+	lease: { active: boolean },
+): WidgetProps {
 	const { node, state, environment, evidence, wiring } = props;
 	const field = environment.form.fieldDynamic(path);
 	const policy = Object.freeze({
@@ -83,9 +113,11 @@ function widgetProps(props: ExtensionFieldProps, extensionProps: WidgetProps["pr
 		dirty: state.dirty,
 		a11y: a11y(state, wiring),
 		onChange: (value: JsonValue | undefined) => {
-			if (!state.disabled && !state.readOnly) field.handleChange(value as never);
+			if (lease.active && !state.disabled && !state.readOnly) field.handleChange(value as never);
 		},
-		onBlur: () => field.handleBlur(),
+		onBlur: () => {
+			if (lease.active) field.handleBlur();
+		},
 	});
 }
 
