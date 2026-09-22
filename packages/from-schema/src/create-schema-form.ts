@@ -2,6 +2,7 @@ import type { SchemaValidator } from "@formbar/core";
 import {
 	type DefinitionDiagnostic,
 	type FormDefinition,
+	type RuntimeFieldBaseline,
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
@@ -13,6 +14,7 @@ import {
 import type { DescriptorDocument, DescriptorSide } from "./descriptors/contracts.js";
 import type { ProjectionLimitOptions } from "./descriptors/limits.js";
 import type { SchemaFormDiagnostics } from "./diagnostics.js";
+import { adaptRuntimeFieldBaseline } from "./runtime-baseline.js";
 import { projectSchema } from "./schema-source.js";
 
 export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
@@ -28,6 +30,7 @@ export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
 export interface SchemaFormResult<TData = unknown, TUi = unknown> {
 	readonly descriptors: DescriptorDocument;
 	readonly definition: ValidatedFormDefinition;
+	readonly baseline: readonly RuntimeFieldBaseline[];
 	readonly sourceValidator?: StandardSchemaV1;
 	readonly validators: readonly SchemaValidator<TData, TUi>[];
 	readonly diagnostics: SchemaFormDiagnostics;
@@ -51,12 +54,13 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
 	});
 	const prepared = options.definition
-		? validateAuthoredDefinition(options.definition)
+		? validateAuthoredDefinition(options.definition, projected.descriptors)
 		: compileDefaultFormDefinition(projected.descriptors, options.generation);
 	if (!prepared.definition) throw new InvalidFormDefinitionError(prepared.definitionDiagnostics);
 	return Object.freeze({
 		descriptors: projected.descriptors,
 		definition: prepared.definition,
+		baseline: prepared.baseline,
 		...(projected.validator ? { sourceValidator: projected.validator } : {}),
 		validators: Object.freeze([...(options.validators ?? [])]),
 		diagnostics: Object.freeze({
@@ -68,11 +72,22 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	});
 }
 
-function validateAuthoredDefinition(definition: FormDefinition) {
+function validateAuthoredDefinition(definition: FormDefinition, document: DescriptorDocument) {
 	const validation = validateFormDefinition(definition);
-	return validation.ok
-		? { definition: validation.value, diagnostics: Object.freeze([]), definitionDiagnostics: Object.freeze([]) }
-		: { definition: undefined, diagnostics: Object.freeze([]), definitionDiagnostics: validation.diagnostics };
+	if (!validation.ok)
+		return {
+			definition: undefined,
+			baseline: Object.freeze([]),
+			diagnostics: Object.freeze([]),
+			definitionDiagnostics: validation.diagnostics,
+		};
+	const adapted = adaptRuntimeFieldBaseline(document, validation.value);
+	return {
+		definition: validation.value,
+		baseline: adapted.baseline,
+		diagnostics: adapted.diagnostics,
+		definitionDiagnostics: Object.freeze([]),
+	};
 }
 
 export class InvalidFormDefinitionError extends TypeError {

@@ -91,6 +91,22 @@ describe("form.reset()", () => {
 		form.dispose();
 	});
 
+	it("uses the UI baseline for UI field dirty checks and replaces it on reset", () => {
+		const form = createForm({ initialData: {}, initialUiState: { panel: { open: false } } });
+		const field = form.fieldDynamic("$ui.panel.open");
+		expect(field.isDirty()).toBe(false);
+		field.set(true);
+		expect(field.isDirty()).toBe(true);
+		field.set(false);
+		expect(field.isDirty()).toBe(false);
+
+		form.reset({ uiState: { panel: { open: true } } });
+		const resetField = form.fieldDynamic("$ui.panel.open");
+		expect(resetField.isDirty()).toBe(false);
+		resetField.set(false);
+		expect(resetField.isDirty()).toBe(true);
+	});
+
 	it("after reset(), field.isTouched() returns false", () => {
 		const form = createForm({ initialData: { name: "Alice" } });
 		const field = form.field("name");

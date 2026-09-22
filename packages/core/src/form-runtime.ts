@@ -7,7 +7,7 @@ import type {
 	Middleware,
 	ValidatorFn,
 } from "./contracts.js";
-import { computeIsPristine, computeIsSubmitting, computeIsTouched, computeIsValid } from "./convenience-flags.js";
+import { computeIsSubmitting, computeIsTouched, computeIsValid } from "./convenience-flags.js";
 import { createDisposalSignal } from "./disposal-signal.js";
 import { FormbarError } from "./errors.js";
 import { createFieldApi } from "./field-api.js";
@@ -20,7 +20,8 @@ import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
 import type { FormPlugin, PluginInitContext } from "./plugin-types.js";
 import { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
-import type { CreateFormOptions, FieldMetaEntry, FormState, ValidationIssue } from "./state.js";
+import { createFormStateCapture } from "./state-capture.js";
+import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { FormStore } from "./store.js";
 import { createSubmitHandler } from "./submit-handler.js";
 import { warnUnknownCreateFormOptionsAtRuntime } from "./unknown-options-warning.js";
@@ -60,7 +61,7 @@ function validatePluginIds<TData, TUi>(plugins: readonly FormPlugin<TData, TUi>[
 
 export class FormRuntime<TData, TUi> {
 	private initialDataSnapshot: TData;
-	private readonly initialUiStateSnapshot: TUi;
+	private initialUiStateSnapshot: TUi;
 	private readonly initialState: FormState<TData, TUi>;
 	private readonly store: FormStore<TData, TUi>;
 	private readonly listeners = createListenerRegistry();
@@ -112,8 +113,8 @@ export class FormRuntime<TData, TUi> {
 
 	private createInitialState(): FormState<TData, TUi> {
 		return {
-			data: (this.options.initialData ?? {}) as TData,
-			uiState: (this.options.initialUiState ?? {}) as TUi,
+			data: structuredClone(this.initialDataSnapshot),
+			uiState: structuredClone(this.initialUiStateSnapshot),
 			meta: { validation: { validating: false } },
 			fieldMeta: {},
 			fieldPolicy: emptyFieldPolicy(),
@@ -127,9 +128,9 @@ export class FormRuntime<TData, TUi> {
 		this.store.commitTransaction(tx);
 	}
 
-	private resolveInitialValue(segments: readonly (string | number)[]): unknown {
-		let current: unknown = this.initialDataSnapshot;
-		for (const segment of segments) {
+	private resolveInitialValue(path: CanonicalPath): unknown {
+		let current: unknown = path.namespace === "data" ? this.initialDataSnapshot : this.initialUiStateSnapshot;
+		for (const segment of path.segments) {
 			if (current === null || current === undefined) return undefined;
 			current = (current as Record<string | number, unknown>)[segment];
 		}
@@ -273,7 +274,7 @@ export class FormRuntime<TData, TUi> {
 			getState: () => this.store.getState(),
 			setValue: this.dispatchSetValue as unknown as (path: string, value: unknown) => FormDispatchResult,
 			getIssues: (value) => this.getIssues(value),
-			getInitialValue: () => this.resolveInitialValue(canonical.segments),
+			getInitialValue: () => this.resolveInitialValue(canonical),
 			getFieldMeta: (key) => (this.store.getState().fieldMeta as Record<string, FieldMetaEntry>)[key],
 			markTouched: this.markFieldTouched,
 			getFormSubmitted: () => this.store.getState().meta.submitted ?? false,
@@ -289,6 +290,7 @@ export class FormRuntime<TData, TUi> {
 		this.submitHandler.reset();
 		this.coordinator.reset();
 		if (nextInitial?.data !== undefined) this.initialDataSnapshot = structuredClone(nextInitial.data);
+		if (nextInitial?.uiState !== undefined) this.initialUiStateSnapshot = structuredClone(nextInitial.uiState);
 		const data = structuredClone(nextInitial?.data ?? this.initialDataSnapshot);
 		const uiState = structuredClone(nextInitial?.uiState ?? this.initialUiStateSnapshot);
 		const tx = this.store.beginTransaction();
@@ -312,6 +314,7 @@ export class FormRuntime<TData, TUi> {
 	private createApi(): FormApi<TData, TUi> {
 		return {
 			getState: () => this.store.getState(),
+			captureState: this.captureState,
 			dispatch: this.dispatch,
 			setValue: this.dispatchSetValue,
 			validate: this.validate,
@@ -322,8 +325,8 @@ export class FormRuntime<TData, TUi> {
 			subscribe: (listener) => this.store.subscribe(listener),
 			reset: this.reset,
 			canSubmit: () => this.canSubmit(),
-			isPristine: () => computeIsPristine(this.store.getState(), this.initialDataSnapshot),
-			isDirty: () => !computeIsPristine(this.store.getState(), this.initialDataSnapshot),
+			isPristine: () => !this.captureState().isFormDirty(),
+			isDirty: () => this.captureState().isFormDirty(),
 			isValid: () => computeIsValid(this.store.getState()),
 			isSubmitting: () => computeIsSubmitting(this.store.getState()),
 			isTouched: () => computeIsTouched(this.store.getState()),
@@ -333,6 +336,9 @@ export class FormRuntime<TData, TUi> {
 			dispose: this.createDispose(),
 		};
 	}
+
+	private captureState = (): FormStateCapture<TData, TUi> =>
+		createFormStateCapture(this.store.getState(), this.initialDataSnapshot, this.initialUiStateSnapshot);
 
 	private canSubmit(): boolean {
 		const state = this.store.getState();

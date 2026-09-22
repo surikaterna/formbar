@@ -43,6 +43,29 @@ describe("version 1 form definitions", () => {
 			);
 	});
 
+	it("accepts field-only conditional required and validates lifecycle reference shapes", () => {
+		const valid = completeDefinition() as { root: { children: unknown[] } };
+		valid.root.children.push({
+			type: "field",
+			id: "conditional-required",
+			binding: binding(["quantity"]),
+			widget: "number",
+			required: { kind: "ref", ref: { namespace: "form", segments: ["submitted"] } },
+			visible: { kind: "ref", ref: { namespace: "field", segments: ["name", "valid"] } },
+		});
+		expect(validateFormDefinition(valid).ok).toBe(true);
+
+		for (const expression of [
+			{ kind: "ref", ref: { namespace: "form", segments: ["unknown"] } },
+			{ kind: "ref", ref: { namespace: "field", segments: ["name", "visible"] } },
+			{ kind: "ref", ref: { namespace: "field", segments: ["name", "dirty", "extra"] } },
+		]) {
+			const invalid = completeDefinition() as { root: { visible: unknown } };
+			invalid.root.visible = expression;
+			expect(validateFormDefinition(invalid)).toMatchObject({ ok: false });
+		}
+	});
+
 	it.each([
 		["unsupported version", { ...completeDefinition(), version: 2 }, "unsupported-version"],
 		["unknown node", { ...completeDefinition(), root: { type: "portal", id: "root" } }, "unknown-node-type"],

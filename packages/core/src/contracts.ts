@@ -1,7 +1,7 @@
 import type { DataPathInput } from "./field-policy.js";
 import type { CanonicalPath } from "./path.js";
 import type { StandardSchemaLike } from "./standard-schema.js";
-import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
+import type { FormState, FormStateCapture, SubmitContext, ValidationIssue } from "./state.js";
 import type { TransformDefinition } from "./transforms.js";
 import type { ArrayElement, DeepKeys, DeepValue } from "./type-utils.js";
 
@@ -259,6 +259,8 @@ export type FieldApiWithArray<TData, TUi, TPath extends string> = FieldApi<TData
 /** ADR section 9 — FormApi */
 export interface FormApi<TData, TUi> {
 	getState(): FormState<TData, TUi>;
+	/** Atomically capture current state with baseline-bound dirty queries. */
+	captureState(): FormStateCapture<TData, TUi>;
 	dispatch(action: FormAction): FormDispatchResult;
 	setValue<P extends string & DeepKeys<TData>>(path: P, value: DeepValue<TData, P>): FormDispatchResult;
 	validate(stage?: string): readonly ValidationIssue[];

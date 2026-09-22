@@ -1,12 +1,14 @@
 import {
 	type DefinitionDiagnostic,
 	type FormDefinition,
+	type RuntimeFieldBaseline,
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
 import type { DescriptorDocument } from "../descriptors/contracts.js";
 import type { CompilationDiagnostic } from "../diagnostics.js";
 import { sortCompilationDiagnostics } from "../diagnostics.js";
+import { adaptRuntimeFieldBaseline } from "../runtime-baseline.js";
 import { compileOccurrence } from "./compile-occurrence.js";
 import { definitionId } from "./ids.js";
 
@@ -16,6 +18,7 @@ export interface CompileDefaultFormDefinitionOptions {
 
 export interface CompileDefaultFormDefinitionResult {
 	readonly definition?: ValidatedFormDefinition;
+	readonly baseline: readonly RuntimeFieldBaseline[];
 	readonly diagnostics: readonly CompilationDiagnostic[];
 	readonly definitionDiagnostics: readonly DefinitionDiagnostic[];
 }
@@ -32,14 +35,17 @@ export function compileDefaultFormDefinition(
 		root,
 	};
 	const validation = validateFormDefinition(candidate);
-	return validation.ok
-		? Object.freeze({
-				definition: validation.value,
-				diagnostics: sortCompilationDiagnostics(diagnostics),
-				definitionDiagnostics: Object.freeze([]),
-			})
-		: Object.freeze({
-				diagnostics: sortCompilationDiagnostics(diagnostics),
-				definitionDiagnostics: validation.diagnostics,
-			});
+	if (!validation.ok)
+		return Object.freeze({
+			baseline: Object.freeze([]),
+			diagnostics: sortCompilationDiagnostics(diagnostics),
+			definitionDiagnostics: validation.diagnostics,
+		});
+	const adapted = adaptRuntimeFieldBaseline(document, validation.value);
+	return Object.freeze({
+		definition: validation.value,
+		baseline: adapted.baseline,
+		diagnostics: sortCompilationDiagnostics([...diagnostics, ...adapted.diagnostics]),
+		definitionDiagnostics: Object.freeze([]),
+	});
 }

@@ -91,6 +91,7 @@ export type {
 	CreateFormOptions,
 	FieldMetaEntry,
 	FormState,
+	FormStateCapture,
 	IssueSeverity,
 	SubmitContext,
 	ValidationIssue,

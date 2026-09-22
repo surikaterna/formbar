@@ -9,6 +9,7 @@ describe("from-schema public API", () => {
 				"projectSchemaDocument",
 				"compileDefaultFormDefinition",
 				"createSchemaForm",
+				"createRuntimeFieldBaseline",
 				"jsonSchemaProvider",
 			]),
 		);

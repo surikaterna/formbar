@@ -19,9 +19,12 @@ const prepared = createSchemaForm(
 
 console.log(prepared.descriptors);
 console.log(prepared.definition); // already passed validateFormDefinition
+console.log(prepared.baseline); // schema-neutral required/label evidence by field node ID
 ```
 
 `projectSchema` performs ingestion plus projection. `projectSchemaDocument` projects an existing Scheman v2 document. `compileDefaultFormDefinition` compiles descriptors without choosing union/intersection branches. `createSchemaForm` combines those steps and accepts either an authored `definition` or `generation` options, never both.
+
+`createRuntimeFieldBaseline(descriptors, definition)` is the narrow descriptor adapter for declarative runtime state. It matches authored or generated field bindings against occurrence paths, normalizes nested array scopes, preserves shared occurrences, ORs required property evidence, and retains a provider-owned title only when matching titles agree. No descriptor pointer, provider metadata, constraint, default, or validator handle crosses into the baseline.
 
 ## Descriptor graph
 

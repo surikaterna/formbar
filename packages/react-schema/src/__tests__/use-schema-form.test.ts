@@ -10,7 +10,7 @@ vi.mock("@formbar/react", () => ({ useForm: vi.fn(() => ({ kind: "form" })) }));
 describe("useSchemaForm preparation-only API", () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it("returns only form, descriptors, validated definition, diagnostics, and warnings", () => {
+	it("returns form, descriptors, validated definition, runtime baseline, diagnostics, and warnings", () => {
 		const result = useSchemaForm(
 			{ type: "object", properties: { name: { type: "string" } } },
 			{
@@ -19,8 +19,16 @@ describe("useSchemaForm preparation-only API", () => {
 				initialData: { name: "Ada" },
 			},
 		);
-		expect(Object.keys(result).sort()).toEqual(["definition", "descriptors", "diagnostics", "form", "warnings"]);
+		expect(Object.keys(result).sort()).toEqual([
+			"baseline",
+			"definition",
+			"descriptors",
+			"diagnostics",
+			"form",
+			"warnings",
+		]);
 		expect(result.definition.version).toBe(1);
+		expect(result.baseline).toEqual([expect.objectContaining({ required: false })]);
 		expect(vi.mocked(useForm).mock.calls[0]?.[0]).toMatchObject({ initialData: { name: "Ada" } });
 	});
 

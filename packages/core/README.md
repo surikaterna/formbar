@@ -42,6 +42,11 @@ Suspicious Promise species/constructor shapes are rejected without observing
 them; a trusted callback owns any hostile rejection it returns. See the expression
 ADR for the exact callback trust boundary.
 
+`form.captureState()` atomically returns the current state with snapshot-bound
+`isFormDirty()` and `isFieldDirty(path)` queries. The queries retain baseline
+identity privately, remain coherent after later mutations or resets, and do not
+expose baseline data or UI objects.
+
 ## Field policy contributions
 
 Plugins can return `fieldPolicy` snapshots from `evaluate()`. Core normalizes each
