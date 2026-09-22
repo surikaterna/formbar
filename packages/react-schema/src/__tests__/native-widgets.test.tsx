@@ -150,8 +150,14 @@ describe("native string values", () => {
 describe("native temporal values", () => {
 	it("renders only date and time values that native controls preserve", () => {
 		const view = mount();
-		expectAcceptedTemporal(view, "date", ["0001-01-01", "2000-02-29", "9999-12-31", "10000-01-01"]);
+		expectAcceptedTemporal(view, "date", ["0001-01-01", "2026-09-22", "2000-02-29", "10000-01-01", "275760-09-13"]);
 		expectRejectedTemporal(view, "date", ["0000-01-01", "1900-02-29", "2024-04-31"]);
+		expectRejectedTemporal(
+			view,
+			"date",
+			["275760-09-14", "275760-12-31", "275761-01-01", "99999999999999999999999999999999-01-01"],
+			false,
+		);
 		expectAcceptedTemporal(view, "time", [
 			"00:00",
 			"23:59",
@@ -186,18 +192,28 @@ function expectAcceptedTemporal(view: MountedWidgets, type: "date" | "time", val
 	}
 }
 
-function expectRejectedTemporal(view: MountedWidgets, type: "date" | "time", values: readonly string[]): void {
+function expectRejectedTemporal(
+	view: MountedWidgets,
+	type: "date" | "time",
+	values: readonly string[],
+	nativeRejects = true,
+): void {
 	for (const value of values) {
-		const browserControl = document.createElement("input");
-		browserControl.type = type;
-		browserControl.value = value;
-		expect(browserControl.value).toBe("");
+		if (nativeRejects) expect(nativeControlValue(type, value)).toBe("");
 		act(() => view.form.setValue(type, value));
 		const node = view.container.querySelector(`[data-formbar-node="${type}"]`);
 		expect(node?.getAttribute("data-formbar-diagnostic")).toBe("unsupported-widget");
 		expect(node?.querySelector("input")).toBeNull();
 		expect(node?.textContent).toBe("This form item cannot be rendered.");
+		expect(view.form.getState().data[type]).toBe(value);
 	}
+}
+
+function nativeControlValue(type: "date" | "time", value: string): string {
+	const control = document.createElement("input");
+	control.type = type;
+	control.value = value;
+	return control.value;
 }
 
 function mount() {

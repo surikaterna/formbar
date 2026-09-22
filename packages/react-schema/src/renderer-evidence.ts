@@ -49,6 +49,7 @@ const DOT_SAFE_SEGMENT = /^[a-zA-Z0-9_-]+$/;
 const NUMERIC_SEGMENT = /^(?:0|[1-9]\d*)$/;
 const BREAKPOINTS = ["base", "sm", "md", "lg", "xl"] as const;
 const STRING_FORMATS = new Set(["email", "url", "tel", "date", "time"]);
+const MAX_NATIVE_DATE = { year: "275760", monthDay: "09-13" } as const;
 const WIDGETS = new Set([
 	"text",
 	"textarea",
@@ -199,13 +200,20 @@ function spanValue(value: ColumnSpan): string {
 function validDate(value: string): boolean {
 	const match = /^(\d{4,})-(\d{2})-(\d{2})$/.exec(value);
 	if (!match) return false;
-	const year = Number(match[1]);
+	const normalizedYear = match[1].replace(/^0+/, "");
+	if (!normalizedYear || !withinNativeDateRange(normalizedYear, match[2], match[3])) return false;
+	const year = Number(normalizedYear);
 	const month = Number(match[2]);
 	const day = Number(match[3]);
-	if (year <= 0) return false;
 	const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 	const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 	return month >= 1 && month <= 12 && day >= 1 && day <= (days[month - 1] ?? 0);
+}
+
+function withinNativeDateRange(year: string, month: string, day: string): boolean {
+	if (year.length < MAX_NATIVE_DATE.year.length) return true;
+	if (year.length > MAX_NATIVE_DATE.year.length || year > MAX_NATIVE_DATE.year) return false;
+	return year < MAX_NATIVE_DATE.year || `${month}-${day}` <= MAX_NATIVE_DATE.monthDay;
 }
 
 function validTime(value: string): boolean {
