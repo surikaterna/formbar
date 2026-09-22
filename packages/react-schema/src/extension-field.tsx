@@ -1,6 +1,6 @@
 import type { FieldNode, JsonValue, ResolvedFieldState } from "@formbar/declarative";
 import type { NormalizedEvidence } from "@formbar/from-schema";
-import { useEffect } from "react";
+import { useEffect, useInsertionEffect, useLayoutEffect } from "react";
 import type { ReactElement } from "react";
 import { ExtensionBoundary } from "./extension-boundary.js";
 import { resolveWidget } from "./extension-registry.js";
@@ -72,6 +72,13 @@ interface CommittedWidgetProps extends ExtensionFieldProps {
 
 function CommittedWidget({ Component, extensionProps, path, ...props }: CommittedWidgetProps): ReactElement {
 	const lease = { active: false };
+	// Insertion cleanup covers real commits; layout cleanup also participates in StrictMode's simulated teardown.
+	useInsertionEffect(() => () => {
+		lease.active = false;
+	});
+	useLayoutEffect(() => () => {
+		lease.active = false;
+	});
 	useEffect(() => {
 		lease.active = true;
 		return () => {
