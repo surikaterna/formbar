@@ -1,10 +1,10 @@
-import type { FormNode, ResolvedFieldState } from "@formbar/declarative";
+import type { FormNode, ResolvedFieldState, ResolvedNodeState } from "@formbar/declarative";
 import { fieldId } from "@formbar/react";
 import { memo } from "react";
 import type { ReactElement } from "react";
 import { FormField, FormValidation } from "./form-field.js";
 import { DiagnosticFallback, layoutProps } from "./renderer-elements.js";
-import { spanOutput } from "./renderer-evidence.js";
+import { domIdToken, spanOutput } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
 import { rootInstanceKey, useNodeObservation } from "./use-runtime-observation.js";
 
@@ -19,9 +19,9 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 	if (!state) return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 	if (!state.visible) return null;
 	if (node.type === "field") {
-		if (state.type !== "field")
+		if (!isResolvedFieldState(state))
 			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} widget={node.widget} layout={layout} />;
-		return <FormField node={node} state={state as ResolvedFieldState} environment={environment} layout={layout} />;
+		return <FormField node={node} state={state} environment={environment} layout={layout} />;
 	}
 	if (node.type === "validation")
 		return <FormValidation node={node} environment={environment} visible={state.visible} layout={layout} />;
@@ -36,7 +36,7 @@ function renderGroup(
 	environment: RendererEnvironment,
 	layout: ReturnType<typeof layoutProps>,
 ): ReactElement {
-	const legend = node.label ? fieldId(`${node.id}-legend`, environment.prefix) : undefined;
+	const legend = node.label ? fieldId(`${domIdToken(node.id)}-legend`, environment.prefix) : undefined;
 	return (
 		<fieldset
 			data-formbar-node={node.id}
@@ -55,8 +55,9 @@ function renderSection(
 	environment: RendererEnvironment,
 	layout: ReturnType<typeof layoutProps>,
 ): ReactElement {
-	const heading = fieldId(`${node.id}-heading`, environment.prefix);
-	const description = node.description ? fieldId(`${node.id}-description`, environment.prefix) : undefined;
+	const token = domIdToken(node.id);
+	const heading = fieldId(`${token}-heading`, environment.prefix);
+	const description = node.description ? fieldId(`${token}-description`, environment.prefix) : undefined;
 	return (
 		<section
 			data-formbar-node={node.id}
@@ -89,4 +90,8 @@ function renderConditional(
 
 function NodeChildren(props: { readonly nodes: readonly FormNode[]; readonly environment: RendererEnvironment }) {
 	return props.nodes.map((node) => <FormNodeView key={node.id} node={node} environment={props.environment} />);
+}
+
+function isResolvedFieldState(state: ResolvedNodeState): state is ResolvedFieldState {
+	return state.type === "field" && "binding" in state && "issues" in state && "dirty" in state && "touched" in state;
 }

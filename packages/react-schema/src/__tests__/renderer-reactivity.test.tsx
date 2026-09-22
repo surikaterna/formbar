@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createForm } from "@formbar/core";
-import type { FormApi, FormPlugin } from "@formbar/core";
+import type { FormApi, FormPlugin, ValidationIssue } from "@formbar/core";
 import type { FormDefinition } from "@formbar/declarative";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -100,6 +100,34 @@ describe("renderer reactivity", () => {
 		mounted.splice(mounted.indexOf(view), 1);
 		second.dispose();
 	});
+
+	it("keeps untouched handlers stable for unrelated issues, policy, and values", async () => {
+		let issueMessage = "first global issue";
+		let restrictOther = false;
+		const plugin: FormPlugin = {
+			id: "other-policy",
+			evaluate: () => ({ fieldPolicy: restrictOther ? [{ path: "other", disabled: true }] : [] }),
+		};
+		const view = mount({
+			data: { name: "Ada", other: "stable", tick: 0 },
+			formOptions: { plugins: [plugin], validators: [() => [globalIssue(issueMessage)]] },
+		});
+		await act(async () => void (await view.form.submit()));
+		const control = view.container.querySelector('[data-formbar-node="name"] input') as HTMLInputElement;
+		const initial = reactChangeHandler(control);
+		issueMessage = "second global issue";
+		await act(async () => void (await view.form.submit()));
+		expect(reactChangeHandler(control)).toBe(initial);
+		act(() => view.form.setValue("other", "changed"));
+		expect(reactChangeHandler(control)).toBe(initial);
+		act(() => {
+			restrictOther = true;
+			view.form.setValue("tick", 1);
+		});
+		expect(reactChangeHandler(control)).toBe(initial);
+		act(() => view.form.setValue("name", "Grace"));
+		expect(reactChangeHandler(control)).not.toBe(initial);
+	});
 });
 
 function mount(options: Omit<Parameters<typeof mountForm<Record<string, unknown>>>[0], "schema" | "definition">) {
@@ -124,4 +152,21 @@ function trackSubscriptions(
 			stop();
 		};
 	};
+}
+
+function globalIssue(message: string): ValidationIssue {
+	return {
+		code: "global",
+		message,
+		severity: "error",
+		path: { namespace: "data", segments: ["global"] },
+		source: { origin: "function-validator", validatorId: "reactivity" },
+	};
+}
+
+function reactChangeHandler(element: HTMLInputElement): unknown {
+	const key = Object.keys(element).find((item) => item.startsWith("__reactProps$"));
+	if (!key) throw new Error("React props were not attached to the control");
+	const props = (element as unknown as Record<string, { readonly onChange?: unknown }>)[key];
+	return props?.onChange;
 }

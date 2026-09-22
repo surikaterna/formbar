@@ -31,6 +31,7 @@ const fields: FieldNode[] = widgets.map(([name, widget]) => ({
 			: { placeholder: literal(`Enter ${name}`), description: literal(`${name} help`) },
 }));
 fields.push({ type: "field", id: "formatted", binding: binding("formatted"), widget: "text" });
+fields.push({ type: "field", id: "integer", binding: binding("integer"), widget: "number" });
 
 const definition: FormDefinition = {
 	version: 1,
@@ -55,6 +56,7 @@ const schema = {
 		password: { type: "string" },
 		search: { type: "string" },
 		formatted: { type: "string", format: "email" },
+		integer: { type: "integer" },
 	},
 };
 
@@ -76,20 +78,25 @@ describe("native widgets", () => {
 		const text = view.container.querySelector('[data-formbar-node="text"] input') as HTMLInputElement;
 		expect([text.minLength, text.maxLength, text.pattern, text.placeholder]).toEqual([2, 8, "^[a-z]*$", "Enter text"]);
 		const number = view.container.querySelector('[data-formbar-node="number"] input') as HTMLInputElement;
-		expect([number.min, number.max]).toEqual(["1", "9"]);
+		expect([number.min, number.max, number.step]).toEqual(["1", "9", "any"]);
+		expect((view.container.querySelector('[data-formbar-node="integer"] input') as HTMLInputElement).step).toBe("1");
 		expect((view.container.querySelector('[data-formbar-node="formatted"] input') as HTMLInputElement).type).toBe(
 			"email",
 		);
 	});
 
-	it("preserves explicit empty and typed native conversion semantics", () => {
+	it("preserves scalar and explicit empty conversion semantics", () => {
 		const view = mount();
 		const text = view.container.querySelector('[data-formbar-node="text"] input') as HTMLInputElement;
 		input(text, "");
 		expect(view.form.getState().data.text).toBe("");
 		const number = view.container.querySelector('[data-formbar-node="number"] input') as HTMLInputElement;
-		input(number, "7");
-		expect(view.form.getState().data.number).toBe(7);
+		input(number, "1.5");
+		expect(view.form.getState().data.number).toBe(1.5);
+		expect(number.validity.stepMismatch).toBe(false);
+		expect(number.checkValidity()).toBe(true);
+		input(number, "not-a-number");
+		expect(view.form.getState().data.number).toBeUndefined();
 		input(number, "");
 		expect(view.form.getState().data.number).toBeUndefined();
 		const select = view.container.querySelector("select") as HTMLSelectElement;
@@ -103,6 +110,10 @@ describe("native widgets", () => {
 		const radio = view.container.querySelectorAll('input[type="radio"]')[2] as HTMLInputElement;
 		act(() => radio.click());
 		expect(view.form.getState().data.radio).toBe(true);
+	});
+
+	it("writes native string, date, and time values without conversion", () => {
+		const view = mount();
 		const stringValues = {
 			textarea: "updated textarea",
 			email: "next@example.com",
@@ -129,6 +140,10 @@ describe("native widgets", () => {
 			input(control, "");
 			expect(view.form.getState().data[id]).toBeUndefined();
 		}
+	});
+
+	it("rejects non-finite current number values visibly", () => {
+		const view = mount();
 		act(() => view.form.fieldDynamic("/number").handleChange(Number.POSITIVE_INFINITY as never));
 		expect(view.container.querySelector('[data-formbar-node="number"]')?.getAttribute("data-formbar-diagnostic")).toBe(
 			"unsupported-widget",
@@ -155,6 +170,7 @@ function mount() {
 			password: "secret",
 			search: "query",
 			formatted: "formatted@example.com",
+			integer: 2,
 		},
 	});
 	mounted.push(view);

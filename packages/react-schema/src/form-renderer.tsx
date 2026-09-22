@@ -1,10 +1,12 @@
 import { structuredEqual } from "@formbar/core";
 import type { FormState, ValidationIssue } from "@formbar/core";
-import type { ResolvedFieldState } from "@formbar/declarative";
+import type { FieldNode, FormNode, ResolvedFieldState } from "@formbar/declarative";
+import type { DescriptorDocument } from "@formbar/from-schema";
 import { fieldId, useFormSelector } from "@formbar/react";
 import { useEffect, useId, useMemo, useRef } from "react";
 import type { FormEvent, ReactElement } from "react";
 import { FormNodeView } from "./form-node.js";
+import { domIdToken, focusableField } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
 import { useOwnedRuntime } from "./use-runtime-observation.js";
 import type { UseSchemaFormResult } from "./use-schema-form.js";
@@ -17,8 +19,12 @@ export type FormRendererProps<TData = unknown, TUi = unknown> = Pick<
 export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): ReactElement {
 	const runtime = useOwnedRuntime({ form: props.form, definition: props.definition, baseline: props.baseline });
 	const rootId = useId();
-	const prefix = useMemo(() => fieldId(props.definition.id, `formbar-${rootId}`), [props.definition.id, rootId]);
+	const prefix = useMemo(
+		() => fieldId(domIdToken(props.definition.id), `formbar-${domIdToken(rootId)}`),
+		[props.definition.id, rootId],
+	);
 	const root = useFormSelector(props.form, selectRootState, structuredEqual);
+	const fieldNodes = useMemo(() => renderedFieldNodes(props.definition.root), [props.definition.root]);
 	const environment = useMemo<RendererEnvironment>(
 		() => ({
 			runtime,
@@ -26,12 +32,12 @@ export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): 
 			descriptors: props.descriptors,
 			prefix,
 			submitted: root.submitted,
-			issues: root.issues,
 		}),
-		[runtime, props.form, props.descriptors, prefix, root.submitted, root.issues],
+		[runtime, props.form, props.descriptors, prefix, root.submitted],
 	);
-	const summary = summaryEntries(runtime.getSnapshot().fields, root.issues, prefix);
+	const summary = summaryEntries(runtime.getSnapshot().fields, root.issues, prefix, fieldNodes, props.descriptors);
 	const summaryId = `${prefix}-error-summary`;
+	const hasErrors = root.issues.some(errorIssue);
 	useFailedSubmitFocus(root.status, root.submitId, summary.find((entry) => entry.target)?.target, summaryId);
 	return (
 		<form
@@ -41,9 +47,9 @@ export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): 
 			onSubmit={(event) => submit(event, props.form)}
 		>
 			<div aria-live="polite" data-formbar-status="">
-				{statusText(root.status, root.validating)}
+				{statusText(root.status, root.validating, hasErrors)}
 			</div>
-			{root.submitted && root.issues.some(errorIssue) ? <ErrorSummary id={summaryId} entries={summary} /> : null}
+			{root.submitted && hasErrors ? <ErrorSummary id={summaryId} entries={summary} /> : null}
 			<FormNodeView node={props.definition.root} environment={environment} />
 		</form>
 	);
@@ -81,11 +87,16 @@ function summaryEntries(
 	fields: readonly ResolvedFieldState[],
 	issues: readonly ValidationIssue[],
 	prefix: string,
+	nodes: ReadonlyMap<string, FieldNode>,
+	descriptors: DescriptorDocument,
 ): readonly SummaryEntry[] {
 	return issues.filter(errorIssue).map((issue) => {
-		const field = fields.find((candidate) => candidate.visible && samePath(candidate, issue));
+		const field = fields.find((candidate) => {
+			const node = nodes.get(candidate.instance.nodeId);
+			return Boolean(node && samePath(candidate, issue) && focusableField(node, candidate, descriptors));
+		});
 		return {
-			...(field ? { target: fieldId(field.instance.nodeId, prefix) } : {}),
+			...(field ? { target: fieldId(domIdToken(field.instance.nodeId), prefix) } : {}),
 			message: issue.message,
 		};
 	});
@@ -118,15 +129,15 @@ function useFailedSubmitFocus(
 	useEffect(() => {
 		if (status !== "failed" || !submitId || focused.current === submitId) return;
 		focused.current = submitId;
-		const element = document.getElementById(target ?? summaryId);
+		const element = (target ? document.getElementById(target) : null) ?? document.getElementById(summaryId);
 		element?.focus();
 	}, [status, submitId, target, summaryId]);
 }
 
-function statusText(status: RootState["status"], validating: boolean): string {
+function statusText(status: RootState["status"], validating: boolean, hasErrors: boolean): string {
 	if (status === "running") return "Submitting form.";
 	if (status === "succeeded") return "Form submitted.";
-	if (status === "failed") return "Form submission failed.";
+	if (status === "failed") return hasErrors ? "" : "Form submission failed.";
 	return validating ? "Validating form." : "";
 }
 
@@ -140,4 +151,18 @@ function samePath(field: ResolvedFieldState, issue: ValidationIssue): boolean {
 		field.binding.segments.length === issue.path.segments.length &&
 		field.binding.segments.every((segment, index) => segment === issue.path.segments[index])
 	);
+}
+
+function renderedFieldNodes(root: FormNode): ReadonlyMap<string, FieldNode> {
+	const fields = new Map<string, FieldNode>();
+	const visit = (node: FormNode): void => {
+		if (node.type === "field") fields.set(node.id, node);
+		else if (node.type === "group" || node.type === "section") for (const child of node.children) visit(child);
+		else if (node.type === "conditional") {
+			for (const child of node.then) visit(child);
+			for (const child of node.else ?? []) visit(child);
+		}
+	};
+	visit(root);
+	return fields;
 }

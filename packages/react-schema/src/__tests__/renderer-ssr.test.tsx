@@ -14,7 +14,7 @@ describe("renderer SSR", () => {
 		const definition: FormDefinition = {
 			version: 1,
 			id: "ssr",
-			root: { type: "field", id: "name", binding: binding("name"), widget: "text", label: "Name" },
+			root: { type: "field", id: "a.b/雪✨[]", binding: binding("name"), widget: "text", label: "Name" },
 		};
 		const prepared = createSchemaForm(
 			{ type: "object", properties: { name: { type: "string" } } },
@@ -34,6 +34,7 @@ describe("renderer SSR", () => {
 			await Promise.resolve();
 		});
 		expect(container.querySelector("input")?.id).toBe(serverId);
+		expect(serverId).toMatch(/^[A-Za-z0-9_-]+$/);
 		expect(error).not.toHaveBeenCalled();
 		act(() => root.unmount());
 		error.mockRestore();

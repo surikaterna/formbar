@@ -1,36 +1,14 @@
 import { structuredEqual } from "@formbar/core";
 import type { ValidationIssue } from "@formbar/core";
 import type { FieldNode, ResolvedFieldState, ValidationNode } from "@formbar/declarative";
+import type { NormalizedEvidence } from "@formbar/from-schema";
 import { descriptionId, errorId, fieldId, useFormSelector } from "@formbar/react";
 import type { ChangeEvent, ReactElement } from "react";
 import { DiagnosticFallback } from "./renderer-elements.js";
 import type { LayoutProps } from "./renderer-elements.js";
-import {
-	conformingValue,
-	descriptorEvidence,
-	editablePath,
-	literalProp,
-	nativeInputType,
-	optionEvidence,
-} from "./renderer-evidence.js";
-import type { OptionEvidence, ScalarOption } from "./renderer-evidence.js";
+import { domIdToken, editablePath, literalProp, resolveFieldEvidence } from "./renderer-evidence.js";
+import type { FieldRenderEvidence, ScalarOption } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
-
-const WIDGETS = new Set([
-	"text",
-	"textarea",
-	"number",
-	"select",
-	"checkbox",
-	"radio",
-	"date",
-	"time",
-	"email",
-	"url",
-	"tel",
-	"password",
-	"search",
-]);
 
 interface FieldProps {
 	readonly node: FieldNode;
@@ -47,20 +25,13 @@ interface Wiring {
 	readonly hasErrors: boolean;
 }
 
+type SupportedFieldEvidence = Extract<FieldRenderEvidence, { readonly ok: true }>;
+
 export function FormField({ node, state, environment, layout }: FieldProps): ReactElement | null {
 	if (!state.visible) return null;
-	const path = editablePath(node.binding);
-	if (!path)
-		return <DiagnosticFallback code="unsupported-binding" nodeId={node.id} widget={node.widget} layout={layout} />;
-	if (!WIDGETS.has(node.widget))
-		return <DiagnosticFallback code="unsupported-widget" nodeId={node.id} widget={node.widget} layout={layout} />;
-	const evidence = descriptorEvidence(environment.descriptors, node.binding);
-	const options = node.widget === "select" || node.widget === "radio" ? optionEvidence(node, evidence) : undefined;
-	if (options && (!options.ok || !conformingValue(node.widget, state.value, options)))
-		return <DiagnosticFallback code="unsupported-options" nodeId={node.id} widget={node.widget} layout={layout} />;
-	const widget = nativeInputType(node.widget, evidence);
-	if (!options && !conformingValue(widget, state.value))
-		return <DiagnosticFallback code="unsupported-widget" nodeId={node.id} widget={node.widget} layout={layout} />;
+	const resolved = resolveFieldEvidence(node, state, environment.descriptors);
+	if (!resolved.ok)
+		return <DiagnosticFallback code={resolved.diagnostic} nodeId={node.id} widget={node.widget} layout={layout} />;
 	const visibleIssues = state.dirty || state.touched || environment.submitted ? state.issues : [];
 	const wiring = fieldWiring(node, visibleIssues, environment.prefix);
 	return (
@@ -72,9 +43,11 @@ export function FormField({ node, state, environment, layout }: FieldProps): Rea
 			style={layout.style}
 		>
 			{node.widget === "radio" ? null : <label htmlFor={wiring.controlId}>{state.label}</label>}
-			{renderControl(node, state, environment, evidence, options, wiring, path, widget)}
-			{wiring.description ? <div id={descriptionId(node.id, environment.prefix)}>{wiring.description}</div> : null}
-			<IssueList issues={visibleIssues} id={wiring.issueId} hasErrors={wiring.hasErrors} />
+			{renderControl(node, state, environment, resolved, wiring)}
+			{wiring.description ? (
+				<div id={descriptionId(domIdToken(node.id), environment.prefix)}>{wiring.description}</div>
+			) : null}
+			<IssueList issues={visibleIssues} id={wiring.issueId} />
 		</div>
 	);
 }
@@ -117,23 +90,22 @@ function renderControl(
 	node: FieldNode,
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	evidence: ReturnType<typeof descriptorEvidence>,
-	options: OptionEvidence | undefined,
+	resolved: SupportedFieldEvidence,
 	wiring: Wiring,
-	path: string,
-	widget: string,
 ): ReactElement {
-	if (node.widget === "radio") return radioControl(node, state, environment, options as OptionEvidence, wiring, path);
-	if (node.widget === "select") return selectControl(state, environment, options as OptionEvidence, wiring, path);
-	if (node.widget === "textarea") return textareaControl(node, state, environment, evidence, wiring, path);
-	return inputControl(node, state, environment, evidence, wiring, path, widget);
+	if (resolved.kind === "options" && resolved.widget === "radio")
+		return radioControl(node, state, environment, resolved.options, wiring, resolved.path);
+	if (resolved.kind === "options") return selectControl(state, environment, resolved.options, wiring, resolved.path);
+	if (node.widget === "textarea")
+		return textareaControl(node, state, environment, resolved.evidence, wiring, resolved.path);
+	return inputControl(node, state, environment, resolved.evidence, wiring, resolved.path, resolved.widget);
 }
 
 function inputControl(
 	node: FieldNode,
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	evidence: ReturnType<typeof descriptorEvidence>,
+	evidence: NormalizedEvidence,
 	wiring: Wiring,
 	path: string,
 	type: string,
@@ -141,12 +113,12 @@ function inputControl(
 	const field = environment.form.fieldDynamic(path);
 	const checkbox = node.widget === "checkbox";
 	const interactionDisabled = state.disabled || (checkbox && state.readOnly);
-	const value = state.value as string | number | undefined;
+	const value = inputControlValue(state.value);
 	return (
 		<input
 			{...controlA11y(state, wiring)}
 			type={type}
-			{...(checkbox ? { checked: state.value === true } : { value: value ?? "" })}
+			{...(checkbox ? { checked: state.value === true } : { value })}
 			placeholder={stringProp(node, "placeholder")}
 			disabled={interactionDisabled}
 			readOnly={!checkbox && state.readOnly}
@@ -163,7 +135,7 @@ function textareaControl(
 	node: FieldNode,
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	evidence: ReturnType<typeof descriptorEvidence>,
+	evidence: NormalizedEvidence,
 	wiring: Wiring,
 	path: string,
 ): ReactElement {
@@ -171,7 +143,7 @@ function textareaControl(
 	return (
 		<textarea
 			{...controlA11y(state, wiring)}
-			value={(state.value as string | undefined) ?? ""}
+			value={typeof state.value === "string" ? state.value : ""}
 			placeholder={stringProp(node, "placeholder")}
 			disabled={state.disabled}
 			readOnly={state.readOnly}
@@ -186,12 +158,12 @@ function textareaControl(
 function selectControl(
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	options: OptionEvidence,
+	options: readonly ScalarOption[],
 	wiring: Wiring,
 	path: string,
 ): ReactElement {
 	const field = environment.form.fieldDynamic(path);
-	const token = optionToken(options.values, state.value);
+	const token = optionToken(options, state.value);
 	return (
 		<select
 			{...controlA11y(state, wiring)}
@@ -199,11 +171,11 @@ function selectControl(
 			disabled={state.disabled || state.readOnly}
 			aria-readonly={state.readOnly || undefined}
 			required={state.required}
-			onChange={(event) => field.handleChange(optionValue(options.values, event.currentTarget.value) as never)}
+			onChange={(event) => field.handleChange(optionValue(options, event.currentTarget.value) as never)}
 			onBlur={() => field.handleBlur()}
 		>
 			<option value="" />
-			{options.values.map((option, index) => (
+			{options.map((option, index) => (
 				<option key={optionKey(option, index)} value={`option-${index}`}>
 					{optionLabel(option)}
 				</option>
@@ -216,7 +188,7 @@ function radioControl(
 	node: FieldNode,
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	options: OptionEvidence,
+	options: readonly ScalarOption[],
 	wiring: Wiring,
 	path: string,
 ): ReactElement {
@@ -229,8 +201,9 @@ function radioControl(
 			disabled={state.disabled || state.readOnly}
 		>
 			<legend id={`${wiring.controlId}-legend`}>{state.label}</legend>
-			{options.values.map((option, index) => {
-				const id = index === 0 ? wiring.controlId : fieldId(`${node.id}-option-${index}`, environment.prefix);
+			{options.map((option, index) => {
+				const id =
+					index === 0 ? wiring.controlId : fieldId(`${domIdToken(node.id)}-option-${index}`, environment.prefix);
 				return (
 					<div key={optionKey(option, index)}>
 						<input
@@ -251,14 +224,15 @@ function radioControl(
 }
 
 function fieldWiring(node: FieldNode, issues: readonly ValidationIssue[], prefix: string): Wiring {
+	const token = domIdToken(node.id);
 	const description = stringProp(node, "description");
 	const hasErrors = issues.some((issue) => issue.severity === "error");
-	const issueId = errorId(node.id, prefix);
-	const describedBy = [description ? descriptionId(node.id, prefix) : undefined, issues.length ? issueId : undefined]
+	const issueId = errorId(token, prefix);
+	const describedBy = [description ? descriptionId(token, prefix) : undefined, issues.length ? issueId : undefined]
 		.filter(Boolean)
 		.join(" ");
 	return {
-		controlId: fieldId(node.id, prefix),
+		controlId: fieldId(token, prefix),
 		...(description ? { description } : {}),
 		issueId,
 		...(describedBy ? { describedBy } : {}),
@@ -276,14 +250,10 @@ function controlA11y(state: ResolvedFieldState, wiring: Wiring) {
 	};
 }
 
-function IssueList(props: {
-	readonly issues: readonly ValidationIssue[];
-	readonly id: string;
-	readonly hasErrors: boolean;
-}) {
+function IssueList(props: { readonly issues: readonly ValidationIssue[]; readonly id: string }) {
 	if (props.issues.length === 0) return null;
 	return (
-		<ul id={props.id} role={props.hasErrors ? "alert" : undefined}>
+		<ul id={props.id}>
 			{props.issues.map((issue, index) => (
 				<li key={`${issue.code}:${index}`}>{issue.message}</li>
 			))}
@@ -307,12 +277,13 @@ function useValidationLifecycle(environment: RendererEnvironment, path: string) 
 	);
 }
 
-function nativeConstraints(type: string, evidence: ReturnType<typeof descriptorEvidence>) {
-	if (type === "number") return { min: evidence.minimum, max: evidence.maximum };
+function nativeConstraints(type: string, evidence: NormalizedEvidence) {
+	if (type === "number")
+		return { min: evidence.minimum, max: evidence.maximum, step: evidence.primitive === "integer" ? 1 : "any" };
 	return stringConstraints(evidence);
 }
 
-function stringConstraints(evidence: ReturnType<typeof descriptorEvidence>) {
+function stringConstraints(evidence: NormalizedEvidence) {
 	return { minLength: evidence.minLength, maxLength: evidence.maxLength, pattern: evidence.pattern };
 }
 
@@ -326,6 +297,10 @@ function inputValue(event: ChangeEvent<HTMLInputElement>, type: string): string 
 
 function finite(value: number): number | undefined {
 	return Number.isFinite(value) ? value : undefined;
+}
+
+function inputControlValue(value: ResolvedFieldState["value"]): string | number {
+	return typeof value === "string" || typeof value === "number" ? value : "";
 }
 
 function optionToken(options: readonly ScalarOption[], value: unknown): string {

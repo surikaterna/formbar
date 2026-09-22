@@ -1,5 +1,12 @@
 import { toDot, toPointer } from "@formbar/core";
-import type { Binding, ColumnSpan, JsonValue, ResponsiveSpan } from "@formbar/declarative";
+import type {
+	Binding,
+	ColumnSpan,
+	FieldNode,
+	JsonValue,
+	ResolvedFieldState,
+	ResponsiveSpan,
+} from "@formbar/declarative";
 import type { DescriptorDocument, NormalizedEvidence } from "@formbar/from-schema";
 
 export type RendererDiagnostic =
@@ -11,10 +18,27 @@ export type RendererDiagnostic =
 
 export type ScalarOption = string | number | boolean | null;
 
-export interface OptionEvidence {
-	readonly ok: boolean;
-	readonly values: readonly ScalarOption[];
-}
+export type OptionEvidence =
+	| { readonly ok: true; readonly values: readonly ScalarOption[] }
+	| { readonly ok: false; readonly values: readonly [] };
+
+export type FieldRenderEvidence =
+	| { readonly ok: false; readonly diagnostic: RendererDiagnostic }
+	| {
+			readonly ok: true;
+			readonly kind: "native";
+			readonly path: string;
+			readonly evidence: NormalizedEvidence;
+			readonly widget: string;
+	  }
+	| {
+			readonly ok: true;
+			readonly kind: "options";
+			readonly path: string;
+			readonly evidence: NormalizedEvidence;
+			readonly widget: "select" | "radio";
+			readonly options: readonly ScalarOption[];
+	  };
 
 export interface SpanOutput {
 	readonly attributes: Readonly<Record<string, string>>;
@@ -24,6 +48,22 @@ export interface SpanOutput {
 const DOT_SAFE_SEGMENT = /^[a-zA-Z0-9_-]+$/;
 const NUMERIC_SEGMENT = /^(?:0|[1-9]\d*)$/;
 const BREAKPOINTS = ["base", "sm", "md", "lg", "xl"] as const;
+const STRING_FORMATS = new Set(["email", "url", "tel", "date", "time"]);
+const WIDGETS = new Set([
+	"text",
+	"textarea",
+	"number",
+	"select",
+	"checkbox",
+	"radio",
+	"date",
+	"time",
+	"email",
+	"url",
+	"tel",
+	"password",
+	"search",
+]);
 
 export function editablePath(binding: Binding): string | undefined {
 	if (binding.scope || binding.segments.length === 0) return undefined;
@@ -33,27 +73,21 @@ export function editablePath(binding: Binding): string | undefined {
 }
 
 export function descriptorEvidence(document: DescriptorDocument, binding: Binding): NormalizedEvidence {
+	if (binding.namespace !== "data") return Object.freeze({});
 	const matches = Object.values(document.occurrences)
 		.filter((occurrence) => samePath(occurrence.path, binding.segments))
 		.sort((left, right) => left.id.localeCompare(right.id));
-	const merged: Record<string, unknown> = {};
+	const merged: NormalizedEvidence = {};
 	for (const occurrence of matches) Object.assign(merged, document.evidence[occurrence.nodeId]);
-	return Object.freeze(merged) as NormalizedEvidence;
+	return Object.freeze(merged);
 }
 
-export function literalProp(
-	binding: { readonly props?: Readonly<Record<string, unknown>> },
-	key: string,
-): JsonValue | undefined {
-	const spec = binding.props?.[key];
-	if (!spec || typeof spec !== "object" || !("mode" in spec) || !("value" in spec)) return undefined;
-	return spec.mode === "literal" ? (spec.value as JsonValue) : undefined;
+export function literalProp(field: Pick<FieldNode, "props">, key: string): JsonValue | undefined {
+	const spec = field.props?.[key];
+	return spec?.mode === "literal" ? spec.value : undefined;
 }
 
-export function optionEvidence(
-	node: { readonly props?: Readonly<Record<string, unknown>> },
-	evidence: NormalizedEvidence,
-): OptionEvidence {
+export function optionEvidence(node: Pick<FieldNode, "props">, evidence: NormalizedEvidence): OptionEvidence {
 	const authored = literalProp(node, "options");
 	if (authored !== undefined) return scalarOptions(authored);
 	if (evidence.enum) return scalarOptions(evidence.enum);
@@ -63,18 +97,55 @@ export function optionEvidence(
 
 export function nativeInputType(widget: string, evidence: NormalizedEvidence): string {
 	if (widget !== "text") return widget;
-	return ["email", "url", "tel", "date", "time"].includes(evidence.format ?? "") ? (evidence.format as string) : "text";
+	const format = evidence.format;
+	return format && STRING_FORMATS.has(format) ? format : "text";
 }
 
-export function conformingValue(widget: string, value: JsonValue | undefined, options?: OptionEvidence): boolean {
+export function conformingValue(
+	widget: string,
+	value: JsonValue | undefined,
+	options?: readonly ScalarOption[],
+): boolean {
 	if (value === undefined) return true;
 	if (widget === "number") return typeof value === "number" && Number.isFinite(value);
 	if (widget === "checkbox") return typeof value === "boolean";
-	if (widget === "select" || widget === "radio") return options?.values.some((item) => Object.is(item, value)) === true;
+	if (widget === "select" || widget === "radio") return options?.some((item) => Object.is(item, value)) === true;
 	if (typeof value !== "string") return false;
 	if (widget === "date") return validDate(value);
 	if (widget === "time") return validTime(value);
 	return true;
+}
+
+export function resolveFieldEvidence(
+	node: FieldNode,
+	state: ResolvedFieldState,
+	document: DescriptorDocument,
+): FieldRenderEvidence {
+	const path = editablePath(node.binding);
+	if (!path) return { ok: false, diagnostic: "unsupported-binding" };
+	if (!WIDGETS.has(node.widget)) return { ok: false, diagnostic: "unsupported-widget" };
+	const evidence = descriptorEvidence(document, node.binding);
+	if (node.widget === "select" || node.widget === "radio") {
+		const options = optionEvidence(node, evidence);
+		if (!options.ok || !conformingValue(node.widget, state.value, options.values))
+			return { ok: false, diagnostic: "unsupported-options" };
+		return { ok: true, kind: "options", path, evidence, widget: node.widget, options: options.values };
+	}
+	const widget = nativeInputType(node.widget, evidence);
+	if (!conformingValue(widget, state.value)) return { ok: false, diagnostic: "unsupported-widget" };
+	return { ok: true, kind: "native", path, evidence, widget };
+}
+
+export function focusableField(node: FieldNode, state: ResolvedFieldState, document: DescriptorDocument): boolean {
+	if (!state.visible || state.disabled) return false;
+	if (state.readOnly && ["select", "checkbox", "radio"].includes(node.widget)) return false;
+	return resolveFieldEvidence(node, state, document).ok;
+}
+
+export function domIdToken(value: string): string {
+	let token = "u";
+	for (let index = 0; index < value.length; index++) token += value.charCodeAt(index).toString(16).padStart(4, "0");
+	return token;
 }
 
 export function spanOutput(span: ResponsiveSpan | undefined): SpanOutput | undefined {
@@ -94,9 +165,13 @@ export function spanOutput(span: ResponsiveSpan | undefined): SpanOutput | undef
 
 function scalarOptions(value: JsonValue | readonly JsonValue[]): OptionEvidence {
 	if (!Array.isArray(value)) return scalar(value) ? { ok: true, values: [value] } : { ok: false, values: [] };
-	return value.length > 0 && value.every(scalar)
-		? { ok: true, values: Object.freeze([...value]) as readonly ScalarOption[] }
-		: { ok: false, values: [] };
+	if (value.length === 0) return { ok: false, values: [] };
+	const options: ScalarOption[] = [];
+	for (const item of value) {
+		if (!scalar(item)) return { ok: false, values: [] };
+		options.push(item);
+	}
+	return { ok: true, values: Object.freeze(options) };
 }
 
 function scalar(value: JsonValue): value is ScalarOption {
