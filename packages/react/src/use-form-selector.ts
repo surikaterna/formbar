@@ -43,5 +43,5 @@ export function useFormSelector<TData, TUi, T>(
 		return next;
 	}, [form]);
 
-	return useSyncExternalStore(subscribe, getSnapshot);
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

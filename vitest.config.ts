@@ -12,7 +12,7 @@ export default defineConfig({
 	},
 	test: {
 		include: [
-			"packages/*/src/__tests__/**/*.test.ts",
+			"packages/*/src/__tests__/**/*.test.{ts,tsx}",
 			"apps/demos/src/__tests__/**/*.test.ts",
 			"scripts/release/__tests__/**/*.test.ts",
 			"scripts/workflows/__tests__/**/*.test.ts",
