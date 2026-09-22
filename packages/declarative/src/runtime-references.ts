@@ -1,4 +1,4 @@
-import { structuredEqual, toDot } from "@formbar/core";
+import { toDot } from "@formbar/core";
 import type { FormState, FormStateCapture, ValidationIssue } from "@formbar/core";
 import type { JsonValue, NamespaceProvider, Scopes, StateRef } from "@formbar/expressions";
 import { readOwn, resolveRef } from "@formbar/expressions";
@@ -116,17 +116,8 @@ function fieldMetadataKey(binding: StateRef): string | undefined {
 }
 
 function bindingDirty(capture: FormStateCapture<unknown, unknown>, binding: StateRef): boolean {
-	const currentRoot = binding.namespace === "data" ? capture.state.data : capture.state.uiState;
-	const initialRoot = binding.namespace === "data" ? capture.initialData : capture.initialUiState;
-	return !structuredEqual(readPath(currentRoot, binding), readPath(initialRoot, binding));
-}
-
-function readPath(root: unknown, binding: StateRef): unknown {
-	try {
-		return readOwn(root, binding.segments);
-	} catch {
-		return undefined;
-	}
+	if (binding.namespace !== "data" && binding.namespace !== "ui") return false;
+	return capture.isFieldDirty({ namespace: binding.namespace, segments: binding.segments });
 }
 
 const normalizeMetadataSegment = (segment: string | number): string | number =>

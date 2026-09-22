@@ -1,4 +1,3 @@
-import { structuredEqual } from "@formbar/core";
 import type { FormApi, FormState, FormStateCapture } from "@formbar/core";
 import { createExpressionService } from "@formbar/expressions";
 import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressions";
@@ -296,7 +295,7 @@ function resolveFormStatus(capture: FormStateCapture<unknown, unknown>): Runtime
 		valid: !state.issues.some((issue) => issue.severity === "error"),
 		validating: state.meta.validation.validating === true,
 		submitting: state.meta.submission?.status === "running",
-		dirty: !structuredEqual(state.data, capture.initialData),
+		dirty: capture.isFormDirty(),
 		touched: Object.values(state.fieldMeta).some((entry) => entry.touched),
 		submitted: state.meta.submitted === true,
 	});

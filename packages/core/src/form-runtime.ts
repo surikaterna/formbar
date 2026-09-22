@@ -7,7 +7,7 @@ import type {
 	Middleware,
 	ValidatorFn,
 } from "./contracts.js";
-import { computeIsPristine, computeIsSubmitting, computeIsTouched, computeIsValid } from "./convenience-flags.js";
+import { computeIsSubmitting, computeIsTouched, computeIsValid } from "./convenience-flags.js";
 import { createDisposalSignal } from "./disposal-signal.js";
 import { FormbarError } from "./errors.js";
 import { createFieldApi } from "./field-api.js";
@@ -20,6 +20,7 @@ import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
 import type { FormPlugin, PluginInitContext } from "./plugin-types.js";
 import { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
+import { createFormStateCapture } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { FormStore } from "./store.js";
 import { createSubmitHandler } from "./submit-handler.js";
@@ -324,8 +325,8 @@ export class FormRuntime<TData, TUi> {
 			subscribe: (listener) => this.store.subscribe(listener),
 			reset: this.reset,
 			canSubmit: () => this.canSubmit(),
-			isPristine: () => computeIsPristine(this.store.getState(), this.initialDataSnapshot),
-			isDirty: () => !computeIsPristine(this.store.getState(), this.initialDataSnapshot),
+			isPristine: () => !this.captureState().isFormDirty(),
+			isDirty: () => this.captureState().isFormDirty(),
 			isValid: () => computeIsValid(this.store.getState()),
 			isSubmitting: () => computeIsSubmitting(this.store.getState()),
 			isTouched: () => computeIsTouched(this.store.getState()),
@@ -337,11 +338,7 @@ export class FormRuntime<TData, TUi> {
 	}
 
 	private captureState = (): FormStateCapture<TData, TUi> =>
-		Object.freeze({
-			state: this.store.getState(),
-			initialData: this.initialDataSnapshot,
-			initialUiState: this.initialUiStateSnapshot,
-		});
+		createFormStateCapture(this.store.getState(), this.initialDataSnapshot, this.initialUiStateSnapshot);
 
 	private canSubmit(): boolean {
 		const state = this.store.getState();

@@ -68,11 +68,13 @@ export interface FormState<TData, TUi> {
 	readonly issues: readonly ValidationIssue[];
 }
 
-/** One coherent current-state and initial-baseline capture. */
+/** One coherent current-state capture with private-baseline lifecycle queries. */
 export interface FormStateCapture<TData, TUi> {
 	readonly state: FormState<TData, TUi>;
-	readonly initialData: TData;
-	readonly initialUiState: TUi;
+	/** Compare captured data with the privately retained data baseline. */
+	isFormDirty(): boolean;
+	/** Compare a captured data or UI field with its privately retained baseline. */
+	isFieldDirty(path: CanonicalPath): boolean;
 }
 
 /** ADR section 9 — CreateFormOptions */

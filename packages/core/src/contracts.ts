@@ -259,7 +259,7 @@ export type FieldApiWithArray<TData, TUi, TPath extends string> = FieldApi<TData
 /** ADR section 9 — FormApi */
 export interface FormApi<TData, TUi> {
 	getState(): FormState<TData, TUi>;
-	/** Atomically capture current state with the baselines used by dirty checks. */
+	/** Atomically capture current state with baseline-bound dirty queries. */
 	captureState(): FormStateCapture<TData, TUi>;
 	dispatch(action: FormAction): FormDispatchResult;
 	setValue<P extends string & DeepKeys<TData>>(path: P, value: DeepValue<TData, P>): FormDispatchResult;
