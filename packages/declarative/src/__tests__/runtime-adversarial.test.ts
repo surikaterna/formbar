@@ -100,4 +100,12 @@ describe("single captured core state", () => {
 		expect(reset.form).toMatchObject({ dirty: false, touched: false });
 		expect(reset.fields[0]).toMatchObject({ value: 0, dirty: false, touched: false });
 	});
+
+	it("reads captured metadata for a data path whose first segment is the UI namespace marker", () => {
+		const { form, runtime: port } = runtime(definition([field("value", ["$ui", "value"])]), {
+			initialData: { $ui: { value: "data" } },
+		});
+		form.fieldDynamic("/$ui/value").markTouched();
+		expect(port.getSnapshot().fields[0]).toMatchObject({ value: "data", touched: true });
+	});
 });

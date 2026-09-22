@@ -96,7 +96,8 @@ function scopePrefix(candidate: RuntimeNodeInstance, current: RuntimeNodeInstanc
 
 function fieldMetadataKey(binding: StateRef): string {
 	const segments = binding.segments.map(normalizeMetadataSegment);
-	if (segments.every((segment) => typeof segment === "number" || !segment.includes("."))) return segments.join(".");
+	const dotSafe = segments.every((segment) => typeof segment === "number" || !segment.includes("."));
+	if (segments[0] !== "$ui" && dotSafe) return segments.join(".");
 	return `/${segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
 }
 
