@@ -2,13 +2,13 @@ import type { FieldPolicyContribution, FormApi, FormState } from "@formbar/core"
 import type { JsonValue, StateRef } from "@formbar/expressions";
 import type { AbsoluteBinding } from "./bindings.js";
 import type { FieldNode } from "./nodes.js";
-import { directFieldLifecycle, exactIssues, readBinding } from "./runtime-references.js";
 import type {
 	ResolvedFieldState,
 	ResolvedNodeState,
 	RuntimeFieldBaseline,
 	RuntimeNodeInstance,
 } from "./runtime-contracts.js";
+import { directFieldLifecycle, exactIssues, readBinding } from "./runtime-references.js";
 
 export interface ResolveFieldStateOptions {
 	readonly form: FormApi<unknown, unknown>;

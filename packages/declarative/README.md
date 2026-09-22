@@ -1,6 +1,6 @@
 # @formbar/declarative
 
-Framework-neutral serialized Formbar presentation contracts.
+Framework-neutral serialized Formbar presentation contracts and runtime projection.
 
 ## Owned category: authored presentation intent
 
@@ -27,9 +27,17 @@ const result = validateFormDefinition(input);
 
 Bindings are `{ namespace, segments, scope? }`. A repeater declares a lexical `scope`; descendants bind relative to it. Nested scopes compose without dotted-path parsing.
 
+## Runtime projection
+
+`createFormRuntime({ form, definition, baseline? })` projects one validated definition over current core state. Snapshots contain coherent form flags, ordered concrete node and field instances, exact-path issues and lifecycle, and sorted code-only diagnostics. Repeater instances retain lexical scope indices; duplicate bindings remain independent node instances.
+
+Field policy merges conservatively: visibility uses restrictive AND; disabled/read-only use restrictive OR; requiredness ORs schema baseline, the field's optional `required` expression, and core plugin contributions. Labels prefer the last defined plugin label (including an empty string), then the authored field label, schema baseline, and absolute pointer. Expression failures fail closed. Hidden values remain in core state and conditional requiredness does not add validators or change submit authority.
+
+The runtime uses the existing expression service and core namespaces. `form` references expose `valid`, `validating`, `submitting`, `dirty`, `touched`, and `submitted`. Contextual `field` references expose only direct `valid`, `validating`, `dirty`, and `touched` lifecycle for the current or enclosing repeater instance. Runtime writes continue through core and are not authorization checks for projected disabled/read-only state.
+
 ## Non-ownership
 
-This package does not import Scheman or `@formbar/from-schema`, compile schemas, own constraints/default/provenance evidence, render React, mutate form state, or choose policy for current visibility/disabled/read-only/required values. Resolved runtime state is #64; DOM and ARIA are #65. Runtime and renderer host ports remain type contracts, not implementations.
+This package does not import Scheman or `@formbar/from-schema`, compile schemas, own constraints/default/provenance evidence, render React/DOM, resolve registry membership, add validation rules, or own a second state store. Schema evidence is limited to the optional `{ nodeId, required?, label? }` baseline supplied by an adapter. DOM and ARIA remain outside this package.
 
 ## Diagnostics boundary
 

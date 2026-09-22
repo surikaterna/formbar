@@ -45,7 +45,9 @@ describe("declarative runtime snapshots", () => {
 	});
 
 	it("keeps hidden data and core submit validation authoritative", async () => {
-		const formDefinition = definition([field("secret", ["secret"], { visible: literal(false), required: literal(true) })]);
+		const formDefinition = definition([
+			field("secret", ["secret"], { visible: literal(false), required: literal(true) }),
+		]);
 		const { form, runtime: port } = runtime(formDefinition, { initialData: { secret: "kept" } });
 		expect(port.getSnapshot().fields[0]).toMatchObject({ visible: false, value: "kept", required: true });
 		expect((await form.submit()).ok).toBe(true);
@@ -73,9 +75,7 @@ describe("declarative runtime snapshots", () => {
 		};
 		const fields = Object.entries(expected).map(([key, value]) =>
 			field(key, [key], {
-				visible: value
-					? runtimeRef("form", [key])
-					: { kind: "op", op: "not", args: [runtimeRef("form", [key])] },
+				visible: value ? runtimeRef("form", [key]) : { kind: "op", op: "not", args: [runtimeRef("form", [key])] },
 			}),
 		);
 		const { runtime: port } = runtime(definition(fields), { initialData: expected });

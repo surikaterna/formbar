@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { validateFormDefinition } from "../index.js";
+import { createFormRuntime, validateFormDefinition } from "../index.js";
 
 const root = new URL("../../../../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf8");
@@ -18,12 +18,15 @@ type NeutralVersions = Record<NeutralDependency, string>;
 describe("public package boundary", () => {
 	it("exports validation without owning expression language behavior", () => {
 		expect(typeof validateFormDefinition).toBe("function");
+		expect(typeof createFormRuntime).toBe("function");
 		const sources = readdirSync(new URL("packages/declarative/src/", root), { recursive: true })
 			.filter((path) => String(path).endsWith(".ts") && !String(path).includes("__tests__"))
 			.map(String);
 		for (const source of sources) {
 			const contents = read(`packages/declarative/src/${source}`);
-			expect(contents).not.toMatch(/from ["'](?:react|@formbar\/arbiter|@arbitre|kuery)/);
+			expect(contents).not.toMatch(
+				/from ["'](?:react|@formbar\/arbiter|@arbitre|@scheman|@formbar\/from-schema|[^"']*descriptors|kuery)/,
+			);
 			expect(contents).not.toMatch(/eval\s*\(|new Function/);
 		}
 	});

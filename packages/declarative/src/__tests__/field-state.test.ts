@@ -9,12 +9,16 @@ describe("resolved field state", () => {
 			{
 				id: "first",
 				evaluate: () => ({
-					fieldPolicy: [{ path: "name", visible: true, disabled: false, readOnly: false, required: false, label: "First" }],
+					fieldPolicy: [
+						{ path: "name", visible: true, disabled: false, readOnly: false, required: false, label: "First" },
+					],
 				}),
 			},
 			{
 				id: "last",
-				evaluate: () => ({ fieldPolicy: [{ path: "name", visible: false, disabled: true, required: true, label: "" }] }),
+				evaluate: () => ({
+					fieldPolicy: [{ path: "name", visible: false, disabled: true, required: true, label: "" }],
+				}),
 			},
 		];
 		const formDefinition = definition(

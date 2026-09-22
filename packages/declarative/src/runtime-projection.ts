@@ -1,18 +1,9 @@
 import type { FormApi, FormState } from "@formbar/core";
 import { createExpressionService } from "@formbar/expressions";
 import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressions";
-import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
 import type { ValidatedFormDefinition } from "./definition.js";
+import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
 import type { FormNode } from "./nodes.js";
-import { runtimeDiagnostic, sortRuntimeDiagnostics } from "./runtime-diagnostics.js";
-import {
-	contextualFieldSnapshot,
-	createSnapshotProviders,
-	directFieldLifecycle,
-	readBinding,
-	resolveBinding,
-} from "./runtime-references.js";
-import type { ConcreteFieldReference } from "./runtime-references.js";
 import type {
 	ResolvedFieldState,
 	ResolvedNodeState,
@@ -24,6 +15,15 @@ import type {
 	RuntimeScopeInstance,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
+import { runtimeDiagnostic, sortRuntimeDiagnostics } from "./runtime-diagnostics.js";
+import {
+	contextualFieldSnapshot,
+	createSnapshotProviders,
+	directFieldLifecycle,
+	readBinding,
+	resolveBinding,
+} from "./runtime-references.js";
+import type { ConcreteFieldReference } from "./runtime-references.js";
 
 interface ConcreteNode {
 	readonly node: FormNode;
@@ -76,7 +76,10 @@ export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot 
 	});
 }
 
-function expandDefinition(definition: ValidatedFormDefinition, state: FormState<unknown, unknown>): readonly ConcreteNode[] {
+function expandDefinition(
+	definition: ValidatedFormDefinition,
+	state: FormState<unknown, unknown>,
+): readonly ConcreteNode[] {
 	const output: ConcreteNode[] = [];
 	expandNode(definition.root, { scopes: Object.freeze({}), scopeInstances: Object.freeze([]) }, state, output);
 	return Object.freeze(output);
@@ -115,7 +118,10 @@ function expandRepeater(
 	const items = readBinding(state, binding);
 	if (!Array.isArray(items)) return;
 	for (let index = 0; index < items.length; index++) {
-		const scope = Object.freeze({ namespace: binding.namespace, segments: Object.freeze([...binding.segments, index]) });
+		const scope = Object.freeze({
+			namespace: binding.namespace,
+			segments: Object.freeze([...binding.segments, index]),
+		});
 		const scopes = Object.freeze({ ...frame.scopes, [node.scope]: scope });
 		const scopeInstances = Object.freeze([...frame.scopeInstances, Object.freeze({ scope: node.scope, index })]);
 		for (const child of node.children) expandNode(child, { ...frame, scopes, scopeInstances }, state, output);
@@ -195,7 +201,8 @@ function resolveNode(
 	});
 	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState };
 	nodeState = mergeFieldRestrictions(nodeState, fieldContributions(context.state, concrete.binding));
-	const conditionalRequired = evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
+	const conditionalRequired =
+		evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
 	const baseline = context.baselines.get(concrete.node.id);
 	const field = resolveFieldState({
 		form: context.form,
@@ -216,7 +223,12 @@ function resolveOwnState(context: ProjectionContext, concrete: ConcreteNode) {
 	const readOnly = evaluateBoolean(context, concrete, concrete.node.readOnly, "readOnly", false, true) ?? true;
 	if (concrete.node.type !== "conditional") return { visible, disabled, readOnly };
 	const condition = evaluateCondition(context, concrete, concrete.node.condition);
-	return { visible, disabled, readOnly, branch: condition === undefined ? "none" : condition ? "then" : "else" } as const;
+	return {
+		visible,
+		disabled,
+		readOnly,
+		branch: condition === undefined ? "none" : condition ? "then" : "else",
+	} as const;
 }
 
 function evaluateCondition(
@@ -244,9 +256,11 @@ function evaluateBoolean(
 	});
 	try {
 		const compiled = service.compile(expression);
-		if (!compiled.ok) return expressionFailure(context, concrete, property, compiled.diagnostics[0]?.code, failureValue, condition);
+		if (!compiled.ok)
+			return expressionFailure(context, concrete, property, compiled.diagnostics[0]?.code, failureValue, condition);
 		const result = service.evaluate(compiled.value);
-		if (!result.ok) return expressionFailure(context, concrete, property, result.diagnostics[0]?.code, failureValue, condition);
+		if (!result.ok)
+			return expressionFailure(context, concrete, property, result.diagnostics[0]?.code, failureValue, condition);
 		if (typeof result.value === "boolean") return result.value;
 		context.diagnostics.push(runtimeDiagnostic("non-boolean", concrete.instance, property, "type"));
 		return condition ? undefined : failureValue;
@@ -301,7 +315,8 @@ function normalizeBaselines(
 	});
 	const normalized = new Map<string, RuntimeFieldBaseline>();
 	for (const [nodeId, entries] of grouped) {
-		if (entries.length > 1) diagnostics.push(runtimeDiagnostic("duplicate-baseline", baselineInstance(entries[0], 0), "baseline"));
+		if (entries.length > 1)
+			diagnostics.push(runtimeDiagnostic("duplicate-baseline", baselineInstance(entries[0], 0), "baseline"));
 		else normalized.set(nodeId, Object.freeze({ ...entries[0] }));
 	}
 	return normalized;

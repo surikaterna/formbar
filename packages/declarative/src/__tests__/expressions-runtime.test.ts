@@ -22,11 +22,14 @@ const operatorCases: readonly [string, Expression, boolean][] = [
 ];
 
 describe("expression runtime integration", () => {
-	it.each(operatorCases)("evaluates public standard-v1 %s through the expression service", (_name, expression, expected) => {
-		const formDefinition = definition([field("value", ["present"], { visible: expression })]);
-		const { runtime: port } = runtime(formDefinition, { initialData: { present: 1 } });
-		expect(node(port, "value")?.visible).toBe(expected);
-	});
+	it.each(operatorCases)(
+		"evaluates public standard-v1 %s through the expression service",
+		(_name, expression, expected) => {
+			const formDefinition = definition([field("value", ["present"], { visible: expression })]);
+			const { runtime: port } = runtime(formDefinition, { initialData: { present: 1 } });
+			expect(node(port, "value")?.visible).toBe(expected);
+		},
+	);
 
 	it("applies the conservative failure matrix with contextual diagnostics", () => {
 		const conditional: FormNode = {
