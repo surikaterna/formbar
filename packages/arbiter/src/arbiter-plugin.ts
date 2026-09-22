@@ -1,8 +1,10 @@
-import { createSession } from "@arbitre/core";
+import { ArbiterError, ArbiterErrorCode, createSession } from "@arbitre/core";
 import type { FiringResult, ProductionRule, RuleSession } from "@arbitre/core";
 import type { FormPlugin, PluginEvaluateContext, PluginEvaluateResult, PluginWrite } from "@formbar/core";
 import { readFieldPolicyOutput } from "./field-policy-output.js";
 import { isArbiterInternalPath } from "./internal-paths.js";
+
+const RESERVED_DATA_ROOT = "$formbar";
 
 export interface ArbiterPluginOptions {
 	/** Provide raw rules — a session will be created internally. */
@@ -27,8 +29,9 @@ function syncRoots(
 	values: Record<string, unknown>,
 	previous: Set<string>,
 	prefix: string,
+	include: (key: string) => boolean = () => true,
 ): Set<string> {
-	const current = new Set(Object.keys(values));
+	const current = new Set(Object.keys(values).filter(include));
 	for (const key of previous) {
 		if (!current.has(key)) session.retract(`${prefix}${key}`);
 	}
@@ -36,9 +39,28 @@ function syncRoots(
 	return current;
 }
 
+function isFormDataRoot(key: string): boolean {
+	return key !== RESERVED_DATA_ROOT && !key.startsWith(`${RESERVED_DATA_ROOT}.`);
+}
+
 function syncSession(session: RuleSession, ctx: PluginEvaluateContext, roots: SynchronizedRoots): void {
-	roots.data = syncRoots(session, ctx.data as Record<string, unknown>, roots.data, "");
+	roots.data = syncRoots(session, ctx.data as Record<string, unknown>, roots.data, "", isFormDataRoot);
 	roots.ui = syncRoots(session, ctx.uiState as Record<string, unknown>, roots.ui, "$ui.");
+}
+
+function fireSession(session: RuleSession): FiringResult {
+	try {
+		return session.fire();
+	} catch (error) {
+		if (error instanceof ArbiterError) throw error;
+		throw new ArbiterError(
+			ArbiterErrorCode.RULE_COMPILATION_FAILED,
+			"Arbiter session state could not be evaluated safely",
+			error instanceof Error
+				? { details: { root: "$formbar.fieldPolicy" }, cause: error }
+				: { details: { root: "$formbar.fieldPolicy" } },
+		);
+	}
 }
 
 function toWrites(result: FiringResult): readonly PluginWrite[] {
@@ -55,7 +77,7 @@ function evaluateSession(
 	if (ctx.origin.startsWith("plugin:arbiter")) return;
 	if (!ctx.change.dataChanged && !ctx.change.uiChanged) return;
 	syncSession(session, ctx, roots);
-	const writes = toWrites(session.fire());
+	const writes = toWrites(fireSession(session));
 	return { writes: writes.length > 0 ? writes : undefined, fieldPolicy: readFieldPolicyOutput(session) };
 }
 

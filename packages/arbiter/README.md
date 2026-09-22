@@ -134,6 +134,12 @@ at `/$ui/...` are supported. Relative paths, UI-namespace paths such as `$ui.nam
 placeholders, and dynamic repeater targets are not supported. Multiple output IDs may not normalize to the same path.
 Core owns path normalization and cross-producer policy replacement; declarative runtimes own restrictive resolution.
 
+`$formbar` is an internal Arbiter channel, not a synchronized form-data root. A top-level `$formbar` key, including a
+literal dotted key beginning with `$formbar.`, is ignored by this adapter, so payload data cannot create or override
+policy output. Rule-authored output remains internal and is never written into Formbar data or UI state. Output records
+must be plain enumerable data properties; accessors are rejected without invoking getters, and validated records are
+copied into fresh frozen values.
+
 ## When to use this package
 
 - Use `@formbar/arbiter` when visibility, requiredness, computed values, or other form behavior should be governed by Arbitre production rules.
