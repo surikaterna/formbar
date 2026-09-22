@@ -30,6 +30,7 @@ export interface FieldNode extends BaseNode {
 	readonly binding: Binding;
 	readonly widget: string;
 	readonly label?: string;
+	readonly required?: Expression;
 	readonly props?: ExtensionProps;
 }
 

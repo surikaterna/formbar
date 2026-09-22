@@ -29,8 +29,35 @@ export function expression(
 		);
 		return undefined;
 	}
+	if (!validRuntimeReferences(result.value, path, context)) return undefined;
 	return Object.freeze({ expression: value as Expression, program: result.value });
 }
+
+function validRuntimeReferences(
+	program: Program,
+	path: readonly DiagnosticPathSegment[],
+	context: ValidationContext,
+): boolean {
+	let valid = true;
+	for (const reference of program.dependencies) {
+		if (reference.namespace !== "form" && reference.namespace !== "field") continue;
+		const keys = reference.namespace === "form" ? FORM_KEYS : FIELD_KEYS;
+		const expectedLength = reference.namespace === "form" ? 1 : 2;
+		const key = reference.segments[expectedLength - 1];
+		if (reference.scope || reference.segments.length !== expectedLength || typeof key !== "string" || !keys.has(key)) {
+			diagnostic(context, "invalid-expression", path, `Invalid ${reference.namespace} runtime reference.`);
+			valid = false;
+		}
+		if (reference.namespace === "field" && typeof reference.segments[0] !== "string") {
+			diagnostic(context, "invalid-expression", path, "Field runtime references require a node ID.");
+			valid = false;
+		}
+	}
+	return valid;
+}
+
+const FORM_KEYS = new Set(["valid", "validating", "submitting", "dirty", "touched", "submitted"]);
+const FIELD_KEYS = new Set(["valid", "validating", "dirty", "touched"]);
 
 export function props(
 	value: JsonValue | undefined,

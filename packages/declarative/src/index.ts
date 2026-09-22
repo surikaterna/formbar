@@ -32,4 +32,5 @@ export type * from "./nodes.js";
 export type * from "./presentation.js";
 export type * from "./renderer-contracts.js";
 export type * from "./runtime-contracts.js";
+export { createFormRuntime, type CreateFormRuntimeOptions } from "./runtime.js";
 export { validateFormDefinition } from "./validators/definition.js";
