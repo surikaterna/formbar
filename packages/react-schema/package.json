@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/react-schema",
-	"version": "0.7.0",
+	"version": "0.8.0",
 	"type": "module",
 	"description": "React preparation hook for schema-compiled forms",
 	"license": "MIT",
@@ -27,10 +27,10 @@
 		"test": "vitest run --root ../.. packages/react-schema/src/__tests__"
 	},
 	"dependencies": {
-		"@formbar/core": "^0.7.0",
-		"@formbar/declarative": "^0.7.0",
-		"@formbar/react": "^0.7.0",
-		"@formbar/from-schema": "^0.7.0"
+		"@formbar/core": "^0.8.0",
+		"@formbar/declarative": "^0.8.0",
+		"@formbar/react": "^0.8.0",
+		"@formbar/from-schema": "^0.8.0"
 	},
 	"peerDependencies": {
 		"react": ">=18.0.0"
