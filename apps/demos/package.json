@@ -10,6 +10,7 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@formbar/arbiter": "workspace:*",
 		"@formbar/core": "workspace:*",
 		"@formbar/declarative": "workspace:*",
 		"@formbar/from-schema": "workspace:*",

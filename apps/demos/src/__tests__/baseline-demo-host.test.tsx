@@ -84,7 +84,7 @@ async function click(view: MountedHost, text: string): Promise<void> {
 }
 
 describe("SchemaDemoHost routes", () => {
-	it("renders all nine fixtures through a semantic production form", () => {
+	it("renders every registered fixture through a semantic production form", () => {
 		for (const fixture of baselineFixtures) {
 			const view = mount(fixture);
 			expect(view.container.querySelector("form")?.getAttribute("data-formbar-definition"), fixture.id).toBeTruthy();

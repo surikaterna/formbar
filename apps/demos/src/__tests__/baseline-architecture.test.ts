@@ -26,7 +26,7 @@ describe("baseline demo architecture", () => {
 		expect(host.match(/<select\b/g)).toHaveLength(1);
 	});
 
-	it("registers exactly the nine numbered scenarios and one separate preview", async () => {
+	it("preserves baseline routes while registering conditional scenarios in numeric order", async () => {
 		const { baselineFixtures, demos } = await import("../demos/index");
 		expect(baselineFixtures.map((fixture) => fixture.id)).toEqual([
 			"basic-contact",
@@ -34,12 +34,16 @@ describe("baseline demo architecture", () => {
 			"nested-address",
 			"settings-panel",
 			"product-entry",
+			"conditional-fields",
 			"custom-layout",
 			"multi-section-responsive",
+			"survey",
 			"multi-schema-sources",
 			"kitchen-sink",
+			"arbiter-visibility",
+			"arbiter-dynamic-sections",
 		]);
 		expect(demos.at(-1)?.id).toBe("schema-compilation");
-		expect(demos).toHaveLength(10);
+		expect(demos).toHaveLength(14);
 	});
 });

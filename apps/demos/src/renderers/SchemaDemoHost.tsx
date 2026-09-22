@@ -1,10 +1,12 @@
+import { createArbiterPlugin } from "@formbar/arbiter";
 import { jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer, useSchemaForm } from "@formbar/react-schema";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
 import { CodeBlock } from "./CodeBlock";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
+const noPlugins: readonly ReturnType<typeof detachedPlugin>[] = [];
 
 export function SchemaDemoHost({ fixture }: { readonly fixture: SchemaDemoFixture }) {
 	const [sourceKey, setSourceKey] = useState(fixture.sources[0].key);
@@ -33,11 +35,52 @@ export function SchemaDemoHost({ fixture }: { readonly fixture: SchemaDemoFixtur
 }
 
 function PreparedDemo({ source }: { readonly source: SchemaDemoSource }) {
+	const committed = useCommittedArbiterPlugin(source.arbiterRules);
+	if (!source.arbiterRules) return <RenderedDemo key="plain" source={source} plugins={noPlugins} />;
+	if (!committed || committed.rules !== source.arbiterRules || !committed.active) return <PreparingRules />;
+	return <RenderedDemo key="arbiter" source={source} plugins={committed.plugins} />;
+}
+
+interface CommittedPlugin {
+	readonly rules: NonNullable<SchemaDemoSource["arbiterRules"]>;
+	readonly plugins: readonly ReturnType<typeof detachedPlugin>[];
+	active: boolean;
+}
+
+function useCommittedArbiterPlugin(rules: SchemaDemoSource["arbiterRules"]): CommittedPlugin | undefined {
+	const [committed, setCommitted] = useState<CommittedPlugin>();
+	useEffect(() => {
+		if (!rules) return;
+		const owned = createArbiterPlugin({ rules });
+		const next: CommittedPlugin = { rules, plugins: [detachedPlugin(owned)], active: true };
+		setCommitted(next);
+		return () => {
+			next.active = false;
+			owned.onDispose?.();
+		};
+	}, [rules]);
+	return committed;
+}
+
+function detachedPlugin(plugin: ReturnType<typeof createArbiterPlugin>) {
+	return { ...plugin, onDispose: undefined };
+}
+
+function PreparingRules() {
+	return (
+		<section className="schema-demo-form mt-6 rounded-lg border border-border bg-card p-5" aria-busy="true">
+			<output aria-live="polite">Preparing rule-governed form.</output>
+		</section>
+	);
+}
+
+function RenderedDemo({ source, plugins }: { readonly source: SchemaDemoSource; readonly plugins: typeof noPlugins }) {
 	const prepared = useSchemaForm<Record<string, unknown>, Record<string, never>>(source.schema, {
 		provider,
 		side: "input",
 		...(source.definition ? { definition: source.definition } : {}),
 		initialData: source.initialData,
+		plugins,
 		onSubmit: async () => ({ ok: true, submitId: "demo-submit" }),
 	});
 	return (
