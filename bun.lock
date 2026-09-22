@@ -17,6 +17,7 @@
       "name": "@formbar/demos",
       "version": "0.0.0",
       "dependencies": {
+		"@formbar/arbiter": "workspace:*",
         "@formbar/core": "workspace:*",
         "@formbar/declarative": "workspace:*",
         "@formbar/from-schema": "workspace:*",

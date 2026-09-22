@@ -1,6 +1,7 @@
+import { createArbiterPlugin } from "@formbar/arbiter";
 import { jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer, useSchemaForm } from "@formbar/react-schema";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
 import { CodeBlock } from "./CodeBlock";
 
@@ -33,11 +34,16 @@ export function SchemaDemoHost({ fixture }: { readonly fixture: SchemaDemoFixtur
 }
 
 function PreparedDemo({ source }: { readonly source: SchemaDemoSource }) {
+	const plugins = useMemo(
+		() => (source.arbiterRules ? [createArbiterPlugin({ rules: source.arbiterRules })] : []),
+		[source.arbiterRules],
+	);
 	const prepared = useSchemaForm<Record<string, unknown>, Record<string, never>>(source.schema, {
 		provider,
 		side: "input",
 		...(source.definition ? { definition: source.definition } : {}),
 		initialData: source.initialData,
+		plugins,
 		onSubmit: async () => ({ ok: true, submitId: "demo-submit" }),
 	});
 	return (
