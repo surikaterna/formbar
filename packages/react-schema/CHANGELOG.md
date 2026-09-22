@@ -1,5 +1,16 @@
 # @formbar/react-schema
 
+## 0.9.0
+
+### Minor Changes
+
+- 3a03925: Add the native `FormRenderer` for validated schema form artifacts and make core form selectors server-renderable.
+
+### Patch Changes
+
+- Updated dependencies [3a03925]
+  - @formbar/react@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes
