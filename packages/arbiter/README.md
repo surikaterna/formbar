@@ -95,6 +95,45 @@ form.dispose();
 Pass rules through `createArbiterPlugin` in the `plugins` option. The former top-level `arbiterRules` form option is
 not supported; non-production core builds warn with this migration path when they encounter it.
 
+## Field policy output
+
+Rules can contribute normalized field policy through ordinary `$set` and `$unset` stages under the reserved
+`$formbar.fieldPolicy.<outputId>` root:
+
+```ts
+const rules = [
+	{
+		name: "regional-policy",
+		when: { country: "US" },
+		then: [
+			{
+				$set: {
+					"$formbar.fieldPolicy.state": {
+						path: "/address/state",
+						visible: true,
+						disabled: false,
+						readOnly: false,
+						required: true,
+						label: "State",
+					},
+				},
+			},
+		],
+	},
+];
+```
+
+Output IDs begin with a letter and contain only letters, digits, `_`, or `-`. Each output is one strict record with
+an absolute RFC-6901 data pointer and at least one of `visible`, `disabled`, `readOnly`, `required`, or `label`.
+Boolean values are strict; labels are strings and may be empty. IDs are applied in lexical order, and every relevant
+evaluation replaces Arbiter's complete policy contribution. Removing a rule or output therefore removes its policy on
+the next Formbar evaluation. Evaluations skipped because no data or UI changed leave the previous contribution intact.
+
+Nested paths, literal dotted keys (`/profile.name`), concrete array indices (`/items/0/code`), and literal data rooted
+at `/$ui/...` are supported. Relative paths, UI-namespace paths such as `$ui.name`, wildcards, lexical scope
+placeholders, and dynamic repeater targets are not supported. Multiple output IDs may not normalize to the same path.
+Core owns path normalization and cross-producer policy replacement; declarative runtimes own restrictive resolution.
+
 ## When to use this package
 
 - Use `@formbar/arbiter` when visibility, requiredness, computed values, or other form behavior should be governed by Arbitre production rules.
