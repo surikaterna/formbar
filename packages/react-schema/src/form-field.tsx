@@ -1,13 +1,22 @@
 import { structuredEqual } from "@formbar/core";
 import type { ValidationIssue } from "@formbar/core";
 import type { FieldNode, ResolvedFieldState, ValidationNode } from "@formbar/declarative";
-import type { NormalizedEvidence } from "@formbar/from-schema";
 import { descriptionId, errorId, fieldId, useFormSelector } from "@formbar/react";
-import type { ChangeEvent, ReactElement } from "react";
+import type { ReactElement } from "react";
+import { ExtensionField } from "./extension-field.js";
+import { renderNativeControl } from "./native-controls.js";
 import { DiagnosticFallback } from "./renderer-elements.js";
 import type { LayoutProps } from "./renderer-elements.js";
-import { domIdToken, editablePath, literalProp, resolveFieldEvidence } from "./renderer-evidence.js";
-import type { FieldRenderEvidence, ScalarOption } from "./renderer-evidence.js";
+import {
+	NATIVE_WIDGET_IDS,
+	descriptorDescription,
+	descriptorEvidence,
+	domIdToken,
+	editablePath,
+	literalProp,
+	resolveFieldEvidence,
+} from "./renderer-evidence.js";
+import type { FieldRenderEvidence } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
 
 interface FieldProps {
@@ -19,6 +28,8 @@ interface FieldProps {
 
 interface Wiring {
 	readonly controlId: string;
+	readonly labelId: string;
+	readonly descriptionId?: string;
 	readonly description?: string;
 	readonly issueId: string;
 	readonly describedBy?: string;
@@ -29,11 +40,16 @@ type SupportedFieldEvidence = Extract<FieldRenderEvidence, { readonly ok: true }
 
 export function FormField({ node, state, environment, layout }: FieldProps): ReactElement | null {
 	if (!state.visible) return null;
-	const resolved = resolveFieldEvidence(node, state, environment.descriptors);
-	if (!resolved.ok)
-		return <DiagnosticFallback code={resolved.diagnostic} nodeId={node.id} widget={node.widget} layout={layout} />;
+	if (node.widget === "unsupported")
+		return <DiagnosticFallback code="unsupported-widget" nodeId={node.id} widget={node.widget} layout={layout} />;
+	const native = NATIVE_WIDGET_IDS.has(node.widget)
+		? resolveFieldEvidence(node, state, environment.descriptors)
+		: undefined;
+	if (native && !native.ok)
+		return <DiagnosticFallback code={native.diagnostic} nodeId={node.id} widget={node.widget} layout={layout} />;
 	const visibleIssues = state.dirty || state.touched || environment.submitted ? state.issues : [];
-	const wiring = fieldWiring(node, visibleIssues, environment.prefix);
+	const description = fieldDescription(node, environment);
+	const wiring = fieldWiring(node, visibleIssues, environment.prefix, description);
 	return (
 		<div
 			data-formbar-node={node.id}
@@ -42,14 +58,40 @@ export function FormField({ node, state, environment, layout }: FieldProps): Rea
 			{...layout.attributes}
 			style={layout.style}
 		>
-			{node.widget === "radio" ? null : <label htmlFor={wiring.controlId}>{state.label}</label>}
-			{renderControl(node, state, environment, resolved, wiring)}
+			{node.widget === "radio" ? null : (
+				<label id={wiring.labelId} htmlFor={wiring.controlId}>
+					{state.label}
+				</label>
+			)}
+			{fieldControl(node, state, environment, wiring, description, native)}
 			{wiring.description ? (
 				<div id={descriptionId(domIdToken(node.id), environment.prefix)}>{wiring.description}</div>
 			) : null}
 			<IssueList issues={visibleIssues} id={wiring.issueId} />
 		</div>
 	);
+}
+
+function fieldControl(
+	node: FieldNode,
+	state: ResolvedFieldState,
+	environment: RendererEnvironment,
+	wiring: Wiring,
+	description: string | undefined,
+	native: FieldRenderEvidence | undefined,
+): ReactElement {
+	if (!NATIVE_WIDGET_IDS.has(node.widget))
+		return (
+			<ExtensionField
+				node={node}
+				state={state}
+				environment={environment}
+				evidence={descriptorEvidence(environment.descriptors, node.binding)}
+				{...(description === undefined ? {} : { description })}
+				wiring={wiring}
+			/>
+		);
+	return renderNativeControl(node, state, environment, native as SupportedFieldEvidence, wiring);
 }
 
 export function FormValidation(props: {
@@ -86,168 +128,31 @@ function ValidationIssues(props: {
 	);
 }
 
-function renderControl(
+function fieldWiring(
 	node: FieldNode,
-	state: ResolvedFieldState,
-	environment: RendererEnvironment,
-	resolved: SupportedFieldEvidence,
-	wiring: Wiring,
-): ReactElement {
-	if (resolved.kind === "options" && resolved.widget === "radio")
-		return radioControl(node, state, environment, resolved.options, wiring, resolved.path);
-	if (resolved.kind === "options") return selectControl(state, environment, resolved.options, wiring, resolved.path);
-	if (node.widget === "textarea")
-		return textareaControl(node, state, environment, resolved.evidence, wiring, resolved.path);
-	return inputControl(node, state, environment, resolved.evidence, wiring, resolved.path, resolved.widget);
-}
-
-function inputControl(
-	node: FieldNode,
-	state: ResolvedFieldState,
-	environment: RendererEnvironment,
-	evidence: NormalizedEvidence,
-	wiring: Wiring,
-	path: string,
-	type: string,
-): ReactElement {
-	const field = environment.form.fieldDynamic(path);
-	const checkbox = node.widget === "checkbox";
-	const interactionDisabled = state.disabled || (checkbox && state.readOnly);
-	const value = inputControlValue(state.value);
-	return (
-		<input
-			{...controlA11y(state, wiring)}
-			type={type}
-			{...(checkbox ? { checked: state.value === true } : { value })}
-			placeholder={stringProp(node, "placeholder")}
-			disabled={interactionDisabled}
-			readOnly={!checkbox && state.readOnly}
-			aria-readonly={checkbox && state.readOnly ? true : undefined}
-			required={state.required}
-			{...nativeConstraints(type, evidence)}
-			onChange={(event) => field.handleChange(inputValue(event, type) as never)}
-			onBlur={() => field.handleBlur()}
-		/>
-	);
-}
-
-function textareaControl(
-	node: FieldNode,
-	state: ResolvedFieldState,
-	environment: RendererEnvironment,
-	evidence: NormalizedEvidence,
-	wiring: Wiring,
-	path: string,
-): ReactElement {
-	const field = environment.form.fieldDynamic(path);
-	return (
-		<textarea
-			{...controlA11y(state, wiring)}
-			value={typeof state.value === "string" ? state.value : ""}
-			placeholder={stringProp(node, "placeholder")}
-			disabled={state.disabled}
-			readOnly={state.readOnly}
-			required={state.required}
-			{...stringConstraints(evidence)}
-			onChange={(event) => field.handleChange(event.currentTarget.value as never)}
-			onBlur={() => field.handleBlur()}
-		/>
-	);
-}
-
-function selectControl(
-	state: ResolvedFieldState,
-	environment: RendererEnvironment,
-	options: readonly ScalarOption[],
-	wiring: Wiring,
-	path: string,
-): ReactElement {
-	const field = environment.form.fieldDynamic(path);
-	const token = optionToken(options, state.value);
-	return (
-		<select
-			{...controlA11y(state, wiring)}
-			value={token}
-			disabled={state.disabled || state.readOnly}
-			aria-readonly={state.readOnly || undefined}
-			required={state.required}
-			onChange={(event) => field.handleChange(optionValue(options, event.currentTarget.value) as never)}
-			onBlur={() => field.handleBlur()}
-		>
-			<option value="" />
-			{options.map((option, index) => (
-				<option key={optionKey(option, index)} value={`option-${index}`}>
-					{optionLabel(option)}
-				</option>
-			))}
-		</select>
-	);
-}
-
-function radioControl(
-	node: FieldNode,
-	state: ResolvedFieldState,
-	environment: RendererEnvironment,
-	options: readonly ScalarOption[],
-	wiring: Wiring,
-	path: string,
-): ReactElement {
-	const field = environment.form.fieldDynamic(path);
-	return (
-		<fieldset
-			aria-labelledby={`${wiring.controlId}-legend`}
-			aria-busy={state.validating || undefined}
-			aria-readonly={state.readOnly || undefined}
-			disabled={state.disabled || state.readOnly}
-		>
-			<legend id={`${wiring.controlId}-legend`}>{state.label}</legend>
-			{options.map((option, index) => {
-				const id =
-					index === 0 ? wiring.controlId : fieldId(`${domIdToken(node.id)}-option-${index}`, environment.prefix);
-				return (
-					<div key={optionKey(option, index)}>
-						<input
-							{...controlA11y(state, { ...wiring, controlId: id })}
-							type="radio"
-							name={wiring.controlId}
-							checked={Object.is(state.value, option)}
-							required={state.required}
-							onChange={() => field.handleChange(option as never)}
-							onBlur={() => field.handleBlur()}
-						/>
-						<label htmlFor={id}>{optionLabel(option)}</label>
-					</div>
-				);
-			})}
-		</fieldset>
-	);
-}
-
-function fieldWiring(node: FieldNode, issues: readonly ValidationIssue[], prefix: string): Wiring {
+	issues: readonly ValidationIssue[],
+	prefix: string,
+	description: string | undefined,
+): Wiring {
 	const token = domIdToken(node.id);
-	const description = stringProp(node, "description");
 	const hasErrors = issues.some((issue) => issue.severity === "error");
 	const issueId = errorId(token, prefix);
-	const describedBy = [description ? descriptionId(token, prefix) : undefined, issues.length ? issueId : undefined]
-		.filter(Boolean)
-		.join(" ");
+	const descriptionToken = description ? descriptionId(token, prefix) : undefined;
+	const describedBy = [descriptionToken, issues.length ? issueId : undefined].filter(Boolean).join(" ");
 	return {
 		controlId: fieldId(token, prefix),
+		labelId: fieldId(`${token}-label`, prefix),
 		...(description ? { description } : {}),
+		...(descriptionToken ? { descriptionId: descriptionToken } : {}),
 		issueId,
 		...(describedBy ? { describedBy } : {}),
 		hasErrors,
 	};
 }
 
-function controlA11y(state: ResolvedFieldState, wiring: Wiring) {
-	return {
-		id: wiring.controlId,
-		...(wiring.describedBy ? { "aria-describedby": wiring.describedBy } : {}),
-		...(wiring.hasErrors ? { "aria-invalid": true as const, "aria-errormessage": wiring.issueId } : {}),
-		...(state.required ? { "aria-required": true as const } : {}),
-		...(state.validating ? { "aria-busy": true as const } : {}),
-	};
+function fieldDescription(node: FieldNode, environment: RendererEnvironment): string | undefined {
+	const explicit = stringProp(node, "description");
+	return explicit ?? descriptorDescription(environment.descriptors, node.binding);
 }
 
 function IssueList(props: { readonly issues: readonly ValidationIssue[]; readonly id: string }) {
@@ -275,50 +180,6 @@ function useValidationLifecycle(environment: RendererEnvironment, path: string) 
 		},
 		structuredEqual,
 	);
-}
-
-function nativeConstraints(type: string, evidence: NormalizedEvidence) {
-	if (type === "number")
-		return { min: evidence.minimum, max: evidence.maximum, step: evidence.primitive === "integer" ? 1 : "any" };
-	return stringConstraints(evidence);
-}
-
-function stringConstraints(evidence: NormalizedEvidence) {
-	return { minLength: evidence.minLength, maxLength: evidence.maxLength, pattern: evidence.pattern };
-}
-
-function inputValue(event: ChangeEvent<HTMLInputElement>, type: string): string | number | boolean | undefined {
-	if (type === "checkbox") return event.currentTarget.checked;
-	if (type === "number")
-		return event.currentTarget.value === "" ? undefined : finite(event.currentTarget.valueAsNumber);
-	if (type === "date" || type === "time") return event.currentTarget.value || undefined;
-	return event.currentTarget.value;
-}
-
-function finite(value: number): number | undefined {
-	return Number.isFinite(value) ? value : undefined;
-}
-
-function inputControlValue(value: ResolvedFieldState["value"]): string | number {
-	return typeof value === "string" || typeof value === "number" ? value : "";
-}
-
-function optionToken(options: readonly ScalarOption[], value: unknown): string {
-	const index = options.findIndex((option) => Object.is(option, value));
-	return index < 0 ? "" : `option-${index}`;
-}
-
-function optionValue(options: readonly ScalarOption[], token: string): ScalarOption | undefined {
-	if (token === "") return undefined;
-	return options[Number(token.slice("option-".length))];
-}
-
-function optionLabel(value: ScalarOption): string {
-	return value === null ? "null" : String(value);
-}
-
-function optionKey(value: ScalarOption, index: number): string {
-	return `${typeof value}:${String(value)}:${index}`;
 }
 
 function stringProp(node: FieldNode, key: string): string | undefined {

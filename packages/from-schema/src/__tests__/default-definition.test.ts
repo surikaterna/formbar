@@ -1,12 +1,13 @@
 import type { FormNode } from "@formbar/declarative";
 import { validateFormDefinition } from "@formbar/declarative";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z as z3 } from "zod3-current";
 import { z as z4 } from "zod4-current";
 import {
 	compileDefaultFormDefinition,
 	jsonSchemaProvider,
 	projectSchema,
+	standardJsonSchemaProvider,
 	zod3Provider,
 	zod4Provider,
 } from "../index.js";
@@ -91,6 +92,120 @@ describe("default FormDefinition compilation", () => {
 			presentation: { span: 6 },
 			props: { placeholder: { mode: "literal", value: "Write" } },
 		});
+	});
+
+	it("compiles exact extension widgets and finite JSON props as literals", () => {
+		const result = compile({
+			type: "integer",
+			description: "Choose quality",
+			minimum: 1,
+			maximum: 5,
+			multipleOf: 1,
+			"x-formbar": { widget: "demo.rating", props: { icon: "star", nested: { enabled: true } } },
+		});
+		expect(result.definition?.root).toMatchObject({
+			type: "field",
+			widget: "demo.rating",
+			props: {
+				icon: { mode: "literal", value: "star" },
+				nested: { mode: "literal", value: { enabled: true } },
+				description: { mode: "literal", value: "Choose quality" },
+			},
+		});
+		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
+		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ minimum: 1, maximum: 5, multipleOf: 1 });
+	});
+
+	it("treats explicitly widgeted arrays as structural fields with item-enum evidence", () => {
+		const result = compile({
+			type: "array",
+			items: { type: "string", enum: ["red", "blue"] },
+			minItems: 1,
+			"x-formbar": { widget: "demo.checkbox-group", props: { columns: 2 } },
+		});
+		expect(result.definition?.root).toMatchObject({
+			type: "field",
+			binding: { namespace: "data", segments: [] },
+			widget: "demo.checkbox-group",
+			props: { columns: { mode: "literal", value: 2 } },
+		});
+		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
+		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ enum: ["red", "blue"], minItems: 1 });
+	});
+
+	it("fails malformed extension props closed with a deterministic diagnostic", () => {
+		const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: ["invalid"] } });
+		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+		expect(result.definition?.root).not.toHaveProperty("props");
+		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
+	});
+
+	it("rejects raw non-JSON generated props before provider sanitization without invoking accessors", () => {
+		const getter = vi.fn(() => "secret");
+		const accessor = Object.defineProperty({}, "secret", { enumerable: true, get: getter });
+		const arrayAccessor = Object.defineProperty(["safe"], "0", { enumerable: true, get: getter });
+		const inherited = Object.assign(Object.create({ inherited: true }), { value: true });
+		const proxied = new Proxy({ value: true }, { getPrototypeOf: () => Date.prototype });
+		const cyclic: Record<string, unknown> = {};
+		cyclic.self = cyclic;
+		const symbolKeyed = { safe: true, [Symbol("hidden")]: "secret" };
+		const values = [
+			() => "secret",
+			undefined,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			1n,
+			accessor,
+			{ nested: [arrayAccessor] },
+			inherited,
+			proxied,
+			cyclic,
+			symbolKeyed,
+		];
+		for (const value of values) {
+			const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: { value } } });
+			expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+			expect(result.definition?.root).not.toHaveProperty("props");
+			expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
+		}
+		const schema = { type: "string" };
+		Object.defineProperty(schema, "x-formbar", { enumerable: true, get: getter });
+		const accessorHint = compile(schema);
+		expect(accessorHint.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+		expect(accessorHint.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
+		expect(getter).not.toHaveBeenCalled();
+	});
+
+	it("preserves valid literal $type objects and nested JSON props unchanged", () => {
+		const props = {
+			date: { $type: "date", value: "2026-09-22" },
+			number: { $type: "number", value: "NaN" },
+			unavailable: { $type: "unavailable", value: "literal" },
+			nested: [{ values: [null, true, 3, "text"] }],
+		};
+		const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props } });
+		expect(result.definition?.root).toMatchObject({
+			type: "field",
+			widget: "demo.text",
+			props: Object.fromEntries(Object.entries(props).map(([key, value]) => [key, { mode: "literal", value }])),
+		});
+		expect(result.diagnostics).toEqual([]);
+	});
+
+	it("does not grant direct JSON Schema hint semantics to Standard JSON conversion", () => {
+		const convert = () => ({ type: "string", "x-formbar": { widget: "demo.text", props: { safe: true } } });
+		const schema = {
+			"~standard": { version: 1 as const, vendor: "test", jsonSchema: { input: convert, output: convert } },
+		};
+		const result = compile(schema, standardJsonSchemaProvider({ target: "draft-2020-12", execution: "allow" }));
+		expect(result.definition?.root).toMatchObject({ type: "field", widget: "text" });
+		expect(result.definition?.root).not.toHaveProperty("props");
+	});
+
+	it("fails malformed extension IDs closed", () => {
+		const result = compile({ type: "string", "x-formbar": { widget: "" } });
+		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-id" })]);
 	});
 
 	it("maps object title and description to a titled section", () => {

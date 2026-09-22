@@ -24,9 +24,7 @@ export function projectSchemaDocument(document: SchemaDocument, options: Project
 	const rootNodeId = document.root[options.side].nodeId;
 	const nodeIds = reachableNodeIds(document, [rootNodeId, ...definitions.map((item) => item.node.nodeId)]);
 	const nodes = projectNodes(document, nodeIds);
-	const evidence = Object.freeze(
-		Object.fromEntries(Object.entries(nodes).map(([id, node]) => [id, normalizedEvidence(node)])),
-	);
+	const evidence = projectEvidence(nodes);
 	const occurrenceProjection = projectOccurrences(
 		nodes,
 		rootNodeId,
@@ -51,6 +49,40 @@ export function projectSchemaDocument(document: SchemaDocument, options: Project
 		sourceDiagnostics: sourceDiagnostics(document),
 		projectionDiagnostics: occurrenceProjection.diagnostics,
 	});
+}
+
+function projectEvidence(nodes: Readonly<Record<string, DescriptorNode>>) {
+	return Object.freeze(
+		Object.fromEntries(
+			Object.entries(nodes).map(([id, node]) => {
+				const own = normalizedEvidence(node);
+				if (node.kind !== "array") return [id, own];
+				const values = enumValues(node.items.nodeId, nodes, new Set());
+				if (values) return [id, Object.freeze({ ...own, enum: values })];
+				return [id, own];
+			}),
+		),
+	);
+}
+
+function enumValues(
+	id: string,
+	nodes: Readonly<Record<string, DescriptorNode>>,
+	seen: Set<string>,
+): readonly DescriptorValue[] | undefined {
+	if (seen.has(id)) return undefined;
+	seen.add(id);
+	const node = nodes[id];
+	if (!node) return undefined;
+	if (node.kind === "enum") return node.values;
+	if (node.kind === "literal") return Object.freeze([node.value]);
+	if (node.kind === "wrapper") return enumValues(node.inner.nodeId, nodes, seen);
+	if (node.kind === "ref" && node.target) return enumValues(node.target.nodeId, nodes, seen);
+	if (node.kind !== "intersection") return undefined;
+	const candidates = node.operands
+		.map((operand) => enumValues(operand.nodeId, nodes, seen))
+		.filter((values): values is readonly DescriptorValue[] => values !== undefined);
+	return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 function projectNodes(

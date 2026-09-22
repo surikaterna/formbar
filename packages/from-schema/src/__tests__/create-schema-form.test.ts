@@ -50,4 +50,33 @@ describe("createSchemaForm", () => {
 		expect(result.sourceValidator).toBe(schema);
 		expect(result.validators).toEqual([validator]);
 	});
+
+	it("lets an authored widget win without replacing schema evidence", () => {
+		const result = createSchemaForm(
+			{
+				type: "integer",
+				minimum: 1,
+				maximum: 5,
+				multipleOf: 1,
+				"x-formbar": { widget: "schema.rating" },
+			},
+			{
+				provider: jsonSchemaProvider(),
+				side: "input",
+				definition: {
+					version: 1,
+					id: "authored-rating",
+					root: {
+						type: "field",
+						id: "quality",
+						binding: { namespace: "data", segments: [] },
+						widget: "authored.rating",
+					},
+				},
+			},
+		);
+		expect(result.definition.root).toMatchObject({ widget: "authored.rating" });
+		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
+		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ minimum: 1, maximum: 5, multipleOf: 1 });
+	});
 });

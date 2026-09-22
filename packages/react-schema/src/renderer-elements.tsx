@@ -15,6 +15,7 @@ export function DiagnosticFallback(props: {
 	readonly code: RendererDiagnostic;
 	readonly nodeId: string;
 	readonly widget?: string;
+	readonly extensionId?: string;
 	readonly layout?: LayoutProps;
 }): ReactElement {
 	return (
@@ -24,6 +25,7 @@ export function DiagnosticFallback(props: {
 			data-formbar-diagnostic={props.code}
 			data-formbar-node={props.nodeId}
 			{...(props.widget ? { "data-formbar-widget": props.widget } : {})}
+			{...(props.extensionId ? { "data-formbar-extension": props.extensionId } : {})}
 			{...props.layout?.attributes}
 			style={props.layout?.style}
 		>

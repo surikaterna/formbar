@@ -27,6 +27,8 @@ export type CompilationDiagnosticCode =
 	| "composed-schema"
 	| "conflicting-baseline-label"
 	| "cyclic-schema"
+	| "invalid-extension-props"
+	| "invalid-extension-id"
 	| "missing-descriptor"
 	| "opaque-schema"
 	| "unsupported-schema";

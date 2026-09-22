@@ -32,6 +32,7 @@ function collectDirectConstraints(source: DescriptorValueRecord | undefined, out
 		"maximum",
 		"exclusiveMinimum",
 		"exclusiveMaximum",
+		"multipleOf",
 		"minLength",
 		"maxLength",
 		"minItems",
