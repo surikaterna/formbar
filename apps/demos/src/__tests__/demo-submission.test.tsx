@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,6 +35,70 @@ const nestedSnapshotFixture: SchemaDemoFixture = {
 	],
 };
 
+const duplicateIdFixture: SchemaDemoFixture = {
+	id: "duplicate-schema-id",
+	title: "Duplicate schema ID",
+	subtitle: "Test fixture",
+	copy: "Test fixture",
+	category: "sources",
+	sources: [
+		{
+			key: "first",
+			label: "First schema",
+			schema: {
+				$id: "https://example.test/shared-source-id",
+				type: "object",
+				required: ["first"],
+				properties: { first: { type: "string", title: "First" } },
+			},
+			initialData: {},
+		},
+		{
+			key: "second",
+			label: "Second schema",
+			schema: {
+				$id: "https://example.test/shared-source-id",
+				type: "object",
+				required: ["second"],
+				properties: { second: { type: "string", title: "Second" } },
+			},
+			initialData: {},
+		},
+	],
+};
+
+const asyncFixture: SchemaDemoFixture = {
+	id: "async-schema",
+	title: "Async schema",
+	subtitle: "Test fixture",
+	copy: "Test fixture",
+	category: "baseline",
+	sources: [
+		{
+			key: "default",
+			label: "Async schema",
+			schema: { $async: true, type: "object", properties: { name: { type: "string" } } },
+			initialData: { name: "Ada" },
+		},
+	],
+};
+
+const invalidCompileFixture: SchemaDemoFixture = {
+	id: "invalid-compile-schema",
+	title: "Invalid compile schema",
+	subtitle: "Test fixture",
+	copy: "Test fixture",
+	category: "baseline",
+	sources: [
+		{
+			key: "default",
+			label: "Invalid schema",
+			schema: { type: "object", minProperties: -1, properties: { name: { type: "string" } } },
+			initialData: { name: "Ada" },
+		},
+	],
+};
+
 afterEach(() => {
 	for (const view of mounted.splice(0)) {
 		act(() => view.root.unmount());
@@ -43,11 +107,12 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-function mount(fixture: SchemaDemoFixture, onSubmit = vi.fn()): MountedHost {
+function mount(fixture: SchemaDemoFixture, onSubmit = vi.fn(), strict = false): MountedHost {
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
-	act(() => root.render(<SchemaDemoHost fixture={fixture} onSubmit={onSubmit} />));
+	const host = <SchemaDemoHost fixture={fixture} onSubmit={onSubmit} />;
+	act(() => root.render(strict ? <StrictMode>{host}</StrictMode> : host));
 	const view = { container, root };
 	mounted.push(view);
 	return view;
@@ -181,5 +246,38 @@ describe("schema demo submission boundary", () => {
 		expect(Object.isFrozen(payload)).toBe(true);
 		expect(Object.isFrozen(payload.profile)).toBe(true);
 		expect(payload.profile.name).toBe("Ada");
+	});
+
+	it("isolates duplicate IDs across StrictMode source switches", async () => {
+		const view = mount(duplicateIdFixture, vi.fn(), true);
+		await submit(view);
+		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain(
+			'Required property "first" is missing.',
+		);
+
+		changeSource(view, "second");
+		await submit(view);
+		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain(
+			'Required property "second" is missing.',
+		);
+		changeSource(view, "first");
+		await submit(view);
+		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain(
+			'Required property "first" is missing.',
+		);
+	});
+
+	it("fails closed without rendering or submitting for unsupported and invalid schemas", async () => {
+		for (const [fixture, message] of [
+			[asyncFixture, "Asynchronous JSON Schema validation is not supported."],
+			[invalidCompileFixture, "JSON Schema validation could not be completed."],
+		] as const) {
+			const onSubmit = vi.fn();
+			const view = mount(fixture, onSubmit);
+			expect(view.container.querySelector("form")).not.toBeNull();
+			await submit(view);
+			expect(onSubmit).not.toHaveBeenCalled();
+			expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain(message);
+		}
 	});
 });
