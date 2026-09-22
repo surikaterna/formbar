@@ -20,9 +20,10 @@ export function OutputNodeView(props: {
 	const formatted = formatOutput(state.output.value, node.format);
 	if (!formatted.ok) return <DiagnosticFallback code={formatted.diagnostic} nodeId={node.id} layout={layout} />;
 	const labelId = fieldId(`${domIdToken(state.instance.instanceKey)}-label`, environment.prefix);
+	const label = node.label?.trim() ? node.label : "Calculated value";
 	return (
 		<div data-formbar-node={node.id} {...layout.attributes} style={layout.style}>
-			<span id={labelId}>{node.label ?? "Calculated value"}</span>
+			<span id={labelId}>{label}</span>
 			<output aria-labelledby={labelId}>{formatted.text}</output>
 		</div>
 	);

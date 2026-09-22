@@ -11,14 +11,19 @@ import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
 describe("renderer SSR", () => {
-	it("renders and hydrates output labels and values without mismatches", async () => {
+	it.each([
+		["omitted", undefined, "Calculated value"],
+		["empty", "", "Calculated value"],
+		["whitespace-only", " \t ", "Calculated value"],
+		["authored", "  Total  ", "  Total  "],
+	] as const)("renders and hydrates %s output labels without mismatches", async (_name, authored, expected) => {
 		const definition: FormDefinition = {
 			version: 1,
 			id: "output-ssr",
 			root: {
 				type: "output",
 				id: "total",
-				label: "Total",
+				...(authored === undefined ? {} : { label: authored }),
 				format: "currency-usd",
 				value: { kind: "ref", ref: binding("total") },
 			},
@@ -35,6 +40,7 @@ describe("renderer SSR", () => {
 		document.body.append(container);
 		const serverOutput = container.querySelector("output");
 		const serverLabel = serverOutput?.getAttribute("aria-labelledby");
+		expect(serverLabel ? document.getElementById(serverLabel)?.textContent : undefined).toBe(expected);
 		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		let root: ReturnType<typeof hydrateRoot>;
 		await act(async () => {
@@ -43,6 +49,7 @@ describe("renderer SSR", () => {
 		});
 		expect(container.querySelector("output")?.textContent).toBe("$12.50");
 		expect(container.querySelector("output")?.getAttribute("aria-labelledby")).toBe(serverLabel);
+		expect(serverLabel ? document.getElementById(serverLabel)?.textContent : undefined).toBe(expected);
 		expect(error).not.toHaveBeenCalled();
 		act(() => root.unmount());
 		error.mockRestore();

@@ -36,6 +36,21 @@ describe("output rendering", () => {
 		expect(wrapper?.getAttribute("style")).toContain("--formbar-span-base: 6");
 	});
 
+	it.each([
+		["omitted", undefined, "Calculated value"],
+		["empty", "", "Calculated value"],
+		["whitespace-only", " \t ", "Calculated value"],
+		["authored", "  Authored total  ", "  Authored total  "],
+	] as const)("provides a non-blank accessible label for %s labels", (_name, authored, expected) => {
+		const view = mount(outputDefinition("plain", authored), { amount: 1, count: 1, other: 0, object: {} });
+		const output = view.container.querySelector("output");
+		const labelId = output?.getAttribute("aria-labelledby");
+		const label = labelId ? document.getElementById(labelId) : null;
+		expect(labelId).toBeTruthy();
+		expect(label?.textContent).toBe(expected);
+		expect(label?.textContent?.trim()).not.toBe("");
+	});
+
 	it("uses the accessible fallback label and renders null without diagnostics", () => {
 		const view = mount(outputDefinition("plain"), { amount: null, count: 1, other: 0, object: {} });
 		const output = view.container.querySelector("output");
@@ -143,7 +158,7 @@ function outputDefinition(format: OutputFormat, label?: string): FormDefinition 
 			id: "result",
 			value: { kind: "ref", ref: binding("amount") },
 			format,
-			...(label ? { label } : {}),
+			...(label === undefined ? {} : { label }),
 			presentation: { span: 6 },
 		},
 	};

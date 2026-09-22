@@ -26,11 +26,7 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} widget={node.widget} layout={layout} />;
 		return <FormField node={node} state={state} environment={environment} layout={layout} />;
 	}
-	if (node.type === "output") {
-		if (!isResolvedOutputState(state))
-			return <DiagnosticFallback code="output-unresolved" nodeId={node.id} layout={layout} />;
-		return <OutputNodeView node={node} state={state} environment={environment} layout={layout} />;
-	}
+	if (node.type === "output") return renderOutput(node, state, environment, layout);
 	if (node.type === "validation")
 		return <FormValidation node={node} environment={environment} visible={state.visible} layout={layout} />;
 	if (node.type === "group") return renderGroup(node, environment, layout);
@@ -68,6 +64,17 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 		);
 	return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 });
+
+function renderOutput(
+	node: Extract<FormNode, { type: "output" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	if (!isResolvedOutputState(state))
+		return <DiagnosticFallback code="output-unresolved" nodeId={node.id} layout={layout} />;
+	return <OutputNodeView node={node} state={state} environment={environment} layout={layout} />;
+}
 
 function renderGroup(
 	node: Extract<FormNode, { type: "group" }>,

@@ -20,7 +20,7 @@ function SchemaForm() {
 
 `FormRenderer` creates and owns a declarative runtime around those prepared artifacts. It renders semantic native controls, labeled `<output>` elements, and built-in tabs and accordion nodes, while unsupported nodes and bindings remain visible diagnostics. Values, policy, lifecycle, and issues remain core-owned.
 
-Output formatting uses fixed `en-US` built-ins: `plain`, up-to-two-decimal `number`, USD `currency-usd`, and fractional `percent` (`0.1` renders as `10%`). Null renders as `Not available`; unsupported values and expression failures render an accessible value-unavailable status. Outputs are read-only projections and never enter core data or submitted payloads. Stored computations remain validation-only until [#129](https://github.com/surikaterna/formbar/issues/129).
+Output formatting uses fixed `en-US` built-ins: `plain`, up-to-two-decimal `number`, USD `currency-usd`, and fractional `percent` (`0.1` renders as `10%`). Omitted, empty, and whitespace-only labels use the visible `Calculated value` fallback; nonblank authored labels are preserved verbatim. Null renders as `Not available`; unsupported values and expression failures render an accessible value-unavailable status. Outputs are read-only projections and never enter core data or submitted payloads. Stored computations remain validation-only until [#129](https://github.com/surikaterna/formbar/issues/129).
 
 Trusted host components can be supplied through one immutable, renderer-scoped registration list:
 
