@@ -93,6 +93,58 @@ describe("default FormDefinition compilation", () => {
 		});
 	});
 
+	it("compiles exact extension widgets and finite JSON props as literals", () => {
+		const result = compile({
+			type: "integer",
+			description: "Choose quality",
+			minimum: 1,
+			maximum: 5,
+			multipleOf: 1,
+			"x-formbar": { widget: "demo.rating", props: { icon: "star", nested: { enabled: true } } },
+		});
+		expect(result.definition?.root).toMatchObject({
+			type: "field",
+			widget: "demo.rating",
+			props: {
+				icon: { mode: "literal", value: "star" },
+				nested: { mode: "literal", value: { enabled: true } },
+				description: { mode: "literal", value: "Choose quality" },
+			},
+		});
+		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
+		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ minimum: 1, maximum: 5, multipleOf: 1 });
+	});
+
+	it("treats explicitly widgeted arrays as structural fields with item-enum evidence", () => {
+		const result = compile({
+			type: "array",
+			items: { type: "string", enum: ["red", "blue"] },
+			minItems: 1,
+			"x-formbar": { widget: "demo.checkbox-group", props: { columns: 2 } },
+		});
+		expect(result.definition?.root).toMatchObject({
+			type: "field",
+			binding: { namespace: "data", segments: [] },
+			widget: "demo.checkbox-group",
+			props: { columns: { mode: "literal", value: 2 } },
+		});
+		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
+		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ enum: ["red", "blue"], minItems: 1 });
+	});
+
+	it("fails malformed extension props closed with a deterministic diagnostic", () => {
+		const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: ["invalid"] } });
+		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+		expect(result.definition?.root).not.toHaveProperty("props");
+		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
+	});
+
+	it("fails malformed extension IDs closed", () => {
+		const result = compile({ type: "string", "x-formbar": { widget: "" } });
+		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-id" })]);
+	});
+
 	it("maps object title and description to a titled section", () => {
 		const result = compile({
 			type: "object",

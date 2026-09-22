@@ -145,6 +145,7 @@ export interface NormalizedEvidence {
 	readonly maximum?: number;
 	readonly exclusiveMinimum?: number;
 	readonly exclusiveMaximum?: number;
+	readonly multipleOf?: number;
 	readonly minLength?: number;
 	readonly maxLength?: number;
 	readonly minItems?: number;

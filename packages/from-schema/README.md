@@ -34,6 +34,8 @@ Raw owned metadata and constraints are preserved. Equivalent supported JSON Sche
 
 Formbar presentation metadata is read only from exact provider locations: JSON/Standard JSON `metadata.extensions["x-formbar"]` and Zod `metadata.extensions.formbar`. Container annotations likewise use only provider-owned locations: JSON/Standard JSON and Zod 4 `metadata.annotations`, and the Zod 3 top-level `metadata.description`. There is no deep alias lookup or metadata merge.
 
+JSON Schema may select a trusted host widget with `x-formbar.widget` and provide finite JSON values through `x-formbar.props`. Each prop is compiled to a literal declarative prop; malformed props produce a deterministic compilation diagnostic. An explicit authored definition remains authoritative instead of being merged with generated presentation, while descriptor constraints and annotations remain available to the renderer.
+
 ## Trust and limits
 
 Scheman document limits are forwarded with `limits`. Formbar occurrence expansion adds bounded `maxOccurrences`, `maxOccurrenceDepth`, and `maxDefinitionExpansions` under `projectionLimits`.

@@ -56,6 +56,8 @@ function compileNode(
 	node: DescriptorNode,
 	bindingContext: BindingContext,
 ): FormNode {
+	const presentation = presentationFor(node, context.document.source.provider);
+	if (presentation.explicitWidget) return fieldNode(context, occurrence, node, bindingContext, presentation);
 	if (hasApplicators(node) && node.kind !== "object")
 		return fallbackNode(
 			context,
@@ -208,16 +210,27 @@ function fieldNode(
 	occurrence: DescriptorOccurrence,
 	node: DescriptorNode,
 	bindingContext: BindingContext,
+	compiled?: ReturnType<typeof presentationFor>,
 ): FormNode {
-	const presentation = presentationFor(node, context.document.source.provider);
+	const presentation = compiled ?? presentationFor(node, context.document.source.provider);
+	if (presentation.invalidProps)
+		addDiagnostic(
+			context,
+			occurrence,
+			"invalid-extension-props",
+			"x-formbar.props must contain only safe JSON values.",
+		);
+	if (presentation.invalidWidget)
+		addDiagnostic(context, occurrence, "invalid-extension-id", "x-formbar.widget must be a safe non-empty string ID.");
+	const invalidExtension = presentation.invalidProps || presentation.invalidWidget;
 	return Object.freeze({
 		id: nodeId(occurrence.id, "field"),
 		type: "field",
 		binding: binding(bindingContext),
-		widget: presentation.widget,
+		widget: invalidExtension ? "unsupported" : presentation.widget,
 		...(presentation.label === undefined ? {} : { label: presentation.label }),
 		...(presentation.presentation ? { presentation: presentation.presentation } : {}),
-		...(presentation.props ? { props: presentation.props } : {}),
+		...(!invalidExtension && presentation.props ? { props: presentation.props } : {}),
 	});
 }
 

@@ -1,11 +1,14 @@
-import type { FieldNode, NodePresentation } from "@formbar/declarative";
+import type { FieldNode, JsonValue, NodePresentation } from "@formbar/declarative";
 import type { DescriptorNode, DescriptorValueRecord } from "../descriptors/contracts.js";
 
 export interface CompiledPresentation {
 	readonly widget: string;
+	readonly explicitWidget: boolean;
 	readonly label?: string;
 	readonly presentation?: NodePresentation;
 	readonly props?: FieldNode["props"];
+	readonly invalidProps?: boolean;
+	readonly invalidWidget?: boolean;
 }
 
 export interface CompiledContainerPresentation {
@@ -17,8 +20,10 @@ export function presentationFor(node: DescriptorNode, provider: string): Compile
 	const annotations = childRecord(node.metadata, "annotations");
 	const extensionKey = provider === "json-schema" || provider === "standard-json-schema" ? "x-formbar" : "formbar";
 	const formbar = childRecord(childRecord(node.metadata, "extensions"), extensionKey);
-	const configuredWidget = formbar?.widget;
-	const widget = typeof configuredWidget === "string" ? configuredWidget : defaultWidget(node);
+	const hasWidget = formbar ? Object.hasOwn(formbar, "widget") : false;
+	const configuredWidget = safeId(formbar?.widget) ? formbar.widget : undefined;
+	const invalidWidget = hasWidget && configuredWidget === undefined;
+	const widget = configuredWidget ?? defaultWidget(node);
 	const configuredLabel = formbar?.label;
 	const label =
 		typeof configuredLabel === "string"
@@ -30,14 +35,67 @@ export function presentationFor(node: DescriptorNode, provider: string): Compile
 	const span = validSpan(configuredSpan) ? configuredSpan : undefined;
 	const configuredPlaceholder = formbar?.placeholder;
 	const placeholder = typeof configuredPlaceholder === "string" ? configuredPlaceholder : undefined;
+	const compiledProps = extensionProps(formbar?.props);
+	const description = typeof annotations?.description === "string" ? annotations.description : undefined;
+	const props = mergeProps(compiledProps.props, placeholder, description);
 	return Object.freeze({
 		widget,
+		explicitWidget: configuredWidget !== undefined || invalidWidget,
 		...(label === undefined ? {} : { label }),
 		...(span === undefined ? {} : { presentation: Object.freeze({ span }) }),
-		...(placeholder === undefined
-			? {}
-			: { props: Object.freeze({ placeholder: Object.freeze({ mode: "literal", value: placeholder }) }) }),
+		...(props ? { props } : {}),
+		...(compiledProps.invalid ? { invalidProps: true } : {}),
+		...(invalidWidget ? { invalidWidget: true } : {}),
 	});
+}
+
+function extensionProps(value: unknown): { readonly props?: FieldNode["props"]; readonly invalid: boolean } {
+	if (value === undefined) return { invalid: false };
+	if (!plainRecord(value)) return { invalid: true };
+	const output: Record<string, NonNullable<FieldNode["props"]>[string]> = Object.create(null);
+	for (const [key, item] of Object.entries(value)) {
+		if (!safeId(key) || !jsonValue(item)) return { invalid: true };
+		output[key] = Object.freeze({ mode: "literal", value: item });
+	}
+	return { props: Object.freeze(output), invalid: false };
+}
+
+function mergeProps(
+	props: FieldNode["props"],
+	placeholder: string | undefined,
+	description: string | undefined,
+): FieldNode["props"] {
+	const output = { ...(props ?? {}) };
+	if (placeholder !== undefined && output.placeholder === undefined)
+		output.placeholder = Object.freeze({ mode: "literal", value: placeholder });
+	if (description !== undefined && output.description === undefined)
+		output.description = Object.freeze({ mode: "literal", value: description });
+	return Object.keys(output).length ? Object.freeze(output) : undefined;
+}
+
+function jsonValue(value: unknown): value is JsonValue {
+	if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+	if (typeof value === "number") return Number.isFinite(value);
+	if (Array.isArray(value)) return value.every(jsonValue);
+	if (!plainRecord(value)) return false;
+	return Object.entries(value).every(([key, item]) => safeId(key) && jsonValue(item));
+}
+
+function plainRecord(value: unknown): value is Record<string, unknown> {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+function safeId(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.length > 0 &&
+		value.length <= 256 &&
+		value !== "__proto__" &&
+		value !== "constructor" &&
+		value !== "prototype"
+	);
 }
 
 export function containerPresentationFor(node: DescriptorNode, provider: string): CompiledContainerPresentation {
