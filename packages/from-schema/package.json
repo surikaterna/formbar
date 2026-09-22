@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/from-schema",
-	"version": "0.8.0",
+	"version": "0.10.0",
 	"type": "module",
 	"description": "Schema document projection and declarative form compilation",
 	"license": "MIT",
