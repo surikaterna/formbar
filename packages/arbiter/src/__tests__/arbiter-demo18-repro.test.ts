@@ -5,8 +5,8 @@ import { createArbiterPlugin } from "../arbiter-plugin.js";
 
 /**
  * Reproduction test for demo 18 (arbiter visibility).
- * Uses the exact same rules and initial state as the demo component
- * to verify core logic works end-to-end through createForm + arbiter plugin.
+ * Uses the same country transitions as the historical demo while expressing
+ * visibility through normalized field policy.
  */
 
 interface FormData {
@@ -16,52 +16,71 @@ interface FormData {
 	readonly region: string;
 }
 
-interface UiState {
-	readonly showState: boolean;
-	readonly showProvince: boolean;
-}
-
 const arbiterRules: readonly ProductionRule[] = [
 	{
 		name: "showUSState",
 		when: { country: "US" },
-		then: [{ $set: { "$ui.showState": true, "$ui.showProvince": false } }],
+		then: [
+			{
+				$set: {
+					"$formbar.fieldPolicy.state": { path: "/state", visible: true },
+					"$formbar.fieldPolicy.province": { path: "/province", visible: false },
+				},
+			},
+		],
 	},
 	{
 		name: "showCAProvince",
 		when: { country: "CA" },
-		then: [{ $set: { "$ui.showState": false, "$ui.showProvince": true } }],
+		then: [
+			{
+				$set: {
+					"$formbar.fieldPolicy.state": { path: "/state", visible: false },
+					"$formbar.fieldPolicy.province": { path: "/province", visible: true },
+				},
+			},
+		],
 	},
 	{
 		name: "hideRegional",
 		when: { country: { $nin: ["US", "CA"] } },
-		then: [{ $set: { "$ui.showState": false, "$ui.showProvince": false } }],
+		then: [
+			{
+				$set: {
+					"$formbar.fieldPolicy.state": { path: "/state", visible: false },
+					"$formbar.fieldPolicy.province": { path: "/province", visible: false },
+				},
+			},
+		],
 	},
 ];
 
 function makeForm() {
-	return createForm<FormData, UiState>({
+	return createForm<FormData, object>({
 		initialData: { country: "", state: "", province: "", region: "" },
-		initialUiState: { showState: false, showProvince: false },
+		initialUiState: {},
 		plugins: [createArbiterPlugin({ rules: arbiterRules })],
 	});
+}
+
+function visibility(form: ReturnType<typeof makeForm>) {
+	return Object.fromEntries(
+		form.getState().fieldPolicy.map((item) => [String(item.path.segments[0]), item.visible]),
+	) as { state: boolean; province: boolean };
 }
 
 describe("demo 18 arbiter visibility — direct state", () => {
 	test("initial state: both hidden", () => {
 		const form = makeForm();
-		const { uiState } = form.getState();
-		expect(uiState.showState).toBe(false);
-		expect(uiState.showProvince).toBe(false);
+		form.setValue("country", "");
+		expect(visibility(form)).toEqual({ province: false, state: false });
 		form.dispose();
 	});
 
 	test("select US: showState=true, showProvince=false", () => {
 		const form = makeForm();
 		form.setValue("country", "US");
-		const { uiState } = form.getState();
-		expect(uiState.showState).toBe(true);
-		expect(uiState.showProvince).toBe(false);
+		expect(visibility(form)).toEqual({ province: false, state: true });
 		form.dispose();
 	});
 
@@ -69,9 +88,7 @@ describe("demo 18 arbiter visibility — direct state", () => {
 		const form = makeForm();
 		form.setValue("country", "US");
 		form.setValue("country", "CA");
-		const { uiState } = form.getState();
-		expect(uiState.showState).toBe(false);
-		expect(uiState.showProvince).toBe(true);
+		expect(visibility(form)).toEqual({ province: true, state: false });
 		form.dispose();
 	});
 
@@ -80,9 +97,7 @@ describe("demo 18 arbiter visibility — direct state", () => {
 		form.setValue("country", "US");
 		form.setValue("country", "CA");
 		form.setValue("country", "UK");
-		const { uiState } = form.getState();
-		expect(uiState.showState).toBe(false);
-		expect(uiState.showProvince).toBe(false);
+		expect(visibility(form)).toEqual({ province: false, state: false });
 		form.dispose();
 	});
 
@@ -92,9 +107,7 @@ describe("demo 18 arbiter visibility — direct state", () => {
 		form.setValue("country", "CA");
 		form.setValue("country", "UK");
 		form.setValue("country", "US");
-		const { uiState } = form.getState();
-		expect(uiState.showState).toBe(true);
-		expect(uiState.showProvince).toBe(false);
+		expect(visibility(form)).toEqual({ province: false, state: true });
 		form.dispose();
 	});
 
@@ -102,9 +115,7 @@ describe("demo 18 arbiter visibility — direct state", () => {
 		const form = makeForm();
 		form.setValue("country", "US");
 		form.setValue("country", "");
-		const { uiState } = form.getState();
-		expect(uiState.showState).toBe(false);
-		expect(uiState.showProvince).toBe(false);
+		expect(visibility(form)).toEqual({ province: false, state: false });
 		form.dispose();
 	});
 });
@@ -112,35 +123,30 @@ describe("demo 18 arbiter visibility — direct state", () => {
 describe("demo 18 arbiter visibility — subscription", () => {
 	test("subscriber sees correct uiState after each setValue", () => {
 		const form = makeForm();
-		const snapshots: UiState[] = [];
+		const snapshots: ReturnType<typeof visibility>[] = [];
 		form.subscribe(() => {
-			snapshots.push({ ...form.getState().uiState });
+			snapshots.push(visibility(form));
 		});
 
 		form.setValue("country", "US");
 		const afterUS = snapshots[snapshots.length - 1];
-		expect(afterUS.showState).toBe(true);
-		expect(afterUS.showProvince).toBe(false);
+		expect(afterUS).toEqual({ province: false, state: true });
 
 		form.setValue("country", "CA");
 		const afterCA = snapshots[snapshots.length - 1];
-		expect(afterCA.showState).toBe(false);
-		expect(afterCA.showProvince).toBe(true);
+		expect(afterCA).toEqual({ province: true, state: false });
 
 		form.setValue("country", "UK");
 		const afterUK = snapshots[snapshots.length - 1];
-		expect(afterUK.showState).toBe(false);
-		expect(afterUK.showProvince).toBe(false);
+		expect(afterUK).toEqual({ province: false, state: false });
 
 		form.setValue("country", "US");
 		const afterUS2 = snapshots[snapshots.length - 1];
-		expect(afterUS2.showState).toBe(true);
-		expect(afterUS2.showProvince).toBe(false);
+		expect(afterUS2).toEqual({ province: false, state: true });
 
 		form.setValue("country", "");
 		const afterEmpty = snapshots[snapshots.length - 1];
-		expect(afterEmpty.showState).toBe(false);
-		expect(afterEmpty.showProvince).toBe(false);
+		expect(afterEmpty).toEqual({ province: false, state: false });
 
 		form.dispose();
 	});

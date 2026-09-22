@@ -1,7 +1,10 @@
-import { createSession } from "@arbitre/core";
+import { ArbiterError, ArbiterErrorCode, createSession } from "@arbitre/core";
 import type { FiringResult, ProductionRule, RuleSession } from "@arbitre/core";
 import type { FormPlugin, PluginEvaluateContext, PluginEvaluateResult, PluginWrite } from "@formbar/core";
+import { readFieldPolicyOutput } from "./field-policy-output.js";
 import { isArbiterInternalPath } from "./internal-paths.js";
+
+const RESERVED_DATA_ROOT = "$formbar";
 
 export interface ArbiterPluginOptions {
 	/** Provide raw rules — a session will be created internally. */
@@ -16,11 +19,48 @@ function resolveSession(options: ArbiterPluginOptions): { session: RuleSession; 
 	throw new Error("createArbiterPlugin requires either `rules` or `session`");
 }
 
-function syncSession(session: RuleSession, ctx: PluginEvaluateContext): void {
-	const data = ctx.data as Record<string, unknown>;
-	for (const key of Object.keys(data)) session.assert(key, data[key]);
-	const uiState = ctx.uiState as Record<string, unknown>;
-	for (const key of Object.keys(uiState)) session.assert(`$ui.${key}`, uiState[key]);
+interface SynchronizedRoots {
+	data: Set<string>;
+	ui: Set<string>;
+}
+
+function syncRoots(
+	session: RuleSession,
+	values: Record<string, unknown>,
+	previous: Set<string>,
+	prefix: string,
+	include: (key: string) => boolean = () => true,
+): Set<string> {
+	const current = new Set(Object.keys(values).filter(include));
+	for (const key of previous) {
+		if (!current.has(key)) session.retract(`${prefix}${key}`);
+	}
+	for (const key of current) session.assert(`${prefix}${key}`, values[key]);
+	return current;
+}
+
+function isFormDataRoot(key: string): boolean {
+	return key !== RESERVED_DATA_ROOT && !key.startsWith(`${RESERVED_DATA_ROOT}.`);
+}
+
+function syncSession(session: RuleSession, ctx: PluginEvaluateContext, roots: SynchronizedRoots): void {
+	roots.data = syncRoots(session, ctx.data as Record<string, unknown>, roots.data, "", isFormDataRoot);
+	roots.ui = syncRoots(session, ctx.uiState as Record<string, unknown>, roots.ui, "$ui.");
+}
+
+function fireSession(session: RuleSession): FiringResult {
+	try {
+		return session.fire();
+	} catch (error) {
+		if (error instanceof ArbiterError) throw error;
+		throw new ArbiterError(
+			ArbiterErrorCode.RULE_COMPILATION_FAILED,
+			"Arbiter session state could not be evaluated safely",
+			error instanceof Error
+				? { details: { root: "$formbar.fieldPolicy" }, cause: error }
+				: { details: { root: "$formbar.fieldPolicy" } },
+		);
+	}
 }
 
 function toWrites(result: FiringResult): readonly PluginWrite[] {
@@ -29,12 +69,16 @@ function toWrites(result: FiringResult): readonly PluginWrite[] {
 		.map((change) => ({ path: change.path, value: change.newValue, mode: "set" as const }));
 }
 
-function evaluateSession(session: RuleSession, ctx: PluginEvaluateContext): PluginEvaluateResult | undefined {
+function evaluateSession(
+	session: RuleSession,
+	ctx: PluginEvaluateContext,
+	roots: SynchronizedRoots,
+): PluginEvaluateResult | undefined {
 	if (ctx.origin.startsWith("plugin:arbiter")) return;
 	if (!ctx.change.dataChanged && !ctx.change.uiChanged) return;
-	syncSession(session, ctx);
-	const writes = toWrites(session.fire());
-	return { writes: writes.length > 0 ? writes : undefined };
+	syncSession(session, ctx, roots);
+	const writes = toWrites(fireSession(session));
+	return { writes: writes.length > 0 ? writes : undefined, fieldPolicy: readFieldPolicyOutput(session) };
 }
 
 /**
@@ -44,9 +88,10 @@ function evaluateSession(session: RuleSession, ctx: PluginEvaluateContext): Plug
  */
 export function createArbiterPlugin(options: ArbiterPluginOptions): FormPlugin {
 	const { session, owned } = resolveSession(options);
+	const roots: SynchronizedRoots = { data: new Set(), ui: new Set() };
 	return {
 		id: "arbiter",
-		evaluate: (ctx) => evaluateSession(session, ctx),
+		evaluate: (ctx) => evaluateSession(session, ctx, roots),
 		onDispose() {
 			if (owned) session.dispose();
 		},
