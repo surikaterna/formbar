@@ -190,6 +190,13 @@ describe("lifecycle and accessibility", () => {
 		expect(view.container.querySelector("textarea")).not.toBeNull();
 		expect(view.container.querySelector("form select")).not.toBeNull();
 	});
+
+	it("labels the historical sliderField key as a constrained native number", () => {
+		const view = mount(kitchenSinkDemo);
+		const range = control(view, "Value from 0 to 100") as HTMLInputElement;
+		expect([range.type, range.min, range.max, range.step]).toEqual(["number", "0", "100", "1"]);
+		expect([...view.container.querySelectorAll("label")].some((label) => label.textContent === "Slider")).toBe(false);
+	});
 });
 
 describe("source and responsive presentation", () => {

@@ -33,12 +33,27 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
 	return match;
 }
 
+async function traverseHistory(move: () => void): Promise<void> {
+	await act(async () => {
+		const popped = new Promise<void>((resolve) => window.addEventListener("popstate", () => resolve(), { once: true }));
+		move();
+		await popped;
+	});
+}
+
 describe("App route history", () => {
 	it("canonicalizes a direct unsupported playground load to normal demo mode", () => {
 		const view = mount("/?mode=playground&demo=basic-contact&preset=fallback");
 		expect(view.textContent).toContain("1. Basic Contact Form");
 		expect(view.textContent).not.toContain("Compilation playground");
 		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
+	});
+
+	it("canonicalizes a direct invalid preset to the actual playground default", () => {
+		const view = mount("/?mode=playground&demo=schema-compilation&preset=bogus");
+		expect(view.textContent).toContain("Compilation playground");
+		expect(view.textContent).toContain("Compilation preview loaded.");
+		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation&preset=default");
 	});
 
 	it("navigates the compatible compilation demo into its valid playground", () => {
@@ -60,5 +75,37 @@ describe("App route history", () => {
 		expect(view.textContent).toContain("1. Basic Contact Form");
 		expect(view.textContent).not.toContain("Compilation playground");
 		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
+	});
+
+	it("canonicalizes invalid preset and unsupported-demo popstate entries without adding history", () => {
+		const view = mount("/?mode=playground&demo=schema-compilation");
+		const initialLength = window.history.length;
+		act(() => {
+			window.history.pushState(null, "", "/?mode=playground&demo=schema-compilation&preset=bogus");
+			window.dispatchEvent(new PopStateEvent("popstate"));
+		});
+		expect(window.history.length).toBe(initialLength + 1);
+		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation&preset=default");
+		expect(view.textContent).toContain("Compilation preview loaded.");
+		act(() => {
+			window.history.pushState(null, "", "/?mode=playground&demo=basic-contact&preset=bogus");
+			window.dispatchEvent(new PopStateEvent("popstate"));
+		});
+		expect(window.history.length).toBe(initialLength + 2);
+		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
+		expect(view.textContent).toContain("1. Basic Contact Form");
+	});
+
+	it("keeps valid playground behavior through browser back and forward", async () => {
+		const view = mount("/?mode=demo&demo=basic-contact");
+		act(() => button(view, "Compilation preview").click());
+		act(() => button(view, "Open compilation playground").click());
+		expect(view.textContent).toContain("Compilation playground");
+		await traverseHistory(() => window.history.back());
+		expect(window.location.search).toBe("?mode=demo&demo=schema-compilation");
+		expect(view.textContent).not.toContain("Compilation playground");
+		await traverseHistory(() => window.history.forward());
+		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation");
+		expect(view.textContent).toContain("Compilation playground");
 	});
 });

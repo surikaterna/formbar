@@ -4,50 +4,13 @@ import { userProfileDemo } from "../demos/02-user-profile";
 import { nestedAddressDemo } from "../demos/03-nested-address";
 import { settingsPanelDemo } from "../demos/04-settings-panel";
 import { productEntryDemo } from "../demos/05-product-entry";
-import { definitionSummary, objectSchema, onlySource, requiredDefinition } from "./baseline-fidelity-helpers";
-
-const half = { base: "full", md: 6 };
-const profileDefinitionSummary = [
-	{
-		id: "personal",
-		title: "Personal Information",
-		fields: [
-			{ id: "f-firstName", path: "firstName", widget: "text", label: "First Name", span: half },
-			{ id: "f-lastName", path: "lastName", widget: "text", label: "Last Name", span: half },
-			{ id: "f-email", path: "email", widget: "email", label: "Email", span: half },
-			{ id: "f-age", path: "age", widget: "number", label: "Age", span: half },
-		],
-	},
-	{
-		id: "work",
-		title: "Work Details",
-		fields: [
-			{ id: "f-role", path: "role", widget: "select", label: "Role", span: half },
-			{ id: "f-department", path: "department", widget: "select", label: "Department", span: half },
-		],
-	},
-	{
-		id: "preferences",
-		title: "Preferences",
-		fields: [
-			{ id: "f-bio", path: "bio", widget: "textarea", label: "Bio", span: undefined },
-			{
-				id: "f-newsletter",
-				path: "newsletter",
-				widget: "checkbox",
-				label: "Subscribe to Newsletter",
-				span: undefined,
-			},
-		],
-	},
-];
-
-const productDefinitionSummary = [
-	["identity", "Product Identity", ["name", "sku", "category"]],
-	["details", "Details", ["description"]],
-	["pricing", "Pricing & Inventory", ["price", "weight", "quantity", "rating"]],
-	["status", "Status", ["isActive", "isFeatured"]],
-];
+import {
+	addressDefinition,
+	productDefinition,
+	profileDefinition,
+	settingsDefinition,
+} from "./baseline-definition-expectations-core";
+import { definitionStructure, objectSchema, onlySource, requiredDefinition } from "./baseline-fidelity-helpers";
 
 describe("baseline fixture fidelity: demos 1-5", () => {
 	it("restores demo 1 contact fields and annotations exactly", () => {
@@ -82,7 +45,7 @@ describe("baseline fixture fidelity: demos 1-5", () => {
 			bio: { type: "string", title: "Bio", maxLength: 500, description: "Tell us about yourself" },
 			newsletter: { type: "boolean", title: "Subscribe to Newsletter", description: "Receive weekly updates" },
 		});
-		expect(definitionSummary(requiredDefinition(source))).toEqual(profileDefinitionSummary);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(profileDefinition);
 		expect(source.initialData).toEqual({});
 	});
 
@@ -112,14 +75,7 @@ describe("baseline fixture fidelity: demos 1-5", () => {
 			homeAddress: address("Home Address"),
 			workAddress: address("Work Address"),
 		});
-		const definition = requiredDefinition(source);
-		if (definition.root.type !== "group") throw new Error("Expected a root group");
-		expect(definition.root.children.map((node) => node.id)).toEqual([
-			"f-name",
-			"f-email",
-			"home-address",
-			"work-address",
-		]);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(addressDefinition);
 		expect(source.initialData).toEqual({});
 	});
 
@@ -153,18 +109,7 @@ describe("baseline fixture fidelity: demos 1-5", () => {
 				description: "Help us improve by sharing anonymous usage data",
 			},
 		});
-		expect(
-			definitionSummary(requiredDefinition(source)).map((section) => [
-				section.id,
-				section.title,
-				section.fields.map((field) => field.path),
-			]),
-		).toEqual([
-			["notifications", "Notifications", ["notifications", "emailAlerts", "pushNotifications"]],
-			["appearance", "Appearance", ["darkMode", "compactView", "fontSize"]],
-			["localization", "Localization", ["language", "timezone"]],
-			["data", "Data & Privacy", ["autoSave", "telemetry"]],
-		]);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(settingsDefinition);
 		expect(source.initialData).toEqual({});
 	});
 
@@ -211,13 +156,7 @@ describe("baseline fixture fidelity: demos 1-5", () => {
 			isActive: { type: "boolean", title: "Active", description: "Available for purchase" },
 			isFeatured: { type: "boolean", title: "Featured", description: "Show on homepage" },
 		});
-		expect(
-			definitionSummary(requiredDefinition(source)).map((section) => [
-				section.id,
-				section.title,
-				section.fields.map((field) => field.path),
-			]),
-		).toEqual(productDefinitionSummary);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(productDefinition);
 		expect(source.initialData).toEqual({});
 	});
 });

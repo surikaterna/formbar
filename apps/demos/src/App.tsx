@@ -3,16 +3,15 @@ import "./globals.css";
 import { demos } from "./demos/index";
 import { PlaygroundPage } from "./playground/PlaygroundPage";
 import { compatibilityMatrix, getCompatibility } from "./playground/presets";
-import { type AppRoute, readRoute, routeUrl } from "./playground/route";
+import { type AppRoute, readRoute, resolveRoute, routeUrl } from "./playground/route";
 import { Button, ScrollArea, cn } from "./ui";
 
 const demoIds = demos.map((demo) => demo.id);
-const playgroundIds = compatibilityMatrix.map((entry) => entry.demoId);
 
 function useAppRoute() {
-	const [route, setRoute] = useState(() => readRoute(new URL(window.location.href), demoIds, playgroundIds));
+	const [route, setRoute] = useState(() => readRoute(new URL(window.location.href), demoIds, compatibilityMatrix));
 	useEffect(() => {
-		const onPopState = () => setRoute(readRoute(new URL(window.location.href), demoIds, playgroundIds));
+		const onPopState = () => setRoute(readRoute(new URL(window.location.href), demoIds, compatibilityMatrix));
 		window.addEventListener("popstate", onPopState);
 		return () => window.removeEventListener("popstate", onPopState);
 	}, []);
@@ -20,9 +19,9 @@ function useAppRoute() {
 		window.history.replaceState(null, "", routeUrl(new URL(window.location.href), route));
 	}, [route]);
 	const navigate = useCallback((next: AppRoute) => {
-		const url = routeUrl(new URL(window.location.href), next);
+		const { route, url } = resolveRoute(new URL(window.location.href), next, demoIds, compatibilityMatrix);
 		window.history.pushState(null, "", url);
-		setRoute(readRoute(url, demoIds, playgroundIds));
+		setRoute(route);
 	}, []);
 	return { route, navigate };
 }

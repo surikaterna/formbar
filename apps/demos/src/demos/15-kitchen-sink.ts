@@ -61,7 +61,14 @@ const definition = {
 				children: [
 					field("f-number", "numberField", "number", "Number Input", "Free-form number", half),
 					field("f-integer", "integerField", "number", "Integer Input", "Whole numbers only", half),
-					field("f-slider", "sliderField", "number", "Slider", "Constrained integer rendered as a native number", half),
+					field(
+						"f-slider",
+						"sliderField",
+						"number",
+						"Value from 0 to 100",
+						"Constrained integer rendered as a native number",
+						half,
+					),
 					field("f-with-default", "withDefault", "text", "With Default Value", "Pre-populated from initial data", half),
 				],
 			},
@@ -125,10 +132,10 @@ export const kitchenSinkDemo = {
 					integerField: { type: "integer", title: "Integer Input", description: "Whole numbers only" },
 					sliderField: {
 						type: "integer",
-						title: "Slider",
+						title: "Value from 0 to 100",
 						minimum: 0,
 						maximum: 100,
-						description: "Number with min/max historically rendered as slider",
+						description: "Constrained integer rendered as a native number",
 					},
 					switchField: {
 						type: "boolean",

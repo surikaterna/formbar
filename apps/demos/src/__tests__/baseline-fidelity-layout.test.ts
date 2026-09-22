@@ -4,12 +4,13 @@ import { responsiveSectionsDemo } from "../demos/10-multi-section-responsive";
 import { multiSchemaSourcesDemo } from "../demos/13-multi-schema-sources";
 import { kitchenSinkDemo } from "../demos/15-kitchen-sink";
 import {
-	definitionFields,
-	definitionSummary,
-	objectSchema,
-	onlySource,
-	requiredDefinition,
-} from "./baseline-fidelity-helpers";
+	explicitSourceDefinition,
+	kitchenDefinition,
+	minimalSourceDefinition,
+	responsiveDefinition,
+	vesselDefinition,
+} from "./baseline-definition-expectations-layout";
+import { definitionStructure, objectSchema, onlySource, requiredDefinition } from "./baseline-fidelity-helpers";
 
 const kitchenSinkProperties = {
 	textField: { type: "string", title: "Text Input", description: "Standard text field" },
@@ -31,10 +32,10 @@ const kitchenSinkProperties = {
 	integerField: { type: "integer", title: "Integer Input", description: "Whole numbers only" },
 	sliderField: {
 		type: "integer",
-		title: "Slider",
+		title: "Value from 0 to 100",
 		minimum: 0,
 		maximum: 100,
-		description: "Number with min/max historically rendered as slider",
+		description: "Constrained integer rendered as a native number",
 	},
 	switchField: {
 		type: "boolean",
@@ -56,46 +57,6 @@ const kitchenSinkProperties = {
 	requiredField: { type: "string", title: "Required Field", description: "Shows 'Required' badge" },
 	withDefault: { type: "string", title: "With Default Value", description: "Pre-populated from initial data" },
 };
-
-const kitchenSinkDefinitionSummary = [
-	[
-		"text-inputs",
-		"Text Inputs",
-		[
-			["textField", "text"],
-			["emailField", "email"],
-			["urlField", "url"],
-			["requiredField", "text"],
-		],
-	],
-	[
-		"textarea-inputs",
-		"Textarea Variants",
-		[
-			["textareaField", "textarea"],
-			["longTextField", "textarea"],
-		],
-	],
-	[
-		"number-inputs",
-		"Number Inputs",
-		[
-			["numberField", "number"],
-			["integerField", "number"],
-			["sliderField", "number"],
-			["withDefault", "text"],
-		],
-	],
-	[
-		"selection-inputs",
-		"Selection Controls",
-		[
-			["selectSmall", "radio"],
-			["selectLarge", "select"],
-		],
-	],
-	["boolean-inputs", "Boolean Controls", [["switchField", "checkbox"]]],
-];
 
 describe("baseline fixture fidelity: demos 9, 10, 13, and 15", () => {
 	it("restores all twelve vessel fields, options, bounds, and layout paths", () => {
@@ -135,17 +96,7 @@ describe("baseline fixture fidelity: demos 9, 10, 13, and 15", () => {
 			yearBuilt: { type: "integer", title: "Year Built", minimum: 1950, maximum: 2026 },
 			isActive: { type: "boolean", title: "Active", description: "Currently in service" },
 		});
-		expect(
-			definitionSummary(requiredDefinition(source)).map((section) => [
-				section.id,
-				section.title,
-				section.fields.map((field) => field.path),
-			]),
-		).toEqual([
-			["identity", "Vessel Identity", ["vesselName", "imoNumber", "callSign", "flag"]],
-			["classification", "Classification", ["vesselType", "yearBuilt", "isActive"]],
-			["dimensions", "Dimensions & Capacity", ["grossTonnage", "deadweight", "length", "beam", "draft"]],
-		]);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(vesselDefinition);
 		expect(source.initialData).toEqual({});
 	});
 
@@ -180,23 +131,7 @@ describe("baseline fixture fidelity: demos 9, 10, 13, and 15", () => {
 			},
 			agreesToTerms: { type: "boolean", title: "I agree to the terms and conditions" },
 		});
-		const summary = definitionSummary(requiredDefinition(source));
-		expect(summary.map((section) => [section.id, section.title, section.fields.map((field) => field.path)])).toEqual([
-			[
-				"personal",
-				"Personal Details",
-				["firstName", "lastName", "dateOfBirth", "gender", "nationality", "passportNumber"],
-			],
-			["emergency", "Emergency Contact", ["emergencyContactName", "emergencyContactPhone", "emergencyRelationship"]],
-			["health", "Health & Preferences", ["medicalConditions", "dietaryRequirements"]],
-			["agreement", "Agreement", ["agreesToTerms"]],
-		]);
-		expect(summary[0].fields.map((field) => field.span)).toEqual(
-			Array.from({ length: 6 }, () => ({ base: "full", md: 6 })),
-		);
-		expect(summary[1].fields.map((field) => field.span)).toEqual(
-			Array.from({ length: 3 }, () => ({ base: "full", md: 6 })),
-		);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(responsiveDefinition);
 		expect(source.initialData).toEqual({});
 	});
 
@@ -231,16 +166,10 @@ describe("baseline fixture fidelity: demos 9, 10, 13, and 15", () => {
 			},
 			active: { type: "boolean", title: "Account Active", description: "Enable or disable this account" },
 		});
-		for (const source of [minimalSource, explicitSource]) {
-			expect(definitionFields(requiredDefinition(source)).map((field) => field.path)).toEqual([
-				"name",
-				"email",
-				"age",
-				"role",
-				"active",
-			]);
-			expect(source.initialData).toEqual({});
-		}
+		expect(definitionStructure(requiredDefinition(minimalSource))).toEqual(minimalSourceDefinition);
+		expect(definitionStructure(requiredDefinition(explicitSource))).toEqual(explicitSourceDefinition);
+		expect(minimalSource.initialData).toEqual({});
+		expect(explicitSource.initialData).toEqual({});
 	});
 
 	it("restores demo 15 fields, options, bounds, requiredness, and initial example", () => {
@@ -248,13 +177,7 @@ describe("baseline fixture fidelity: demos 9, 10, 13, and 15", () => {
 		const schema = objectSchema(source);
 		expect(schema.required).toEqual(["textField", "emailField", "selectSmall", "selectLarge", "requiredField"]);
 		expect(schema.properties).toEqual(kitchenSinkProperties);
-		expect(
-			definitionSummary(requiredDefinition(source)).map((section) => [
-				section.id,
-				section.title,
-				section.fields.map((field) => [field.path, field.widget]),
-			]),
-		).toEqual(kitchenSinkDefinitionSummary);
+		expect(definitionStructure(requiredDefinition(source))).toEqual(kitchenDefinition);
 		expect(source.initialData).toEqual({ selectSmall: "legacy", withDefault: "Hello, ARB!" });
 	});
 });
