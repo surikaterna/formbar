@@ -106,12 +106,12 @@ describe("renderer SSR", () => {
 			],
 		};
 		const renderer = <FormRenderer {...prepared} form={form} extensions={extensions} />;
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const html = renderToString(renderer);
 		const container = document.createElement("div");
 		container.innerHTML = html;
 		document.body.append(container);
 		const ids = [...container.querySelectorAll<HTMLElement>("[id]")].map((element) => element.id);
-		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		let root: ReturnType<typeof hydrateRoot>;
 		await act(async () => {
 			root = hydrateRoot(container, renderer);

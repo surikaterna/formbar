@@ -17,6 +17,8 @@ import { DiagnosticFallback } from "./renderer-elements.js";
 import { editablePath, optionEvidence } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
 
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 export interface ExtensionFieldWiring {
 	readonly controlId: string;
 	readonly labelId: string;
@@ -76,12 +78,17 @@ function CommittedWidget({ Component, extensionProps, path, ...props }: Committe
 	useInsertionEffect(() => () => {
 		lease.active = false;
 	});
-	useLayoutEffect(() => () => {
+	useIsomorphicLayoutEffect(() => () => {
 		lease.active = false;
 	});
 	useEffect(() => {
-		lease.active = true;
+		let committed = true;
+		// StrictMode may immediately simulate teardown; only the surviving passive commit may activate this token.
+		queueMicrotask(() => {
+			if (committed) lease.active = true;
+		});
 		return () => {
+			committed = false;
 			lease.active = false;
 		};
 	});

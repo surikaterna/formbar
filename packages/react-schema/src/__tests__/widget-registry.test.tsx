@@ -79,6 +79,10 @@ const lifecycleFailures: readonly [string, ComponentType<WidgetProps>][] = [
 	],
 ];
 
+async function finishPassiveCommit(): Promise<void> {
+	await act(async () => Promise.resolve());
+}
+
 describe("trusted widget registry", () => {
 	it("selects the same host component from generated and authored IDs while retaining schema evidence", () => {
 		const received: WidgetProps[] = [];
@@ -202,7 +206,7 @@ describe("trusted widget registry", () => {
 		view.unmount();
 	});
 
-	it("blocks policy writes and marks only the field touched on blur", () => {
+	it("blocks policy writes and marks only the field touched on blur", async () => {
 		let received: WidgetProps | undefined;
 		const definition: FormDefinition = {
 			version: 1,
@@ -231,6 +235,7 @@ describe("trusted widget registry", () => {
 				],
 			},
 		});
+		await finishPassiveCommit();
 		act(() => {
 			received?.onChange(5);
 			received?.onBlur();
@@ -242,7 +247,7 @@ describe("trusted widget registry", () => {
 
 	it.each([false, true])(
 		"activates callbacks only after commit and invalidates stale render callbacks (strict: %s)",
-		(strict) => {
+		async (strict) => {
 			const received: WidgetProps[] = [];
 			let effectRan = false;
 			const RenderWriter = (props: WidgetProps) => {
@@ -268,6 +273,7 @@ describe("trusted widget registry", () => {
 				extensions: { widgets: [{ id: "demo.writer", component: RenderWriter }] },
 				strict,
 			});
+			await finishPassiveCommit();
 			expect(view.form.getState().data).toEqual({ quality: 1 });
 			expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
 			const committed = received.at(-1);
@@ -309,134 +315,146 @@ describe("trusted widget registry", () => {
 		consoleError.mockRestore();
 	});
 
-	it.each([false, true])("revokes stale callbacks before failing update layout lifecycles (strict: %s)", (strict) => {
-		const received: WidgetProps[] = [];
-		const UpdateFailure = (props: WidgetProps) => {
-			received.push(props);
-			useLayoutEffect(() => {
-				if (!props.props.fail) return;
-				stale?.onChange(9);
-				stale?.onBlur();
-				throw new Error("update layout");
-			}, [props.props.fail]);
-			return <ReferenceWidget {...props} />;
-		};
-		const definition = (fail: boolean): FormDefinition => ({
-			version: 1,
-			id: "update-layout-gate",
-			root: {
-				type: "field",
-				id: "quality",
-				binding: binding("quality"),
-				widget: "demo.update",
-				props: { fail: literal(fail) },
-			},
-		});
-		const extensions = { widgets: [{ id: "demo.update", component: UpdateFailure }] };
-		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const view = mountForm({
-			schema: { type: "object", properties: { quality: { type: "integer" } } },
-			definition: definition(false),
-			data: { quality: 1 },
-			extensions,
-			strict,
-		});
-		const stale = received.at(-1);
-		const renderer = (
-			<FormRenderer {...view.prepared} form={view.form} definition={definition(true)} extensions={extensions} />
-		);
-		act(() => view.root.render(strict ? <StrictMode>{renderer}</StrictMode> : renderer));
-		expect(view.form.getState().data).toEqual({ quality: 1 });
-		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
-		expect(view.container.querySelector("[data-formbar-diagnostic]")?.getAttribute("data-formbar-diagnostic")).toBe(
-			"extension-render-failed",
-		);
-		view.unmount();
-		consoleError.mockRestore();
-	});
-
-	it.each([false, true])("revokes callbacks before descendant layout cleanup on unmount (strict: %s)", (strict) => {
-		let cleanups = 0;
-		const CleanupWriter = (props: WidgetProps) => {
-			useLayoutEffect(
-				() => () => {
-					cleanups += 1;
-					props.onChange(7);
-					props.onBlur();
-				},
-				[props.onBlur, props.onChange],
-			);
-			return <ReferenceWidget {...props} />;
-		};
-		const view = mountForm({
-			schema: { type: "object", properties: { quality: { type: "integer" } } },
-			definition: {
+	it.each([false, true])(
+		"revokes stale callbacks before failing update layout lifecycles (strict: %s)",
+		async (strict) => {
+			const received: WidgetProps[] = [];
+			const UpdateFailure = (props: WidgetProps) => {
+				received.push(props);
+				useLayoutEffect(() => {
+					if (!props.props.fail) return;
+					stale?.onChange(9);
+					stale?.onBlur();
+					throw new Error("update layout");
+				}, [props.props.fail]);
+				return <ReferenceWidget {...props} />;
+			};
+			const definition = (fail: boolean): FormDefinition => ({
 				version: 1,
-				id: "unmount-layout-gate",
-				root: { type: "field", id: "quality", binding: binding("quality"), widget: "demo.cleanup" },
-			},
-			data: { quality: 1 },
-			extensions: { widgets: [{ id: "demo.cleanup", component: CleanupWriter }] },
-			strict,
-		});
-		expect(view.form.getState().data).toEqual({ quality: 1 });
-		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
-		view.unmount();
-		expect(cleanups).toBe(strict ? 2 : 1);
-		expect(view.form.getState().data).toEqual({ quality: 1 });
-		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
-	});
+				id: "update-layout-gate",
+				root: {
+					type: "field",
+					id: "quality",
+					binding: binding("quality"),
+					widget: "demo.update",
+					props: { fail: literal(fail) },
+				},
+			});
+			const extensions = { widgets: [{ id: "demo.update", component: UpdateFailure }] };
+			const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+			const view = mountForm({
+				schema: { type: "object", properties: { quality: { type: "integer" } } },
+				definition: definition(false),
+				data: { quality: 1 },
+				extensions,
+				strict,
+			});
+			await finishPassiveCommit();
+			const stale = received.at(-1);
+			const renderer = (
+				<FormRenderer {...view.prepared} form={view.form} definition={definition(true)} extensions={extensions} />
+			);
+			act(() => view.root.render(strict ? <StrictMode>{renderer}</StrictMode> : renderer));
+			expect(view.form.getState().data).toEqual({ quality: 1 });
+			expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
+			expect(view.container.querySelector("[data-formbar-diagnostic]")?.getAttribute("data-formbar-diagnostic")).toBe(
+				"extension-render-failed",
+			);
+			view.unmount();
+			consoleError.mockRestore();
+		},
+	);
 
-	it.each([false, true])("revokes stale callbacks before failing class update lifecycles (strict: %s)", (strict) => {
-		let current: WidgetProps | undefined;
-		class UpdateFailure extends Component<WidgetProps> {
-			componentDidUpdate(): void {
-				if (!this.props.props.fail) return;
-				stale?.onChange(9);
-				stale?.onBlur();
-				throw new Error("class update");
+	it.each([false, true])(
+		"revokes callbacks before descendant layout cleanup on unmount (strict: %s)",
+		async (strict) => {
+			let cleanups = 0;
+			const CleanupWriter = (props: WidgetProps) => {
+				useLayoutEffect(
+					() => () => {
+						cleanups += 1;
+						props.onChange(7);
+						props.onBlur();
+					},
+					[props.onBlur, props.onChange],
+				);
+				return <ReferenceWidget {...props} />;
+			};
+			const view = mountForm({
+				schema: { type: "object", properties: { quality: { type: "integer" } } },
+				definition: {
+					version: 1,
+					id: "unmount-layout-gate",
+					root: { type: "field", id: "quality", binding: binding("quality"), widget: "demo.cleanup" },
+				},
+				data: { quality: 1 },
+				extensions: { widgets: [{ id: "demo.cleanup", component: CleanupWriter }] },
+				strict,
+			});
+			await finishPassiveCommit();
+			expect(view.form.getState().data).toEqual({ quality: 1 });
+			expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
+			view.unmount();
+			expect(cleanups).toBe(strict ? 2 : 1);
+			expect(view.form.getState().data).toEqual({ quality: 1 });
+			expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
+		},
+	);
+
+	it.each([false, true])(
+		"revokes stale callbacks before failing class update lifecycles (strict: %s)",
+		async (strict) => {
+			let current: WidgetProps | undefined;
+			class UpdateFailure extends Component<WidgetProps> {
+				componentDidUpdate(): void {
+					if (!this.props.props.fail) return;
+					stale?.onChange(9);
+					stale?.onBlur();
+					throw new Error("class update");
+				}
+
+				render() {
+					current = this.props;
+					return <ReferenceWidget {...this.props} />;
+				}
 			}
+			const definition = (fail: boolean): FormDefinition => ({
+				version: 1,
+				id: "class-update-gate",
+				root: {
+					type: "field",
+					id: "quality",
+					binding: binding("quality"),
+					widget: "demo.class-update",
+					props: { fail: literal(fail) },
+				},
+			});
+			const extensions = { widgets: [{ id: "demo.class-update", component: UpdateFailure }] };
+			const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+			const view = mountForm({
+				schema: { type: "object", properties: { quality: { type: "integer" } } },
+				definition: definition(false),
+				data: { quality: 1 },
+				extensions,
+				strict,
+			});
+			await finishPassiveCommit();
+			const stale = current;
+			const renderer = (
+				<FormRenderer {...view.prepared} form={view.form} definition={definition(true)} extensions={extensions} />
+			);
+			act(() => view.root.render(strict ? <StrictMode>{renderer}</StrictMode> : renderer));
+			expect(view.form.getState().data).toEqual({ quality: 1 });
+			expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
+			expect(view.container.querySelector("[data-formbar-diagnostic]")?.getAttribute("data-formbar-diagnostic")).toBe(
+				"extension-render-failed",
+			);
+			view.unmount();
+			consoleError.mockRestore();
+		},
+	);
 
-			render() {
-				current = this.props;
-				return <ReferenceWidget {...this.props} />;
-			}
-		}
-		const definition = (fail: boolean): FormDefinition => ({
-			version: 1,
-			id: "class-update-gate",
-			root: {
-				type: "field",
-				id: "quality",
-				binding: binding("quality"),
-				widget: "demo.class-update",
-				props: { fail: literal(fail) },
-			},
-		});
-		const extensions = { widgets: [{ id: "demo.class-update", component: UpdateFailure }] };
-		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const view = mountForm({
-			schema: { type: "object", properties: { quality: { type: "integer" } } },
-			definition: definition(false),
-			data: { quality: 1 },
-			extensions,
-			strict,
-		});
-		const stale = current;
-		const renderer = (
-			<FormRenderer {...view.prepared} form={view.form} definition={definition(true)} extensions={extensions} />
-		);
-		act(() => view.root.render(strict ? <StrictMode>{renderer}</StrictMode> : renderer));
-		expect(view.form.getState().data).toEqual({ quality: 1 });
-		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
-		expect(view.container.querySelector("[data-formbar-diagnostic]")?.getAttribute("data-formbar-diagnostic")).toBe(
-			"extension-render-failed",
-		);
-		view.unmount();
-		consoleError.mockRestore();
-	});
-
-	it.each([false, true])("revokes callbacks before class unmount cleanup (strict: %s)", (strict) => {
+	it.each([false, true])("revokes callbacks before class unmount cleanup (strict: %s)", async (strict) => {
 		let cleanups = 0;
 		class CleanupWriter extends Component<WidgetProps> {
 			componentWillUnmount(): void {
@@ -460,6 +478,7 @@ describe("trusted widget registry", () => {
 			extensions: { widgets: [{ id: "demo.class-cleanup", component: CleanupWriter }] },
 			strict,
 		});
+		await finishPassiveCommit();
 		expect(view.form.getState().data).toEqual({ quality: 1 });
 		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
 		view.unmount();
