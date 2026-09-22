@@ -105,7 +105,9 @@ describe("FormRenderer", () => {
 		expect(section.style.getPropertyValue("--formbar-span-base")).toBe("12");
 		expect(section.style.getPropertyValue("--formbar-span-md")).toBe("auto");
 	});
+});
 
+describe("FormRenderer runtime state", () => {
 	it("reacts to conditionals while retaining hidden core data", () => {
 		const definition: FormDefinition = {
 			version: 1,
@@ -130,7 +132,9 @@ describe("FormRenderer", () => {
 		expect(view.container.querySelector('[data-formbar-node="alternate"]')).not.toBeNull();
 		expect(view.form.getState().data.secret).toBe("retained");
 	});
+});
 
+describe("FormRenderer evidence and fallbacks", () => {
 	it("emits deterministic diagnostics for every unsupported category", () => {
 		const view = mount({
 			definition: fallbackDefinition,

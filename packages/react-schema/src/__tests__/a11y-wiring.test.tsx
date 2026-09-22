@@ -100,7 +100,9 @@ describe("renderer accessibility", () => {
 		expect(view.container.querySelectorAll('[role="alert"]')).toHaveLength(1);
 		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("");
 	});
+});
 
+describe("renderer accessibility state and IDs", () => {
 	it("does not mark warning-only fields invalid", async () => {
 		const definition: FormDefinition = {
 			version: 1,
@@ -142,7 +144,9 @@ describe("renderer accessibility", () => {
 		expect(ids.every((id) => /^[A-Za-z0-9_-]+$/.test(id))).toBe(true);
 		for (const control of controls) expect(document.querySelector(`label[for="${control.id}"]`)).not.toBeNull();
 	});
+});
 
+describe("renderer error-summary focus", () => {
 	it("links and focuses only rendered supported focusable error controls", async () => {
 		const view = mountSummaryForm(false);
 		await submitNative(view.container);

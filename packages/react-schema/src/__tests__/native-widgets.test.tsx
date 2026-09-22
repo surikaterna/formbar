@@ -84,7 +84,9 @@ describe("native widgets", () => {
 			"email",
 		);
 	});
+});
 
+describe("native scalar edits", () => {
 	it("preserves scalar and explicit empty conversion semantics", () => {
 		const view = mount();
 		const text = view.container.querySelector('[data-formbar-node="text"] input') as HTMLInputElement;
@@ -111,7 +113,9 @@ describe("native widgets", () => {
 		act(() => radio.click());
 		expect(view.form.getState().data.radio).toBe(true);
 	});
+});
 
+describe("native string values", () => {
 	it("writes native string, date, and time values without conversion", () => {
 		const view = mount();
 		const stringValues = {
@@ -141,7 +145,27 @@ describe("native widgets", () => {
 			expect(view.form.getState().data[id]).toBeUndefined();
 		}
 	});
+});
 
+describe("native temporal values", () => {
+	it("renders only date and time values that native controls preserve", () => {
+		const view = mount();
+		expectAcceptedTemporal(view, "date", ["0001-01-01", "2000-02-29", "9999-12-31", "10000-01-01"]);
+		expectRejectedTemporal(view, "date", ["0000-01-01", "1900-02-29", "2024-04-31"]);
+		expectAcceptedTemporal(view, "time", [
+			"00:00",
+			"23:59",
+			"00:00:00",
+			"23:59:59",
+			"12:30:00.1",
+			"12:30:00.12",
+			"12:30:00.123",
+		]);
+		expectRejectedTemporal(view, "time", ["12:30:00.1234", "24:00", "23:60", "23:59:60"]);
+	});
+});
+
+describe("unsupported native values", () => {
 	it("rejects non-finite current number values visibly", () => {
 		const view = mount();
 		act(() => view.form.fieldDynamic("/number").handleChange(Number.POSITIVE_INFINITY as never));
@@ -150,6 +174,31 @@ describe("native widgets", () => {
 		);
 	});
 });
+
+type MountedWidgets = ReturnType<typeof mount>;
+
+function expectAcceptedTemporal(view: MountedWidgets, type: "date" | "time", values: readonly string[]): void {
+	for (const value of values) {
+		act(() => view.form.setValue(type, value));
+		const node = view.container.querySelector(`[data-formbar-node="${type}"]`);
+		expect(node?.getAttribute("data-formbar-diagnostic")).toBeNull();
+		expect((node?.querySelector("input") as HTMLInputElement).value).toBe(value);
+	}
+}
+
+function expectRejectedTemporal(view: MountedWidgets, type: "date" | "time", values: readonly string[]): void {
+	for (const value of values) {
+		const browserControl = document.createElement("input");
+		browserControl.type = type;
+		browserControl.value = value;
+		expect(browserControl.value).toBe("");
+		act(() => view.form.setValue(type, value));
+		const node = view.container.querySelector(`[data-formbar-node="${type}"]`);
+		expect(node?.getAttribute("data-formbar-diagnostic")).toBe("unsupported-widget");
+		expect(node?.querySelector("input")).toBeNull();
+		expect(node?.textContent).toBe("This form item cannot be rendered.");
+	}
+}
 
 function mount() {
 	const view = mountForm({

@@ -55,7 +55,9 @@ describe("renderer reactivity", () => {
 		expect(control.disabled).toBe(true);
 		expect(control.required).toBe(true);
 	});
+});
 
+describe("renderer subscription lifecycle", () => {
 	it("suppresses unrelated node replacement and releases StrictMode subscriptions", async () => {
 		let subscriptions = 0;
 		const view = mount({
@@ -100,7 +102,9 @@ describe("renderer reactivity", () => {
 		mounted.splice(mounted.indexOf(view), 1);
 		second.dispose();
 	});
+});
 
+describe("renderer selected updates", () => {
 	it("keeps untouched handlers stable for unrelated issues, policy, and values", async () => {
 		let issueMessage = "first global issue";
 		let restrictOther = false;
