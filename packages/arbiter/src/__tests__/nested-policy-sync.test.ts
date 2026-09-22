@@ -95,6 +95,7 @@ describe("Arbiter field policy output decoding", () => {
 		["scope", { path: "$row.name", visible: true }],
 		["ui namespace", { path: "$ui.name", visible: true }],
 		["bad escape", { path: "/bad~2path", visible: true }],
+		["unsafe segment", { path: "/__proto__/name", visible: true }],
 	])("rejects unsupported %s target with Arbiter path diagnostics", (_name, record) => {
 		expect(() => readFieldPolicyOutput({ getPath: () => ({ target: record }) })).toThrowError(
 			expect.objectContaining<Partial<ArbiterError>>({ code: ArbiterErrorCode.INVALID_PATH }),
