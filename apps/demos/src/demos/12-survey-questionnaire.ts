@@ -116,6 +116,7 @@ const definition = {
 } satisfies FormDefinition;
 
 export const surveySchema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
 	type: "object",
 	required: ["satisfaction", "recommend"],
 	properties: {
@@ -167,13 +168,25 @@ export const surveySchema = {
 		},
 		email: { type: "string", title: "Email", format: "email" },
 	},
+	if: {
+		required: ["contactForFollowUp"],
+		properties: { contactForFollowUp: { const: true } },
+	},
+	// biome-ignore lint/suspicious/noThenProperty: This is the JSON Schema conditional keyword.
+	then: {
+		required: ["email"],
+		properties: { email: { minLength: 1 } },
+	},
+	else: {
+		properties: { contactForFollowUp: { const: false } },
+	},
 } as const;
 
 export const surveyDemo = {
 	id: "survey",
 	title: "12. Survey / Questionnaire",
 	subtitle: "Native conditional follow-up",
-	copy: "The follow-up email is conditionally mounted and marked required as a presentation cue. JSON Schema and explicit validators—not that cue—remain validation authority.",
+	copy: "An explicit FormDefinition expression controls the follow-up presentation cue. A guarded Draft 2020-12 if/then/else independently requires and validates email when follow-up is true.",
 	category: "conditional",
 	sources: [
 		{

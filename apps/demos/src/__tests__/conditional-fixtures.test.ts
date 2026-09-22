@@ -138,6 +138,12 @@ describe("conditional fixture fidelity", () => {
 		expect(surveySchema.properties.npsScore).toMatchObject({ type: "integer", minimum: 0, maximum: 10 });
 		expect(surveySchema.properties.feedback.maxLength).toBe(2000);
 		expect(surveySchema.properties.email).toEqual({ type: "string", title: "Email", format: "email" });
+		expect(surveySchema.if).toEqual({
+			required: ["contactForFollowUp"],
+			properties: { contactForFollowUp: { const: true } },
+		});
+		expect(surveySchema.then).toEqual({ required: ["email"], properties: { email: { minLength: 1 } } });
+		expect(surveySchema.else).toEqual({ properties: { contactForFollowUp: { const: false } } });
 		expect([
 			surveySchema.properties.satisfaction.enum,
 			surveySchema.properties.recommend.enum,

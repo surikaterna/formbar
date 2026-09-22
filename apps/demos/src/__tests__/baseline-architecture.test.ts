@@ -22,6 +22,8 @@ describe("baseline demo architecture", () => {
 		expect(host.match(/useSchemaForm/g)).toHaveLength(2);
 		expect(host.match(/<FormRenderer/g)).toHaveLength(1);
 		expect(host).toContain("key={`${fixture.id}:${source.key}`}");
+		expect(host).toContain("createJsonSchemaValidators(source.schema)");
+		expect(host).toContain("validators,");
 		expect(host).not.toMatch(/useFormSelector|useField|fieldDynamic|<(?:input|textarea)\b/);
 		expect(host.match(/<select\b/g)).toHaveLength(1);
 	});
