@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.8.0
+
+### Minor Changes
+
+- 141ef96: Add deterministic framework-neutral runtime projection, coherent core lifecycle captures, and occurrence-derived schema baselines.
+
 ## 0.7.0
 
 ### Minor Changes
