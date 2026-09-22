@@ -169,7 +169,7 @@
 }
 
 .schema-demo-form form > [data-formbar-node],
-.schema-demo-form fieldset,
+.schema-demo-form fieldset[data-formbar-node],
 .schema-demo-form section {
 	display: grid;
 	grid-template-columns: repeat(12, minmax(0, 1fr));

@@ -1,43 +1,67 @@
-import type { FormDefinition, FormNode } from "@formbar/declarative";
+import type { FormDefinition, FormNode, ResponsiveSpan } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
-function field(id: string, name: string, widget: string, label: string, span: 4 | 6 | 8 | 12 = 6): FormNode {
+function field(
+	id: string,
+	path: string,
+	widget: string,
+	label: string,
+	description?: string,
+	span?: ResponsiveSpan,
+): FormNode {
 	return {
 		type: "field",
 		id,
-		binding: { namespace: "data", segments: [name] },
+		binding: { namespace: "data", segments: [path] },
 		widget,
 		label,
-		presentation: { span: { base: "full", md: span } },
+		...(description ? { props: { description: { mode: "literal" as const, value: description } } } : {}),
+		...(span ? { presentation: { span } } : {}),
 	};
 }
 
+const half = { base: "full", md: 6 } as const;
 const definition = {
 	version: 1,
 	id: "product-entry",
 	root: {
 		type: "group",
-		id: "product-root",
+		id: "root",
 		children: [
 			{
 				type: "section",
-				id: "product-details",
-				title: "Product details",
+				id: "identity",
+				title: "Product Identity",
 				children: [
-					field("product-name", "name", "text", "Product name", 8),
-					field("product-category", "category", "select", "Category", 4),
-					field("product-description", "description", "textarea", "Description", 12),
+					field("f-name", "name", "text", "Product Name", "Display name shown to customers", half),
+					field("f-sku", "sku", "text", "SKU", "Stock Keeping Unit identifier", half),
+					field("f-category", "category", "select", "Category", undefined, half),
 				],
 			},
 			{
 				type: "section",
-				id: "product-inventory",
-				title: "Pricing and inventory",
+				id: "details",
+				title: "Details",
+				children: [field("f-description", "description", "textarea", "Description", "Detailed product description")],
+			},
+			{
+				type: "section",
+				id: "pricing",
+				title: "Pricing & Inventory",
 				children: [
-					field("product-price", "price", "number", "Price", 4),
-					field("product-weight", "weight", "number", "Weight (kg)", 4),
-					field("product-quantity", "quantity", "number", "Quantity", 4),
-					field("product-rating", "rating", "number", "Rating", 4),
+					field("f-price", "price", "number", "Price (USD)", "Retail price", half),
+					field("f-weight", "weight", "number", "Weight (kg)", "Shipping weight", half),
+					field("f-quantity", "quantity", "number", "Stock Quantity", "Units in stock", half),
+					field("f-rating", "rating", "number", "Quality Rating", "Internal quality score", half),
+				],
+			},
+			{
+				type: "section",
+				id: "status",
+				title: "Status",
+				children: [
+					field("f-isActive", "isActive", "checkbox", "Active", "Available for purchase", half),
+					field("f-isFeatured", "isFeatured", "checkbox", "Featured", "Show on homepage", half),
 				],
 			},
 		],
@@ -46,9 +70,9 @@ const definition = {
 
 export const productEntryDemo = {
 	id: "product-entry",
-	title: "5. Product entry",
+	title: "5. Product Catalog Entry",
 	subtitle: "Schema-owned product constraints",
-	copy: "Category options, required fields, and numeric bounds come from descriptor evidence.",
+	copy: "The original product catalog fields retain their constraints, descriptions, category order, inventory, and status controls.",
 	category: "baseline",
 	sources: [
 		{
@@ -56,27 +80,55 @@ export const productEntryDemo = {
 			label: "Product schema",
 			schema: {
 				type: "object",
+				required: ["name", "sku", "price", "category"],
 				properties: {
-					name: { type: "string", title: "Product name", minLength: 2 },
-					category: { title: "Category", enum: ["Books", "Electronics", "Home", "Outdoors"] },
-					description: { type: "string", title: "Description", maxLength: 1000, "x-formbar": { widget: "textarea" } },
-					price: { type: "number", title: "Price", minimum: 0 },
-					weight: { type: "number", title: "Weight (kg)", minimum: 0, maximum: 1000 },
-					quantity: { type: "integer", title: "Quantity", minimum: 0, maximum: 10000 },
-					rating: { type: "integer", title: "Rating", minimum: 1, maximum: 5 },
+					name: { type: "string", title: "Product Name", description: "Display name shown to customers" },
+					sku: { type: "string", title: "SKU", description: "Stock Keeping Unit identifier" },
+					description: {
+						type: "string",
+						title: "Description",
+						maxLength: 1000,
+						description: "Detailed product description",
+						"x-formbar": { widget: "textarea" },
+					},
+					category: {
+						type: "string",
+						title: "Category",
+						enum: [
+							"Electronics",
+							"Clothing",
+							"Home & Garden",
+							"Sports",
+							"Books",
+							"Food & Beverage",
+							"Health",
+							"Automotive",
+							"Toys",
+							"Office Supplies",
+						],
+					},
+					price: { type: "number", title: "Price (USD)", minimum: 0, description: "Retail price" },
+					weight: { type: "number", title: "Weight (kg)", minimum: 0, description: "Shipping weight" },
+					quantity: {
+						type: "integer",
+						title: "Stock Quantity",
+						minimum: 0,
+						maximum: 10000,
+						description: "Units in stock",
+					},
+					rating: {
+						type: "integer",
+						title: "Quality Rating",
+						minimum: 1,
+						maximum: 5,
+						description: "Internal quality score",
+					},
+					isActive: { type: "boolean", title: "Active", description: "Available for purchase" },
+					isFeatured: { type: "boolean", title: "Featured", description: "Show on homepage" },
 				},
-				required: ["name", "category", "price", "quantity"],
 			},
 			definition,
-			initialData: {
-				name: "Field notebook",
-				category: "Books",
-				description: "A durable notebook for field notes.",
-				price: 12.5,
-				weight: 0.4,
-				quantity: 25,
-				rating: 5,
-			},
+			initialData: {},
 		},
 	],
 } as const satisfies SchemaDemoFixture;

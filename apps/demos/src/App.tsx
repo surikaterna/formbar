@@ -7,11 +7,12 @@ import { type AppRoute, readRoute, routeUrl } from "./playground/route";
 import { Button, ScrollArea, cn } from "./ui";
 
 const demoIds = demos.map((demo) => demo.id);
+const playgroundIds = compatibilityMatrix.map((entry) => entry.demoId);
 
 function useAppRoute() {
-	const [route, setRoute] = useState(() => readRoute(new URL(window.location.href), demoIds));
+	const [route, setRoute] = useState(() => readRoute(new URL(window.location.href), demoIds, playgroundIds));
 	useEffect(() => {
-		const onPopState = () => setRoute(readRoute(new URL(window.location.href), demoIds));
+		const onPopState = () => setRoute(readRoute(new URL(window.location.href), demoIds, playgroundIds));
 		window.addEventListener("popstate", onPopState);
 		return () => window.removeEventListener("popstate", onPopState);
 	}, []);
@@ -21,7 +22,7 @@ function useAppRoute() {
 	const navigate = useCallback((next: AppRoute) => {
 		const url = routeUrl(new URL(window.location.href), next);
 		window.history.pushState(null, "", url);
-		setRoute(readRoute(url, demoIds));
+		setRoute(readRoute(url, demoIds, playgroundIds));
 	}, []);
 	return { route, navigate };
 }

@@ -2,9 +2,9 @@ import type { SchemaDemoFixture } from "./baseline-contracts";
 
 export const basicContactDemo = {
 	id: "basic-contact",
-	title: "1. Basic contact",
+	title: "1. Basic Contact Form",
 	subtitle: "Generated contact form",
-	copy: "A JSON Schema generates the definition, labels, native controls, and required state.",
+	copy: "Simple contact form with text, email, and textarea fields. Auto-generated layout from JSON Schema.",
 	category: "baseline",
 	sources: [
 		{
@@ -12,22 +12,25 @@ export const basicContactDemo = {
 			label: "Contact schema",
 			schema: {
 				type: "object",
-				title: "Contact",
-				description: "Tell us how to reach you.",
+				required: ["name", "email"],
 				properties: {
-					name: { type: "string", title: "Name", minLength: 1 },
-					email: { type: "string", title: "Email", format: "email" },
-					phone: { type: "string", title: "Phone", format: "tel" },
+					name: { type: "string", title: "Full Name", description: "Your full legal name" },
+					email: {
+						type: "string",
+						title: "Email",
+						format: "email",
+						description: "We will never share your email",
+					},
+					phone: { type: "string", title: "Phone Number" },
 					message: {
 						type: "string",
 						title: "Message",
 						maxLength: 500,
-						"x-formbar": { widget: "textarea", placeholder: "How can we help?" },
+						"x-formbar": { widget: "textarea" },
 					},
 				},
-				required: ["name", "email"],
 			},
-			initialData: { name: "", email: "", phone: "", message: "" },
+			initialData: {},
 		},
 	],
 } as const satisfies SchemaDemoFixture;

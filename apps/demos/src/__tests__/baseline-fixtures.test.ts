@@ -49,17 +49,17 @@ describe("baseline demo fixtures", () => {
 		}
 	});
 
-	it("generates demos 1 and 3 with required fields, widgets, nested titles, and options", () => {
+	it("renders demos 1 and 3 with required fields, widgets, nested titles, and options", () => {
 		const contact = compile("basic-contact");
 		const contactNodes = nodes(contact.definition.root);
 		expect(contactNodes.find((node) => node.type === "field" && node.widget === "textarea")).toBeDefined();
-		expect(contact.baseline.filter((item) => item.required).map((item) => item.label)).toEqual(["Name", "Email"]);
+		expect(contact.baseline.filter((item) => item.required).map((item) => item.label)).toEqual(["Full Name", "Email"]);
 		const addresses = compile("nested-address");
 		expect(
 			nodes(addresses.definition.root)
 				.filter((node) => node.type === "section")
 				.map((node) => "title" in node && node.title),
-		).toEqual(["Addresses", "Home address", "Work address"]);
+		).toEqual(["Home Address", "Work Address"]);
 		expect(evidenceAt(addresses, "homeAddress", "country").enum).toContain("United Kingdom");
 		expect(evidenceAt(addresses, "workAddress", "country").enum).toContain("Japan");
 	});
@@ -77,14 +77,15 @@ describe("baseline demo fixtures", () => {
 			maximum: 5,
 		});
 		expect(evidenceAt(compile("custom-layout"), "vesselType").enum).toEqual([
-			"Cargo",
-			"Passenger",
-			"Research",
-			"Sailing",
+			"Container",
+			"Bulk Carrier",
+			"Tanker",
+			"RoRo",
+			"General Cargo",
 		]);
 		const kitchen = compile("kitchen-sink");
-		expect(kitchen.baseline.find((item) => item.nodeId === "kitchen-required")?.required).toBe(true);
-		expect(evidenceAt(kitchen, "percent")).toMatchObject({ primitive: "integer", minimum: 0, maximum: 100 });
+		expect(kitchen.baseline.find((item) => item.nodeId === "f-required")?.required).toBe(true);
+		expect(evidenceAt(kitchen, "sliderField")).toMatchObject({ primitive: "integer", minimum: 0, maximum: 100 });
 	});
 
 	it("retains authored section order and responsive spans", () => {
@@ -93,16 +94,16 @@ describe("baseline demo fixtures", () => {
 			nodes(layout.definition.root)
 				.filter((node) => node.type === "section")
 				.map((node) => "title" in node && node.title),
-		).toEqual(["Identity", "Classification", "Dimensions"]);
+		).toEqual(["Vessel Identity", "Classification", "Dimensions & Capacity"]);
 		const responsive = compile("multi-section-responsive");
-		const firstName = nodes(responsive.definition.root).find((node) => node.id === "responsive-first-name");
+		const firstName = nodes(responsive.definition.root).find((node) => node.id === "f-first");
 		expect(firstName?.presentation?.span).toEqual({ base: "full", md: 6 });
 	});
 
-	it("compiles both JSON Schema detail levels through generated definitions", () => {
+	it("compiles both JSON Schema detail levels through the shared host contract", () => {
 		const minimal = compile("multi-schema-sources", "minimal");
-		const annotated = compile("multi-schema-sources", "annotated");
-		expect(nodes(minimal.definition.root).find((node) => node.type === "field")?.label).toBeUndefined();
-		expect(nodes(annotated.definition.root).find((node) => node.type === "field")?.label).toBe("Display name");
+		const explicit = compile("multi-schema-sources", "explicit");
+		expect(nodes(minimal.definition.root).find((node) => node.type === "field")?.label).toBe("name");
+		expect(nodes(explicit.definition.root).find((node) => node.type === "field")?.label).toBe("Full Name");
 	});
 });

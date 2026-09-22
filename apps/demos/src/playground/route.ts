@@ -4,12 +4,13 @@ export interface AppRoute {
 	readonly preset?: string;
 }
 
-export function readRoute(url: URL, demoIds: readonly string[]): AppRoute {
+export function readRoute(url: URL, demoIds: readonly string[], playgroundIds: readonly string[]): AppRoute {
 	const requestedDemo = url.searchParams.get("demo");
 	const demoId = requestedDemo && demoIds.includes(requestedDemo) ? requestedDemo : (demoIds[0] ?? "");
-	const mode = url.searchParams.get("mode") === "playground" ? "playground" : "demo";
+	const requestedPlayground = url.searchParams.get("mode") === "playground";
+	const mode = requestedPlayground && playgroundIds.includes(demoId) ? "playground" : "demo";
 	const preset = url.searchParams.get("preset") || undefined;
-	return { mode, demoId, ...(preset ? { preset } : {}) };
+	return { mode, demoId, ...(mode === "playground" && preset ? { preset } : {}) };
 }
 
 export function routeUrl(current: URL, route: AppRoute): URL {

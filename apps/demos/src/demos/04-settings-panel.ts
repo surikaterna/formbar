@@ -1,49 +1,82 @@
-import type { FormDefinition, FormNode } from "@formbar/declarative";
+import type { FormDefinition, FormNode, ResponsiveSpan } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
-function field(id: string, name: string, widget: string, label: string): FormNode {
-	return { type: "field", id, binding: { namespace: "data", segments: [name] }, widget, label };
+function field(
+	id: string,
+	path: string,
+	widget: string,
+	label: string,
+	description?: string,
+	span?: ResponsiveSpan,
+): FormNode {
+	return {
+		type: "field",
+		id,
+		binding: { namespace: "data", segments: [path] },
+		widget,
+		label,
+		...(description ? { props: { description: { mode: "literal" as const, value: description } } } : {}),
+		...(span ? { presentation: { span } } : {}),
+	};
 }
 
+const half = { base: "full", md: 6 } as const;
 const definition = {
 	version: 1,
 	id: "settings-panel",
 	root: {
 		type: "group",
-		id: "settings-root",
+		id: "root",
 		children: [
 			{
 				type: "section",
-				id: "settings-notifications",
+				id: "notifications",
 				title: "Notifications",
 				children: [
-					field("settings-email-notifications", "emailNotifications", "checkbox", "Email notifications"),
-					field("settings-push-notifications", "pushNotifications", "checkbox", "Push notifications"),
+					field("f-notifications", "notifications", "checkbox", "Enable Notifications", "Receive in-app notifications"),
+					field("f-emailAlerts", "emailAlerts", "checkbox", "Email Alerts", "Send email for important events"),
+					field(
+						"f-pushNotifications",
+						"pushNotifications",
+						"checkbox",
+						"Push Notifications",
+						"Mobile push notifications",
+					),
 				],
 			},
 			{
 				type: "section",
-				id: "settings-appearance",
+				id: "appearance",
 				title: "Appearance",
 				children: [
-					field("settings-theme", "theme", "select", "Theme"),
-					field("settings-font-size", "fontSize", "number", "Font size"),
+					field("f-darkMode", "darkMode", "checkbox", "Dark Mode", "Use dark color theme"),
+					field("f-compactView", "compactView", "checkbox", "Compact View", "Reduce spacing in lists"),
+					field("f-fontSize", "fontSize", "number", "Font Size", "Base font size in pixels"),
 				],
 			},
 			{
 				type: "section",
-				id: "settings-localization",
+				id: "localization",
 				title: "Localization",
 				children: [
-					field("settings-language", "language", "select", "Language"),
-					field("settings-time-zone", "timeZone", "select", "Time Zone"),
+					field("f-language", "language", "select", "Language", undefined, half),
+					field("f-timezone", "timezone", "select", "Time Zone", undefined, half),
 				],
 			},
 			{
 				type: "section",
-				id: "settings-privacy",
-				title: "Privacy",
-				children: [field("settings-analytics", "analytics", "checkbox", "Share anonymous analytics")],
+				id: "data",
+				title: "Data & Privacy",
+				children: [
+					field("f-autoSave", "autoSave", "checkbox", "Auto-Save", "Automatically save changes"),
+					field(
+						"f-telemetry",
+						"telemetry",
+						"checkbox",
+						"Usage Analytics",
+						"Help us improve by sharing anonymous usage data",
+					),
+				],
 			},
 		],
 	},
@@ -51,9 +84,9 @@ const definition = {
 
 export const settingsPanelDemo = {
 	id: "settings-panel",
-	title: "4. Settings",
+	title: "4. Settings Panel",
 	subtitle: "Native preferences controls",
-	copy: "Schema options and bounds drive native controls; Submit and Reset use the released form lifecycle.",
+	copy: "The original toggle-heavy settings domain grouped into Notifications, Appearance, Localization, and Data & Privacy.",
 	category: "baseline",
 	sources: [
 		{
@@ -62,25 +95,42 @@ export const settingsPanelDemo = {
 			schema: {
 				type: "object",
 				properties: {
-					emailNotifications: { type: "boolean", title: "Email notifications", default: true },
-					pushNotifications: { type: "boolean", title: "Push notifications", default: false },
-					theme: { title: "Theme", enum: ["System", "Light", "Dark"] },
-					fontSize: { type: "integer", title: "Font size", minimum: 12, maximum: 24 },
-					language: { title: "Language", enum: ["English", "French", "Japanese"] },
-					timeZone: { title: "Time Zone", enum: ["UTC", "Europe/London", "Asia/Tokyo"] },
-					analytics: { type: "boolean", title: "Share anonymous analytics", default: false },
+					notifications: {
+						type: "boolean",
+						title: "Enable Notifications",
+						description: "Receive in-app notifications",
+					},
+					emailAlerts: { type: "boolean", title: "Email Alerts", description: "Send email for important events" },
+					pushNotifications: { type: "boolean", title: "Push Notifications", description: "Mobile push notifications" },
+					darkMode: { type: "boolean", title: "Dark Mode", description: "Use dark color theme" },
+					compactView: { type: "boolean", title: "Compact View", description: "Reduce spacing in lists" },
+					fontSize: {
+						type: "integer",
+						title: "Font Size",
+						minimum: 12,
+						maximum: 24,
+						description: "Base font size in pixels",
+					},
+					language: {
+						type: "string",
+						title: "Language",
+						enum: ["English", "Spanish", "French", "German", "Japanese"],
+					},
+					timezone: {
+						type: "string",
+						title: "Time Zone",
+						enum: ["UTC-8 (PST)", "UTC-5 (EST)", "UTC+0 (GMT)", "UTC+1 (CET)", "UTC+9 (JST)", "UTC+10 (AEST)"],
+					},
+					autoSave: { type: "boolean", title: "Auto-Save", description: "Automatically save changes" },
+					telemetry: {
+						type: "boolean",
+						title: "Usage Analytics",
+						description: "Help us improve by sharing anonymous usage data",
+					},
 				},
 			},
 			definition,
-			initialData: {
-				emailNotifications: true,
-				pushNotifications: false,
-				theme: "System",
-				fontSize: 16,
-				language: "English",
-				timeZone: "UTC",
-				analytics: false,
-			},
+			initialData: {},
 		},
 	],
 } as const satisfies SchemaDemoFixture;

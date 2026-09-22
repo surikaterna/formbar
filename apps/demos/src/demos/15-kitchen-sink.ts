@@ -1,59 +1,91 @@
-import type { FormDefinition, FormNode } from "@formbar/declarative";
+import type { FormDefinition, FormNode, ResponsiveSpan } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
-function field(id: string, name: string, widget: string, label: string, description?: string): FormNode {
+function field(
+	id: string,
+	path: string,
+	widget: string,
+	label: string,
+	description: string,
+	span?: ResponsiveSpan,
+): FormNode {
 	return {
 		type: "field",
 		id,
-		binding: { namespace: "data", segments: [name] },
+		binding: { namespace: "data", segments: [path] },
 		widget,
 		label,
-		presentation: { span: { base: "full", md: 6 } },
-		...(description ? { props: { description: { mode: "literal" as const, value: description } } } : {}),
+		props: { description: { mode: "literal", value: description } },
+		...(span ? { presentation: { span } } : {}),
 	};
 }
 
+const half = { base: "full", md: 6 } as const;
 const definition = {
 	version: 1,
 	id: "kitchen-sink",
 	root: {
 		type: "group",
-		id: "kitchen-root",
+		id: "root",
 		children: [
 			{
 				type: "section",
-				id: "kitchen-text",
-				title: "Text controls",
+				id: "text-inputs",
+				title: "Text Inputs",
 				children: [
-					field("kitchen-required", "requiredField", "text", "Required field", "This field is required by the schema."),
-					field("kitchen-textarea", "longText", "textarea", "Long text"),
-					field("kitchen-password", "password", "password", "Password"),
-					field("kitchen-search", "search", "search", "Search"),
+					field("f-text", "textField", "text", "Text Input", "Standard text field", half),
+					field("f-email", "emailField", "email", "Email Input", "Email format validation", half),
+					field("f-url", "urlField", "url", "URL Input", "URL format validation", half),
+					field("f-required", "requiredField", "text", "Required Field", "Shows 'Required' badge", half),
 				],
 			},
 			{
 				type: "section",
-				id: "kitchen-scalars",
-				title: "Scalar controls",
+				id: "textarea-inputs",
+				title: "Textarea Variants",
 				children: [
-					field("kitchen-number", "numberValue", "number", "Decimal number"),
-					field("kitchen-integer", "integerValue", "number", "Integer"),
-					field("kitchen-percent", "percent", "number", "Value from 0 to 100"),
-					field("kitchen-checkbox", "enabled", "checkbox", "Enabled"),
-					field("kitchen-select", "selectValue", "select", "Select option"),
-					field("kitchen-radio", "radioValue", "radio", "Radio option"),
+					field("f-textarea", "textareaField", "textarea", "Textarea", "Multi-line text via x-formbar widget hint"),
+					field(
+						"f-longtext",
+						"longTextField",
+						"textarea",
+						"Auto Textarea",
+						"Long text uses the supported textarea control",
+					),
 				],
 			},
 			{
 				type: "section",
-				id: "kitchen-formats",
-				title: "String formats",
+				id: "number-inputs",
+				title: "Number Inputs",
 				children: [
-					field("kitchen-email", "email", "email", "Email"),
-					field("kitchen-url", "url", "url", "URL"),
-					field("kitchen-tel", "telephone", "tel", "Telephone"),
-					field("kitchen-date", "date", "date", "Date"),
-					field("kitchen-time", "time", "time", "Time"),
+					field("f-number", "numberField", "number", "Number Input", "Free-form number", half),
+					field("f-integer", "integerField", "number", "Integer Input", "Whole numbers only", half),
+					field("f-slider", "sliderField", "number", "Slider", "Constrained integer rendered as a native number", half),
+					field("f-with-default", "withDefault", "text", "With Default Value", "Pre-populated from initial data", half),
+				],
+			},
+			{
+				type: "section",
+				id: "selection-inputs",
+				title: "Selection Controls",
+				children: [
+					field(
+						"f-radio",
+						"selectSmall",
+						"radio",
+						"RadioGroup (≤5 options)",
+						"Stored values use the original option order",
+					),
+					field("f-select", "selectLarge", "select", "Select (>5 options)", "Larger enums render as select dropdown"),
+				],
+			},
+			{
+				type: "section",
+				id: "boolean-inputs",
+				title: "Boolean Controls",
+				children: [
+					field("f-switch", "switchField", "checkbox", "Switch Toggle", "Boolean field uses a native checkbox"),
 				],
 			},
 		],
@@ -62,9 +94,9 @@ const definition = {
 
 export const kitchenSinkDemo = {
 	id: "kitchen-sink",
-	title: "15. Kitchen sink",
+	title: "15. Kitchen Sink",
 	subtitle: "Released native widget matrix",
-	copy: "Production defaults render the released native widget matrix; richer custom widgets remain outside this demo.",
+	copy: "The original kitchen-sink fields use the released native controls; unsupported option cosmetics and slider presentation are intentionally omitted.",
 	category: "sources",
 	sources: [
 		{
@@ -72,43 +104,55 @@ export const kitchenSinkDemo = {
 			label: "Kitchen sink schema",
 			schema: {
 				type: "object",
+				required: ["textField", "emailField", "selectSmall", "selectLarge", "requiredField"],
 				properties: {
-					requiredField: { type: "string", title: "Required field", minLength: 1 },
-					longText: { type: "string", title: "Long text", maxLength: 500 },
-					password: { type: "string", title: "Password" },
-					search: { type: "string", title: "Search" },
-					numberValue: { type: "number", title: "Decimal number", minimum: -10, maximum: 10 },
-					integerValue: { type: "integer", title: "Integer", minimum: 0, maximum: 10 },
-					percent: { type: "integer", title: "Value from 0 to 100", minimum: 0, maximum: 100 },
-					enabled: { type: "boolean", title: "Enabled" },
-					selectValue: { title: "Select option", enum: ["Alpha", "Beta", "Gamma"] },
-					radioValue: { title: "Radio option", enum: ["One", "Two", "Three"] },
-					email: { type: "string", title: "Email", format: "email" },
-					url: { type: "string", title: "URL", format: "uri" },
-					telephone: { type: "string", title: "Telephone", format: "tel" },
-					date: { type: "string", title: "Date", format: "date" },
-					time: { type: "string", title: "Time", format: "time" },
+					textField: { type: "string", title: "Text Input", description: "Standard text field" },
+					emailField: { type: "string", title: "Email Input", format: "email", description: "Email format validation" },
+					urlField: { type: "string", title: "URL Input", format: "uri", description: "URL format validation" },
+					textareaField: {
+						type: "string",
+						title: "Textarea",
+						"x-formbar": { widget: "textarea" },
+						description: "Multi-line text via x-formbar widget hint",
+					},
+					longTextField: {
+						type: "string",
+						title: "Auto Textarea",
+						maxLength: 500,
+						description: "Becomes textarea when maxLength > 200",
+					},
+					numberField: { type: "number", title: "Number Input", description: "Free-form number" },
+					integerField: { type: "integer", title: "Integer Input", description: "Whole numbers only" },
+					sliderField: {
+						type: "integer",
+						title: "Slider",
+						minimum: 0,
+						maximum: 100,
+						description: "Number with min/max historically rendered as slider",
+					},
+					switchField: {
+						type: "boolean",
+						title: "Switch Toggle",
+						description: "Boolean field historically rendered as switch",
+					},
+					selectSmall: {
+						type: "string",
+						title: "RadioGroup (≤5 options)",
+						enum: ["standard", "legacy", "custom"],
+						description: "Stored values retain their canonical option order",
+					},
+					selectLarge: {
+						type: "string",
+						title: "Select (>5 options)",
+						enum: ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"],
+						description: "Larger enums render as select dropdown",
+					},
+					requiredField: { type: "string", title: "Required Field", description: "Shows 'Required' badge" },
+					withDefault: { type: "string", title: "With Default Value", description: "Pre-populated from initial data" },
 				},
-				required: ["requiredField", "selectValue"],
 			},
 			definition,
-			initialData: {
-				requiredField: "Initial value",
-				longText: "A longer initial value.",
-				password: "secret",
-				search: "forms",
-				numberValue: 2.5,
-				integerValue: 4,
-				percent: 75,
-				enabled: true,
-				selectValue: "Beta",
-				radioValue: "Two",
-				email: "hello@example.com",
-				url: "https://example.com",
-				telephone: "+1 555 0123",
-				date: "2026-09-22",
-				time: "14:30",
-			},
+			initialData: { selectSmall: "legacy", withDefault: "Hello, ARB!" },
 		},
 	],
 } as const satisfies SchemaDemoFixture;

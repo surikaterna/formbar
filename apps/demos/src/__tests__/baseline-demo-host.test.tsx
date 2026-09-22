@@ -96,7 +96,7 @@ describe("SchemaDemoHost routes", () => {
 describe("generated and schema-evidence behavior", () => {
 	it("renders generated required, format, textarea, nested, and option controls", () => {
 		const contact = mount(basicContactDemo);
-		const name = control(contact, "Name") as HTMLInputElement;
+		const name = control(contact, "Full Name") as HTMLInputElement;
 		expect(name.required).toBe(true);
 		input(name, "Updated contact");
 		expect(name.value).toBe("Updated contact");
@@ -105,15 +105,14 @@ describe("generated and schema-evidence behavior", () => {
 
 		const addresses = mount(nestedAddressDemo);
 		expect([...addresses.container.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
-			"Addresses",
-			"Home address",
-			"Work address",
+			"Home Address",
+			"Work Address",
 		]);
 		const countries = [...addresses.container.querySelectorAll("select")];
 		expect(countries).toHaveLength(2);
 		expect([...countries[0].options].map((option) => option.textContent)).toContain("United Kingdom");
 		change(countries[0], "option-0");
-		expect(countries[0].selectedOptions[0].textContent).toBe("Australia");
+		expect(countries[0].selectedOptions[0].textContent).toBe("United States");
 	});
 
 	it("keeps select, checkbox, and constrained-number edits across renderer updates", () => {
@@ -124,22 +123,22 @@ describe("generated and schema-evidence behavior", () => {
 		expect(age.value).toBe("42");
 		const department = control(profile, "Department") as HTMLSelectElement;
 		change(department, "option-2");
-		expect(department.selectedOptions[0].textContent).toBe("Operations");
+		expect(department.selectedOptions[0].textContent).toBe("Marketing");
 
 		const settings = mount(settingsPanelDemo);
-		const fontSize = control(settings, "Font size") as HTMLInputElement;
+		const fontSize = control(settings, "Font Size") as HTMLInputElement;
 		expect([fontSize.min, fontSize.max, fontSize.step]).toEqual(["12", "24", "1"]);
-		const analytics = control(settings, "Share anonymous analytics") as HTMLInputElement;
+		const analytics = control(settings, "Usage Analytics") as HTMLInputElement;
 		act(() => analytics.click());
 		expect(analytics.checked).toBe(true);
 		const timeZone = control(settings, "Time Zone") as HTMLSelectElement;
 		change(timeZone, "option-2");
-		expect(timeZone.selectedOptions[0].textContent).toBe("Asia/Tokyo");
+		expect(timeZone.selectedOptions[0].textContent).toBe("UTC+0 (GMT)");
 	});
 
 	it("renders product constraints and authored vessel layout without app-owned controls", () => {
 		const product = mount(productEntryDemo);
-		const rating = control(product, "Rating") as HTMLInputElement;
+		const rating = control(product, "Quality Rating") as HTMLInputElement;
 		expect([rating.type, rating.min, rating.max, rating.step]).toEqual(["number", "1", "5", "1"]);
 		expect(
 			[...(control(product, "Category") as HTMLSelectElement).options].map((option) => option.textContent),
@@ -147,11 +146,11 @@ describe("generated and schema-evidence behavior", () => {
 
 		const vessel = mount(customLayoutDemo);
 		expect([...vessel.container.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
-			"Identity",
+			"Vessel Identity",
 			"Classification",
-			"Dimensions",
+			"Dimensions & Capacity",
 		]);
-		expect((control(vessel, "Build year") as HTMLInputElement).step).toBe("1");
+		expect((control(vessel, "Year Built") as HTMLInputElement).step).toBe("1");
 	});
 });
 
@@ -163,33 +162,29 @@ describe("lifecycle and accessibility", () => {
 		await click(view, "Submit");
 		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
 		await click(view, "Reset");
-		expect(age.value).toBe("36");
+		expect(age.value).toBe("");
 		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("");
+
+		const kitchen = mount(kitchenSinkDemo);
+		const withDefault = control(kitchen, "With Default Value") as HTMLInputElement;
+		expect(withDefault.value).toBe("Hello, ARB!");
+		input(withDefault, "Changed");
+		await click(kitchen, "Reset");
+		expect(withDefault.value).toBe("Hello, ARB!");
+		expect(kitchen.container.querySelector('input[type="radio"]:checked')?.parentElement?.textContent).toBe("legacy");
 	});
 
 	it("exposes required, description, live-status, and label wiring without inventing schema validation", () => {
 		const view = mount(kitchenSinkDemo);
-		const required = control(view, "Required field") as HTMLInputElement;
+		const required = control(view, "Required Field") as HTMLInputElement;
 		expect(required.required).toBe(true);
 		expect(required.getAttribute("aria-required")).toBe("true");
 		const descriptionId = required.getAttribute("aria-describedby");
 		expect(descriptionId).toBeTruthy();
-		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain("required by the schema");
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain("Required");
 		expect(required.getAttribute("aria-invalid")).toBeNull();
 		expect(view.container.querySelector('[aria-live="polite"]')).not.toBeNull();
-		for (const type of [
-			"text",
-			"password",
-			"search",
-			"number",
-			"checkbox",
-			"radio",
-			"email",
-			"url",
-			"tel",
-			"date",
-			"time",
-		]) {
+		for (const type of ["text", "number", "checkbox", "radio", "email", "url"]) {
 			expect(view.container.querySelector(`input[type="${type}"]`), type).not.toBeNull();
 		}
 		expect(view.container.querySelector("textarea")).not.toBeNull();
@@ -203,16 +198,16 @@ describe("source and responsive presentation", () => {
 		const name = view.container.querySelector('form input[type="text"]') as HTMLInputElement;
 		input(name, "Unsaved value");
 		const chooser = view.container.querySelector("header select") as HTMLSelectElement;
-		change(chooser, "annotated");
-		const annotatedName = control(view, "Display name") as HTMLInputElement;
-		expect(annotatedName.value).toBe("Annotated name");
-		expect(view.container.textContent).toContain("Annotated JSON Schema");
+		change(chooser, "explicit");
+		const explicitName = control(view, "Full Name") as HTMLInputElement;
+		expect(explicitName.value).toBe("");
+		expect(view.container.textContent).toContain("Explicit JSON Schema");
 		expect(view.container.textContent).toContain("two JSON Schema detail levels");
 	});
 
 	it("emits observable base and md span data and CSS variables", () => {
 		const view = mount(responsiveSectionsDemo);
-		const node = view.container.querySelector('[data-formbar-node="responsive-first-name"]') as HTMLElement;
+		const node = view.container.querySelector('[data-formbar-node="f-first"]') as HTMLElement;
 		expect(node.getAttribute("data-formbar-span-base")).toBe("12");
 		expect(node.getAttribute("data-formbar-span-md")).toBe("6");
 		expect(node.style.getPropertyValue("--formbar-span-base")).toBe("12");

@@ -1,46 +1,77 @@
 import type { FormDefinition, FormNode, ResponsiveSpan } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
-function field(id: string, name: string, widget: string, label: string, span: ResponsiveSpan): FormNode {
+function field(
+	id: string,
+	path: string,
+	widget: string,
+	label: string,
+	span?: ResponsiveSpan,
+	description?: string,
+): FormNode {
 	return {
 		type: "field",
 		id,
-		binding: { namespace: "data", segments: [name] },
+		binding: { namespace: "data", segments: [path] },
 		widget,
 		label,
-		presentation: { span },
+		...(span ? { presentation: { span } } : {}),
+		...(description ? { props: { description: { mode: "literal" as const, value: description } } } : {}),
 	};
 }
 
 const half = { base: "full", md: 6 } as const;
 const definition = {
 	version: 1,
-	id: "responsive-registration",
+	id: "multi-section-responsive",
 	root: {
 		type: "group",
-		id: "responsive-root",
+		id: "root",
 		children: [
 			{
 				type: "section",
-				id: "responsive-personal",
-				title: "Personal details",
-				description: "These fields become two columns at the md breakpoint.",
+				id: "personal",
+				title: "Personal Details",
 				children: [
-					field("responsive-first-name", "firstName", "text", "First name", half),
-					field("responsive-last-name", "lastName", "text", "Last name", half),
-					field("responsive-birth-date", "birthDate", "date", "Birth date", half),
-					field("responsive-phone", "phone", "tel", "Phone", half),
+					field("f-first", "firstName", "text", "First Name", half),
+					field("f-last", "lastName", "text", "Last Name", half),
+					field("f-dob", "dateOfBirth", "date", "Date of Birth", half, "YYYY-MM-DD format"),
+					field("f-gender", "gender", "radio", "Gender", half),
+					field("f-nationality", "nationality", "text", "Nationality", half),
+					field("f-passport", "passportNumber", "text", "Passport Number", half),
 				],
 			},
 			{
 				type: "section",
-				id: "responsive-contact",
-				title: "Account",
+				id: "emergency",
+				title: "Emergency Contact",
 				children: [
-					field("responsive-email", "email", "email", "Email", half),
-					field("responsive-user-name", "userName", "text", "User name", half),
-					field("responsive-notes", "notes", "textarea", "Notes", { base: "full", md: "full" }),
+					field("f-ecName", "emergencyContactName", "text", "Emergency Contact Name", half),
+					field("f-ecPhone", "emergencyContactPhone", "tel", "Emergency Contact Phone", half),
+					field("f-ecRel", "emergencyRelationship", "radio", "Relationship", half),
 				],
+			},
+			{
+				type: "section",
+				id: "health",
+				title: "Health & Preferences",
+				children: [
+					field(
+						"f-medical",
+						"medicalConditions",
+						"textarea",
+						"Medical Conditions",
+						undefined,
+						"List any relevant medical conditions",
+					),
+					field("f-dietary", "dietaryRequirements", "select", "Dietary Requirements"),
+				],
+			},
+			{
+				type: "section",
+				id: "agreement",
+				title: "Agreement",
+				children: [field("f-terms", "agreesToTerms", "checkbox", "I agree to the terms and conditions")],
 			},
 		],
 	},
@@ -48,37 +79,47 @@ const definition = {
 
 export const responsiveSectionsDemo = {
 	id: "multi-section-responsive",
-	title: "10. Multi-section responsive",
-	subtitle: "Typed spans with visible CSS",
-	copy: "Typed span output is one column when narrow and two columns from the md breakpoint.",
+	title: "10. Multi-Section Responsive Form",
+	subtitle: "Passenger registration with typed spans",
+	copy: "The original passenger registration domain uses typed spans that collapse its two-column sections on narrow viewports.",
 	category: "layout",
 	sources: [
 		{
 			key: "default",
-			label: "Registration schema",
+			label: "Passenger registration schema",
 			schema: {
 				type: "object",
+				required: ["firstName", "lastName"],
 				properties: {
-					firstName: { type: "string", title: "First name" },
-					lastName: { type: "string", title: "Last name" },
-					birthDate: { type: "string", title: "Birth date", format: "date" },
-					phone: { type: "string", title: "Phone", format: "tel" },
-					email: { type: "string", title: "Email", format: "email" },
-					userName: { type: "string", title: "User name", minLength: 3 },
-					notes: { type: "string", title: "Notes", "x-formbar": { widget: "textarea" } },
+					firstName: { type: "string", title: "First Name" },
+					lastName: { type: "string", title: "Last Name" },
+					dateOfBirth: { type: "string", title: "Date of Birth", format: "date", description: "YYYY-MM-DD format" },
+					gender: { type: "string", title: "Gender", enum: ["Male", "Female", "Non-Binary", "Prefer not to say"] },
+					nationality: { type: "string", title: "Nationality" },
+					passportNumber: { type: "string", title: "Passport Number" },
+					emergencyContactName: { type: "string", title: "Emergency Contact Name" },
+					emergencyContactPhone: { type: "string", title: "Emergency Contact Phone", format: "tel" },
+					emergencyRelationship: {
+						type: "string",
+						title: "Relationship",
+						enum: ["Spouse", "Parent", "Sibling", "Friend", "Other"],
+					},
+					medicalConditions: {
+						type: "string",
+						title: "Medical Conditions",
+						"x-formbar": { widget: "textarea" },
+						description: "List any relevant medical conditions",
+					},
+					dietaryRequirements: {
+						type: "string",
+						title: "Dietary Requirements",
+						enum: ["None", "Vegetarian", "Vegan", "Halal", "Kosher", "Gluten-Free"],
+					},
+					agreesToTerms: { type: "boolean", title: "I agree to the terms and conditions" },
 				},
-				required: ["firstName", "lastName", "email", "userName"],
 			},
 			definition,
-			initialData: {
-				firstName: "Grace",
-				lastName: "Hopper",
-				birthDate: "1906-12-09",
-				phone: "+1 555 0100",
-				email: "grace@example.com",
-				userName: "grace",
-				notes: "Responsive layout evidence.",
-			},
+			initialData: {},
 		},
 	],
 } as const satisfies SchemaDemoFixture;

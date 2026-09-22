@@ -1,50 +1,64 @@
-import type { FormDefinition, FormNode } from "@formbar/declarative";
+import type { FormDefinition, FormNode, ResponsiveSpan } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
-function field(id: string, name: string, widget: string, label: string, span: 4 | 6 | 8 | 12): FormNode {
+function field(
+	id: string,
+	path: string,
+	widget: string,
+	label: string,
+	description?: string,
+	span?: ResponsiveSpan,
+): FormNode {
 	return {
 		type: "field",
 		id,
-		binding: { namespace: "data", segments: [name] },
+		binding: { namespace: "data", segments: [path] },
 		widget,
 		label,
-		presentation: { span: { base: "full", md: span } },
+		...(description ? { props: { description: { mode: "literal" as const, value: description } } } : {}),
+		...(span ? { presentation: { span } } : {}),
 	};
 }
 
+const half = { base: "full", md: 6 } as const;
 const definition = {
 	version: 1,
-	id: "vessel-layout",
+	id: "custom-layout",
 	root: {
 		type: "group",
-		id: "vessel-root",
+		id: "root",
 		children: [
 			{
 				type: "section",
-				id: "vessel-identity",
-				title: "Identity",
+				id: "identity",
+				title: "Vessel Identity",
 				children: [
-					field("vessel-name", "name", "text", "Vessel name", 8),
-					field("vessel-year", "year", "number", "Build year", 4),
+					field("f-name", "vesselName", "text", "Vessel Name", undefined, half),
+					field("f-imo", "imoNumber", "text", "IMO Number", "International Maritime Organization number", half),
+					field("f-callSign", "callSign", "text", "Call Sign", undefined, half),
+					field("f-flag", "flag", "select", "Flag State", undefined, half),
 				],
 			},
 			{
 				type: "section",
-				id: "vessel-classification",
+				id: "classification",
 				title: "Classification",
 				children: [
-					field("vessel-type", "vesselType", "select", "Vessel type", 6),
-					field("vessel-flag", "flag", "select", "Flag", 6),
+					field("f-type", "vesselType", "select", "Vessel Type", undefined, half),
+					field("f-year", "yearBuilt", "number", "Year Built", undefined, half),
+					field("f-active", "isActive", "checkbox", "Active", "Currently in service", half),
 				],
 			},
 			{
 				type: "section",
-				id: "vessel-dimensions",
-				title: "Dimensions",
+				id: "dimensions",
+				title: "Dimensions & Capacity",
 				children: [
-					field("vessel-length", "length", "number", "Length (m)", 4),
-					field("vessel-beam", "beam", "number", "Beam (m)", 4),
-					field("vessel-draft", "draft", "number", "Draft (m)", 4),
+					field("f-gt", "grossTonnage", "number", "Gross Tonnage", "GT", half),
+					field("f-dwt", "deadweight", "number", "Deadweight", "DWT in metric tons", half),
+					field("f-loa", "length", "number", "LOA (m)", "Length Overall in meters", half),
+					field("f-beam", "beam", "number", "Beam (m)", "Width at widest point", half),
+					field("f-draft", "draft", "number", "Max Draft (m)", "Maximum draft", half),
 				],
 			},
 		],
@@ -53,9 +67,9 @@ const definition = {
 
 export const customLayoutDemo = {
 	id: "custom-layout",
-	title: "9. Custom layout",
+	title: "9. Custom Layout Override",
 	subtitle: "Authored vessel field arrangement",
-	copy: "One flat domain schema is arranged into Identity, Classification, and Dimensions by FormDefinition v1.",
+	copy: "The original flat vessel schema is arranged into identity, classification, and dimensions without app-owned layout rendering.",
 	category: "layout",
 	sources: [
 		{
@@ -63,27 +77,47 @@ export const customLayoutDemo = {
 			label: "Vessel schema",
 			schema: {
 				type: "object",
+				required: ["vesselName", "imoNumber"],
 				properties: {
-					name: { type: "string", title: "Vessel name" },
-					year: { type: "integer", title: "Build year", minimum: 1800, maximum: 2100 },
-					vesselType: { title: "Vessel type", enum: ["Cargo", "Passenger", "Research", "Sailing"] },
-					flag: { title: "Flag", enum: ["Australia", "Japan", "Norway", "United Kingdom"] },
-					length: { type: "number", title: "Length (m)", minimum: 0, maximum: 500 },
-					beam: { type: "number", title: "Beam (m)", minimum: 0, maximum: 100 },
-					draft: { type: "number", title: "Draft (m)", minimum: 0, maximum: 30 },
+					vesselName: { type: "string", title: "Vessel Name" },
+					imoNumber: {
+						type: "string",
+						title: "IMO Number",
+						description: "International Maritime Organization number",
+					},
+					callSign: { type: "string", title: "Call Sign" },
+					flag: {
+						type: "string",
+						title: "Flag State",
+						enum: [
+							"Panama",
+							"Liberia",
+							"Marshall Islands",
+							"Hong Kong",
+							"Singapore",
+							"Bahamas",
+							"Malta",
+							"Norway",
+							"Greece",
+							"Japan",
+						],
+					},
+					vesselType: {
+						type: "string",
+						title: "Vessel Type",
+						enum: ["Container", "Bulk Carrier", "Tanker", "RoRo", "General Cargo"],
+					},
+					grossTonnage: { type: "number", title: "Gross Tonnage", minimum: 0, description: "GT" },
+					deadweight: { type: "number", title: "Deadweight", minimum: 0, description: "DWT in metric tons" },
+					length: { type: "number", title: "LOA (m)", minimum: 0, description: "Length Overall in meters" },
+					beam: { type: "number", title: "Beam (m)", minimum: 0, description: "Width at widest point" },
+					draft: { type: "number", title: "Max Draft (m)", minimum: 0, description: "Maximum draft" },
+					yearBuilt: { type: "integer", title: "Year Built", minimum: 1950, maximum: 2026 },
+					isActive: { type: "boolean", title: "Active", description: "Currently in service" },
 				},
-				required: ["name", "vesselType", "flag"],
 			},
 			definition,
-			initialData: {
-				name: "Endeavour",
-				year: 1994,
-				vesselType: "Research",
-				flag: "Australia",
-				length: 73,
-				beam: 16,
-				draft: 5.5,
-			},
+			initialData: {},
 		},
 	],
 } as const satisfies SchemaDemoFixture;
