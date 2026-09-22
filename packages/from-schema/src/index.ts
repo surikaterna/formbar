@@ -37,6 +37,7 @@ export type {
 } from "./diagnostics.js";
 export type * from "./descriptors/contracts.js";
 export type { ProjectionLimitOptions, ProjectionLimits } from "./descriptors/limits.js";
+export { createRuntimeFieldBaseline } from "./runtime-baseline.js";
 export { projectSchemaDocument, type ProjectDocumentOptions } from "./descriptors/project-document.js";
 export {
 	projectSchema,

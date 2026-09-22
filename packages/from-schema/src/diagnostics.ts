@@ -25,6 +25,7 @@ export interface ProjectionDiagnostic {
 
 export type CompilationDiagnosticCode =
 	| "composed-schema"
+	| "conflicting-baseline-label"
 	| "cyclic-schema"
 	| "missing-descriptor"
 	| "opaque-schema"
