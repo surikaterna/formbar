@@ -2,7 +2,7 @@
 	"name": "@formbar/react-schema",
 	"version": "0.8.0",
 	"type": "module",
-	"description": "React preparation hook for schema-compiled forms",
+	"description": "React preparation and native rendering for schema-compiled forms",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -37,6 +37,9 @@
 	},
 	"devDependencies": {
 		"@types/react": "^19.0.0",
-		"react": "^19.0.0"
+		"@types/react-dom": "^19.0.0",
+		"jsdom": "^26.0.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
 	}
 }

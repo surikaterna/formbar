@@ -36,7 +36,7 @@
     },
     "packages/arbiter": {
       "name": "@formbar/arbiter",
-      "version": "0.4.0",
+      "version": "0.8.0",
       "dependencies": {
         "@formbar/core": "^0.4.0",
         "@formbar/expressions": "^0.4.0",
@@ -52,16 +52,16 @@
     },
     "packages/core": {
       "name": "@formbar/core",
-      "version": "0.4.0",
+      "version": "0.8.0",
       "dependencies": {
         "@formbar/expressions": "^0.4.0",
       },
     },
     "packages/declarative": {
       "name": "@formbar/declarative",
-      "version": "0.5.0",
+      "version": "0.8.0",
       "dependencies": {
-        "@formbar/core": "^0.4.0",
+        "@formbar/core": "^0.8.0",
         "@formbar/expressions": "^0.4.0",
       },
     },
@@ -74,10 +74,10 @@
     },
     "packages/from-schema": {
       "name": "@formbar/from-schema",
-      "version": "0.6.0",
+      "version": "0.8.0",
       "dependencies": {
-        "@formbar/core": "^0.4.0",
-        "@formbar/declarative": "^0.5.0",
+        "@formbar/core": "^0.8.0",
+        "@formbar/declarative": "^0.8.0",
         "@scheman/core": "^2.0.0",
       },
       "devDependencies": {
@@ -96,9 +96,9 @@
     },
     "packages/react": {
       "name": "@formbar/react",
-      "version": "0.4.0",
+      "version": "0.8.0",
       "dependencies": {
-        "@formbar/core": "^0.4.0",
+        "@formbar/core": "^0.8.0",
         "@formbar/expressions": "^0.4.0",
       },
       "devDependencies": {
@@ -114,16 +114,19 @@
     },
     "packages/react-schema": {
       "name": "@formbar/react-schema",
-      "version": "0.6.0",
+      "version": "0.8.0",
       "dependencies": {
-        "@formbar/core": "^0.4.0",
-        "@formbar/declarative": "^0.5.0",
-        "@formbar/from-schema": "^0.4.0",
-        "@formbar/react": "^0.4.0",
+        "@formbar/core": "^0.8.0",
+        "@formbar/declarative": "^0.8.0",
+        "@formbar/from-schema": "^0.8.0",
+        "@formbar/react": "^0.8.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "jsdom": "^26.0.0",
         "react": "^19.0.0",
+        "react-dom": "^19.0.0",
       },
       "peerDependencies": {
         "react": ">=18.0.0",

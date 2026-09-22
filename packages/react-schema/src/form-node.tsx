@@ -1,0 +1,92 @@
+import type { FormNode, ResolvedFieldState } from "@formbar/declarative";
+import { fieldId } from "@formbar/react";
+import { memo } from "react";
+import type { ReactElement } from "react";
+import { FormField, FormValidation } from "./form-field.js";
+import { DiagnosticFallback, layoutProps } from "./renderer-elements.js";
+import { spanOutput } from "./renderer-evidence.js";
+import type { RendererEnvironment } from "./renderer-types.js";
+import { rootInstanceKey, useNodeObservation } from "./use-runtime-observation.js";
+
+interface FormNodeProps {
+	readonly node: FormNode;
+	readonly environment: RendererEnvironment;
+}
+
+export const FormNodeView = memo(function FormNodeView({ node, environment }: FormNodeProps): ReactElement | null {
+	const state = useNodeObservation(environment.runtime, rootInstanceKey(node.id));
+	const layout = layoutProps(spanOutput(node.presentation?.span));
+	if (!state) return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+	if (!state.visible) return null;
+	if (node.type === "field") {
+		if (state.type !== "field")
+			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} widget={node.widget} layout={layout} />;
+		return <FormField node={node} state={state as ResolvedFieldState} environment={environment} layout={layout} />;
+	}
+	if (node.type === "validation")
+		return <FormValidation node={node} environment={environment} visible={state.visible} layout={layout} />;
+	if (node.type === "group") return renderGroup(node, environment, layout);
+	if (node.type === "section") return renderSection(node, environment, layout);
+	if (node.type === "conditional") return renderConditional(node, state.branch, environment, layout);
+	return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+});
+
+function renderGroup(
+	node: Extract<FormNode, { type: "group" }>,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	const legend = node.label ? fieldId(`${node.id}-legend`, environment.prefix) : undefined;
+	return (
+		<fieldset
+			data-formbar-node={node.id}
+			{...(legend ? { "aria-labelledby": legend } : {})}
+			{...layout.attributes}
+			style={layout.style}
+		>
+			{node.label ? <legend id={legend}>{node.label}</legend> : null}
+			<NodeChildren nodes={node.children} environment={environment} />
+		</fieldset>
+	);
+}
+
+function renderSection(
+	node: Extract<FormNode, { type: "section" }>,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	const heading = fieldId(`${node.id}-heading`, environment.prefix);
+	const description = node.description ? fieldId(`${node.id}-description`, environment.prefix) : undefined;
+	return (
+		<section
+			data-formbar-node={node.id}
+			{...(node.title ? { "aria-labelledby": heading } : {})}
+			{...(description ? { "aria-describedby": description } : {})}
+			{...layout.attributes}
+			style={layout.style}
+		>
+			{node.title ? <h2 id={heading}>{node.title}</h2> : null}
+			{node.description ? <p id={description}>{node.description}</p> : null}
+			<NodeChildren nodes={node.children} environment={environment} />
+		</section>
+	);
+}
+
+function renderConditional(
+	node: Extract<FormNode, { type: "conditional" }>,
+	branch: "then" | "else" | "none" | undefined,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	if (branch === "none") return <DiagnosticFallback code="conditional-unresolved" nodeId={node.id} layout={layout} />;
+	const children = branch === "then" ? node.then : (node.else ?? []);
+	return (
+		<div data-formbar-node={node.id} {...layout.attributes} style={layout.style}>
+			<NodeChildren nodes={children} environment={environment} />
+		</div>
+	);
+}
+
+function NodeChildren(props: { readonly nodes: readonly FormNode[]; readonly environment: RendererEnvironment }) {
+	return props.nodes.map((node) => <FormNodeView key={node.id} node={node} environment={props.environment} />);
+}
