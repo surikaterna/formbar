@@ -8,6 +8,7 @@ import {
 import type { DescriptorDocument, DescriptorSide } from "./descriptors/contracts.js";
 import type { ProjectionLimitOptions } from "./descriptors/limits.js";
 import { projectSchemaDocument } from "./descriptors/project-document.js";
+import { withJsonPresentationHints } from "./json-presentation-hints.js";
 
 export interface ProjectSchemaOptions {
 	readonly provider: SchemaDocumentProvider;
@@ -27,12 +28,13 @@ export function projectSchema<Input, Output>(
 ): ProjectSchemaResult<Input, Output>;
 export function projectSchema(schema: unknown, options: ProjectSchemaOptions): ProjectSchemaResult;
 export function projectSchema(schema: unknown, options: ProjectSchemaOptions): ProjectSchemaResult {
+	const provider = withJsonPresentationHints(options.provider);
 	const result: IngestDocumentResult = ingestSchemaDocument(schema, {
-		provider: options.provider,
+		provider,
 		...(options.limits ? { limits: options.limits } : {}),
 	});
 	const descriptors = projectSchemaDocument(result.document, {
-		providerName: options.provider.name,
+		providerName: provider.name,
 		side: options.side,
 		...(options.projectionLimits ? { limits: options.projectionLimits } : {}),
 	});

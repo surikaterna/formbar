@@ -1,17 +1,7 @@
 import type { FieldNode, JsonValue, NodePresentation } from "@formbar/declarative";
 import { copyJson } from "@formbar/expressions";
 import type { DescriptorNode, DescriptorValueRecord } from "../descriptors/contracts.js";
-
-const ownedSentinelTypes = new Set([
-	"bigint",
-	"date",
-	"deferred",
-	"negative-zero",
-	"number",
-	"regexp",
-	"unavailable",
-	"undefined",
-]);
+import { jsonPresentationHint } from "../json-presentation-hints.js";
 
 export interface CompiledPresentation {
 	readonly widget: string;
@@ -30,8 +20,13 @@ export interface CompiledContainerPresentation {
 
 export function presentationFor(node: DescriptorNode, provider: string): CompiledPresentation {
 	const annotations = childRecord(node.metadata, "annotations");
-	const extensionKey = provider === "json-schema" || provider === "standard-json-schema" ? "x-formbar" : "formbar";
-	const formbar = childRecord(childRecord(node.metadata, "extensions"), extensionKey);
+	const captured = provider === "json-schema" ? jsonPresentationHint(node.metadata) : { status: "absent" as const };
+	const formbar =
+		captured.status === "valid"
+			? captured.value
+			: provider === "json-schema" || provider === "standard-json-schema"
+				? undefined
+				: childRecord(childRecord(node.metadata, "extensions"), "formbar");
 	const hasWidget = formbar ? Object.hasOwn(formbar, "widget") : false;
 	const configuredWidget = safeId(formbar?.widget) ? formbar.widget : undefined;
 	const invalidWidget = hasWidget && configuredWidget === undefined;
@@ -47,12 +42,12 @@ export function presentationFor(node: DescriptorNode, provider: string): Compile
 	const span = validSpan(configuredSpan) ? configuredSpan : undefined;
 	const configuredPlaceholder = formbar?.placeholder;
 	const placeholder = typeof configuredPlaceholder === "string" ? configuredPlaceholder : undefined;
-	const compiledProps = extensionProps(formbar?.props);
+	const compiledProps = captured.status === "invalid" ? { invalid: true } : extensionProps(formbar?.props);
 	const description = typeof annotations?.description === "string" ? annotations.description : undefined;
 	const props = mergeProps(compiledProps.props, placeholder, description);
 	return Object.freeze({
 		widget,
-		explicitWidget: configuredWidget !== undefined || invalidWidget,
+		explicitWidget: configuredWidget !== undefined || invalidWidget || compiledProps.invalid,
 		...(label === undefined ? {} : { label }),
 		...(span === undefined ? {} : { presentation: Object.freeze({ span }) }),
 		...(props ? { props } : {}),
@@ -69,7 +64,7 @@ function extensionProps(value: unknown): { readonly props?: FieldNode["props"]; 
 	} catch {
 		return { invalid: true };
 	}
-	if (!jsonRecord(copied) || containsOwnedSentinel(copied)) return { invalid: true };
+	if (!jsonRecord(copied)) return { invalid: true };
 	const output: Record<string, NonNullable<FieldNode["props"]>[string]> = Object.create(null);
 	for (const [key, item] of Object.entries(copied)) {
 		if (!safeId(key)) return { invalid: true };
@@ -89,13 +84,6 @@ function mergeProps(
 	if (description !== undefined && output.description === undefined)
 		output.description = Object.freeze({ mode: "literal", value: description });
 	return Object.keys(output).length ? Object.freeze(output) : undefined;
-}
-
-function containsOwnedSentinel(value: JsonValue): boolean {
-	if (value === null || typeof value !== "object") return false;
-	if (!jsonRecord(value)) return value.some(containsOwnedSentinel);
-	if (ownedSentinelTypes.has(typeof value.$type === "string" ? value.$type : "")) return true;
-	return Object.values(value).some(containsOwnedSentinel);
 }
 
 function jsonRecord(value: JsonValue): value is Readonly<Record<string, JsonValue>> {

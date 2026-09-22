@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { FormDefinition } from "@formbar/declarative";
-import { StrictMode, act, useEffect } from "react";
+import { Component, StrictMode, act, useEffect, useInsertionEffect, useLayoutEffect } from "react";
+import type { ComponentType } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { FormRenderer } from "../index.js";
 import type { RendererExtensions, WidgetProps, WidgetRegistration } from "../index.js";
@@ -24,6 +25,59 @@ function ReferenceWidget(props: WidgetProps) {
 }
 
 const rating: WidgetRegistration = { id: "demo.rating", component: ReferenceWidget };
+
+const lifecycleFailures: readonly [string, ComponentType<WidgetProps>][] = [
+	[
+		"render",
+		(props) => {
+			props.onChange(5);
+			throw new Error("render");
+		},
+	],
+	[
+		"insertion effect",
+		(props) => {
+			useInsertionEffect(() => {
+				props.onChange(6);
+				throw new Error("insertion");
+			}, [props.onChange]);
+			return <ReferenceWidget {...props} />;
+		},
+	],
+	[
+		"layout effect",
+		(props) => {
+			useLayoutEffect(() => {
+				props.onChange(7);
+				throw new Error("layout");
+			}, [props.onChange]);
+			return <ReferenceWidget {...props} />;
+		},
+	],
+	[
+		"passive effect",
+		(props) => {
+			useEffect(() => {
+				props.onChange(8);
+				throw new Error("passive");
+			}, [props.onChange]);
+			return <ReferenceWidget {...props} />;
+		},
+	],
+	[
+		"class mount",
+		class extends Component<WidgetProps> {
+			componentDidMount(): void {
+				this.props.onChange(9);
+				throw new Error("mount");
+			}
+
+			render() {
+				return <ReferenceWidget {...this.props} />;
+			}
+		},
+	],
+];
 
 describe("trusted widget registry", () => {
 	it("selects the same host component from generated and authored IDs while retaining schema evidence", () => {
@@ -196,8 +250,9 @@ describe("trusted widget registry", () => {
 			useEffect(() => {
 				if (effectRan) return;
 				effectRan = true;
+				props.onChange(98);
 				props.onBlur();
-			}, [props.onBlur]);
+			}, [props.onBlur, props.onChange]);
 			return <ReferenceWidget {...props} />;
 		};
 		const view = mountForm({
@@ -211,22 +266,27 @@ describe("trusted widget registry", () => {
 			extensions: { widgets: [{ id: "demo.writer", component: RenderWriter }] },
 		});
 		expect(view.form.getState().data).toEqual({ quality: 1 });
-		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(true);
+		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(false);
 		const committed = received.at(-1);
-		act(() => committed?.onChange(3));
+		act(() => {
+			committed?.onChange(3);
+			committed?.onBlur();
+		});
 		expect(view.form.getState().data).toEqual({ quality: 3 });
 		expect(view.form.fieldDynamic("/quality").isTouched()).toBe(true);
 		act(() => committed?.onChange(4));
 		expect(view.form.getState().data).toEqual({ quality: 3 });
+		const current = received.at(-1);
 		view.unmount();
+		current?.onChange(5);
+		expect(view.form.getState().data).toEqual({ quality: 3 });
 	});
 
-	it("does not activate callbacks leaked by a failed render", () => {
+	it.each(lifecycleFailures)("does not activate callbacks when a %s fails", (_name, ThrowAfterWrite) => {
 		let leaked: WidgetProps | undefined;
-		const ThrowAfterWrite = (props: WidgetProps) => {
+		const CaptureThenFail = (props: WidgetProps) => {
 			leaked = props;
-			props.onChange(99);
-			throw new Error("failed render");
+			return <ThrowAfterWrite {...props} />;
 		};
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const view = mountForm({
@@ -237,7 +297,7 @@ describe("trusted widget registry", () => {
 				root: { type: "field", id: "quality", binding: binding("quality"), widget: "demo.throw" },
 			},
 			data: { quality: 1 },
-			extensions: { widgets: [{ id: "demo.throw", component: ThrowAfterWrite }] },
+			extensions: { widgets: [{ id: "demo.throw", component: CaptureThenFail }] },
 		});
 		act(() => leaked?.onChange(2));
 		expect(view.form.getState().data).toEqual({ quality: 1 });

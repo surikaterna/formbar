@@ -1,6 +1,6 @@
 import type { FieldNode, JsonValue, ResolvedFieldState } from "@formbar/declarative";
 import type { NormalizedEvidence } from "@formbar/from-schema";
-import { useInsertionEffect } from "react";
+import { useEffect } from "react";
 import type { ReactElement } from "react";
 import { ExtensionBoundary } from "./extension-boundary.js";
 import { resolveWidget } from "./extension-registry.js";
@@ -72,7 +72,7 @@ interface CommittedWidgetProps extends ExtensionFieldProps {
 
 function CommittedWidget({ Component, extensionProps, path, ...props }: CommittedWidgetProps): ReactElement {
 	const lease = { active: false };
-	useInsertionEffect(() => {
+	useEffect(() => {
 		lease.active = true;
 		return () => {
 			lease.active = false;

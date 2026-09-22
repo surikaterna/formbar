@@ -7,6 +7,7 @@ import {
 	compileDefaultFormDefinition,
 	jsonSchemaProvider,
 	projectSchema,
+	standardJsonSchemaProvider,
 	zod3Provider,
 	zod4Provider,
 } from "../index.js";
@@ -139,18 +140,27 @@ describe("default FormDefinition compilation", () => {
 		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
 	});
 
-	it("rejects non-JSON generated props and Scheman sentinels without invoking accessors", () => {
+	it("rejects raw non-JSON generated props before provider sanitization without invoking accessors", () => {
 		const getter = vi.fn(() => "secret");
 		const accessor = Object.defineProperty({}, "secret", { enumerable: true, get: getter });
+		const arrayAccessor = Object.defineProperty(["safe"], "0", { enumerable: true, get: getter });
 		const inherited = Object.assign(Object.create({ inherited: true }), { value: true });
 		const proxied = new Proxy({ value: true }, { getPrototypeOf: () => Date.prototype });
+		const cyclic: Record<string, unknown> = {};
+		cyclic.self = cyclic;
+		const symbolKeyed = { safe: true, [Symbol("hidden")]: "secret" };
 		const values = [
 			() => "secret",
+			undefined,
 			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			1n,
 			accessor,
+			{ nested: [arrayAccessor] },
 			inherited,
 			proxied,
-			{ $type: "unavailable", value: "METADATA_ACCESSOR" },
+			cyclic,
+			symbolKeyed,
 		];
 		for (const value of values) {
 			const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: { value } } });
@@ -158,7 +168,38 @@ describe("default FormDefinition compilation", () => {
 			expect(result.definition?.root).not.toHaveProperty("props");
 			expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
 		}
+		const schema = { type: "string" };
+		Object.defineProperty(schema, "x-formbar", { enumerable: true, get: getter });
+		const accessorHint = compile(schema);
+		expect(accessorHint.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
+		expect(accessorHint.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
 		expect(getter).not.toHaveBeenCalled();
+	});
+
+	it("preserves valid literal $type objects and nested JSON props unchanged", () => {
+		const props = {
+			date: { $type: "date", value: "2026-09-22" },
+			number: { $type: "number", value: "NaN" },
+			unavailable: { $type: "unavailable", value: "literal" },
+			nested: [{ values: [null, true, 3, "text"] }],
+		};
+		const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props } });
+		expect(result.definition?.root).toMatchObject({
+			type: "field",
+			widget: "demo.text",
+			props: Object.fromEntries(Object.entries(props).map(([key, value]) => [key, { mode: "literal", value }])),
+		});
+		expect(result.diagnostics).toEqual([]);
+	});
+
+	it("does not grant direct JSON Schema hint semantics to Standard JSON conversion", () => {
+		const convert = () => ({ type: "string", "x-formbar": { widget: "demo.text", props: { safe: true } } });
+		const schema = {
+			"~standard": { version: 1 as const, vendor: "test", jsonSchema: { input: convert, output: convert } },
+		};
+		const result = compile(schema, standardJsonSchemaProvider({ target: "draft-2020-12", execution: "allow" }));
+		expect(result.definition?.root).toMatchObject({ type: "field", widget: "text" });
+		expect(result.definition?.root).not.toHaveProperty("props");
 	});
 
 	it("fails malformed extension IDs closed", () => {
