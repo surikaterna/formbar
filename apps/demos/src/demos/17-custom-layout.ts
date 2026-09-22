@@ -19,53 +19,57 @@ const fieldSpecs = Object.freeze({
 	comments: ["Comments", "textarea"],
 } as const);
 
+type FieldPath = keyof typeof fieldSpecs;
+
+function fieldPaths(...paths: FieldPath[]): readonly FieldPath[] {
+	return Object.freeze(paths);
+}
+
 const groups = Object.freeze([
 	Object.freeze({
 		id: "general",
 		title: "General Information",
 		tab: "General",
-		fields: Object.freeze(["vesselName", "inspectorName", "inspectionDate"]),
+		fields: fieldPaths("vesselName", "inspectorName", "inspectionDate"),
 	}),
 	Object.freeze({
 		id: "hull",
 		title: "Hull Inspection",
 		tab: "Hull",
-		fields: Object.freeze(["hullCondition", "hullNotes"]),
+		fields: fieldPaths("hullCondition", "hullNotes"),
 	}),
 	Object.freeze({
 		id: "engine",
 		title: "Engine & Fuel",
 		tab: "Engine",
-		fields: Object.freeze(["engineStatus", "engineHours", "fuelLevel"]),
+		fields: fieldPaths("engineStatus", "engineHours", "fuelLevel"),
 	}),
 	Object.freeze({
 		id: "safety",
 		title: "Safety Equipment",
 		tab: "Safety",
-		fields: Object.freeze(["safetyEquipment", "fireExtinguishers", "lifeboats"]),
+		fields: fieldPaths("safetyEquipment", "fireExtinguishers", "lifeboats"),
 	}),
 	Object.freeze({
 		id: "summary",
 		title: "Summary",
 		tab: "Summary",
-		fields: Object.freeze(["overallScore", "recommendation", "comments"]),
+		fields: fieldPaths("overallScore", "recommendation", "comments"),
 	}),
 ]);
-
-type FieldPath = keyof typeof fieldSpecs;
 
 function literal(value: string | number) {
 	return { mode: "literal" as const, value };
 }
 
-function fields(paths: readonly string[]): readonly FormNode[] {
+function fields(paths: readonly FieldPath[]): readonly FormNode[] {
 	return paths.map((path) => {
-		const [label, widget] = fieldSpecs[path as FieldPath];
+		const [label, widget] = fieldSpecs[path];
 		return { type: "field", id: `f-${path}`, binding: { namespace: "data", segments: [path] }, widget, label };
 	});
 }
 
-function grid(id: string, paths: readonly string[]): FormNode {
+function grid(id: string, paths: readonly FieldPath[]): FormNode {
 	return {
 		type: "custom",
 		id: `grid-${id}`,

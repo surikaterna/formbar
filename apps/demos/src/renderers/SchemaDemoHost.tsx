@@ -143,20 +143,7 @@ function RenderedDemo({ source, plugins, runtimeProfile, onSubmit }: RenderedDem
 		<>
 			<section className="schema-demo-form mt-6 rounded-lg border border-border bg-card p-5">
 				{variants ? (
-					<label className="mb-5 block text-sm font-medium">
-						Definition mode
-						<select
-							className="ml-3"
-							value={activeVariant?.key}
-							onChange={(event) => setVariantKey(event.currentTarget.value)}
-						>
-							{variants.map((variant) => (
-								<option key={variant.key} value={variant.key}>
-									{variant.label}
-								</option>
-							))}
-						</select>
-					</label>
+					<DefinitionModeChooser variants={variants} activeKey={activeVariant?.key} onChange={setVariantKey} />
 				) : null}
 				<FormRenderer {...prepared} extensions={runtimeProfile?.extensions} />
 				<div className="schema-demo-actions mt-5 flex gap-3 border-t border-border pt-4">
@@ -174,6 +161,25 @@ function RenderedDemo({ source, plugins, runtimeProfile, onSubmit }: RenderedDem
 				<CodeBlock title="Validated FormDefinition v1" code={prepared.definition} />
 			</section>
 		</>
+	);
+}
+
+function DefinitionModeChooser(props: {
+	readonly variants: NonNullable<SchemaDemoSource["definitionVariants"]>;
+	readonly activeKey?: string;
+	readonly onChange: (key: string) => void;
+}) {
+	return (
+		<label className="mb-5 block text-sm font-medium">
+			Definition mode
+			<select className="ml-3" value={props.activeKey} onChange={(event) => props.onChange(event.currentTarget.value)}>
+				{props.variants.map((variant) => (
+					<option key={variant.key} value={variant.key}>
+						{variant.label}
+					</option>
+				))}
+			</select>
+		</label>
 	);
 }
 

@@ -4,6 +4,7 @@ import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer } from "@formbar/react-schema";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { customRenderersDemo } from "../demos/16-custom-renderers";
 import widgetFixtureSource from "../demos/16-custom-renderers.ts?raw";
@@ -70,7 +71,38 @@ function serverRender(fixture: typeof customRenderersDemo | typeof customLayoutT
 	return html;
 }
 
+function oversizedFunctions(source: string, fileName: string): readonly string[] {
+	const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+	const oversized: string[] = [];
+	const visit = (node: ts.Node): void => {
+		const functionNode = ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node);
+		if (functionNode && node.body) {
+			const start = file.getLineAndCharacterOfPosition(node.getStart(file)).line;
+			const end = file.getLineAndCharacterOfPosition(node.end).line;
+			const name = ts.isFunctionDeclaration(node) ? (node.name?.text ?? "anonymous") : `callback:${start + 1}`;
+			if (end - start + 1 > 50) oversized.push(`${fileName}:${name}:${end - start + 1}`);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(file);
+	return oversized;
+}
+
 describe("extension demo architecture", () => {
+	it("keeps production functions within budget and layout paths statically typed", () => {
+		const sources = [
+			["16-custom-renderers.ts", widgetFixtureSource],
+			["17-custom-layout.ts", layoutFixtureSource],
+			["custom-widget-profile.tsx", widgetProfileSource],
+			["custom-layout-profile.tsx", layoutProfileSource],
+			["SchemaDemoHost.tsx", hostSource],
+		] as const;
+		expect(sources.flatMap(([name, source]) => oversizedFunctions(source, name))).toEqual([]);
+		expect(layoutFixtureSource).toContain("function fields(paths: readonly FieldPath[])");
+		expect(layoutFixtureSource).toContain("function grid(id: string, paths: readonly FieldPath[])");
+		expect(layoutFixtureSource).not.toMatch(/path as FieldPath|paths: readonly string\[\]/);
+	});
+
 	it("keeps fixtures serializable and executable values confined to frozen profiles", () => {
 		for (const fixture of [customRenderersDemo, customLayoutTypesDemo]) {
 			for (const source of fixture.sources) {

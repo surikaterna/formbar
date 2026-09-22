@@ -24,9 +24,8 @@ const slateColors = Object.freeze([
 ]);
 const tags = Object.freeze(["Performance", "Usability", "Design", "Reliability", "Security"]);
 
-function properties(qualityWidget: string) {
+function ratingProperties(qualityWidget: string) {
 	return {
-		productName: { type: "string", title: "Product Name" },
 		qualityRating: {
 			type: "integer",
 			title: "Quality Rating",
@@ -44,6 +43,11 @@ function properties(qualityWidget: string) {
 			multipleOf: 1,
 			"x-formbar": { widget: "demo16.rating", props: { icon: "star" } },
 		},
+	};
+}
+
+function choiceProperties() {
+	return {
 		brandColor: {
 			type: "string",
 			title: "Brand Color",
@@ -67,6 +71,11 @@ function properties(qualityWidget: string) {
 			"x-formbar": { widget: "demo16.checkbox-group" },
 			description: "Select all that apply",
 		},
+	};
+}
+
+function completionProperties() {
+	return {
 		completionRate: {
 			type: "integer",
 			title: "Completion Rate",
@@ -77,6 +86,15 @@ function properties(qualityWidget: string) {
 			description: "Project completion percentage",
 		},
 		notes: { type: "string", title: "Notes", "x-formbar": { widget: "textarea" } },
+	};
+}
+
+function properties(qualityWidget: string) {
+	return {
+		productName: { type: "string", title: "Product Name" },
+		...ratingProperties(qualityWidget),
+		...choiceProperties(),
+		...completionProperties(),
 	};
 }
 
