@@ -1,4 +1,4 @@
-import type { FieldPolicyContribution, FormApi, FormState } from "@formbar/core";
+import type { FieldPolicyContribution, FormState } from "@formbar/core";
 import type { JsonValue, StateRef } from "@formbar/expressions";
 import type { AbsoluteBinding } from "./bindings.js";
 import type { FieldNode } from "./nodes.js";
@@ -11,7 +11,6 @@ import type {
 import { directFieldLifecycle, exactIssues, readBinding } from "./runtime-references.js";
 
 export interface ResolveFieldStateOptions {
-	readonly form: FormApi<unknown, unknown>;
 	readonly state: FormState<unknown, unknown>;
 	readonly node: FieldNode;
 	readonly instance: RuntimeNodeInstance;
@@ -23,7 +22,7 @@ export interface ResolveFieldStateOptions {
 
 export function resolveFieldState(options: ResolveFieldStateOptions): ResolvedFieldState {
 	const contributions = matchingContributions(options.state.fieldPolicy, options.binding);
-	const lifecycle = directFieldLifecycle(options.form, options.state, options.binding);
+	const lifecycle = directFieldLifecycle(options.state, options.binding);
 	const issues = exactIssues(options.state, options.binding);
 	const pluginLabel = lastPluginLabel(contributions);
 	const value = readBinding(options.state, options.binding);

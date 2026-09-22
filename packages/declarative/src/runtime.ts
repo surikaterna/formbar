@@ -10,6 +10,7 @@ import type {
 	RuntimePort,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
+import { runtimeValueEqual } from "./runtime-equality.js";
 import { RuntimeObservation } from "./runtime-observation.js";
 import { projectRuntime } from "./runtime-projection.js";
 
@@ -21,7 +22,7 @@ export interface CreateFormRuntimeOptions<TData = unknown, TUi = unknown> {
 
 class DeclarativeRuntime implements RuntimePort {
 	private readonly listeners = new Set<() => void>();
-	private readonly observations = new Set<RuntimeObservation<unknown>>();
+	private readonly observations = new Set<{ dispose(): void }>();
 	private readonly lifecycle = new CallbackBoundary();
 	private readonly namespaces;
 	private readonly expressions;
@@ -40,7 +41,7 @@ class DeclarativeRuntime implements RuntimePort {
 			definition: this.options.definition,
 			...(this.options.baseline ? { baseline: this.options.baseline } : {}),
 		});
-		if (!this.snapshot || JSON.stringify(this.snapshot) !== JSON.stringify(next)) this.snapshot = next;
+		if (!this.snapshot || !runtimeValueEqual(this.snapshot, next)) this.snapshot = next;
 		return this.snapshot;
 	};
 
@@ -60,10 +61,11 @@ class DeclarativeRuntime implements RuntimePort {
 
 	subscribe = (listener: () => void): (() => void) => {
 		if (this.disposed) return () => {};
-		this.listeners.add(listener);
+		const callback = () => listener();
+		this.listeners.add(callback);
 		if (!this.cleanup) this.attach();
 		return () => {
-			if (!this.listeners.delete(listener) || this.listeners.size) return;
+			if (!this.listeners.delete(callback) || this.listeners.size) return;
 			this.detach();
 		};
 	};
@@ -74,8 +76,9 @@ class DeclarativeRuntime implements RuntimePort {
 		this.observation(() => this.getSnapshot().nodes.find((node) => node.instance.instanceKey === instanceKey));
 
 	private observation<T>(read: () => T): Observation<T> {
-		const observation = new RuntimeObservation(read, this.subscribe);
-		this.observations.add(observation as RuntimeObservation<unknown>);
+		const observation = new RuntimeObservation(read, this.subscribe, (disposed) => this.observations.delete(disposed));
+		this.observations.add(observation);
+		if (this.disposed) observation.dispose();
 		return observation;
 	}
 
@@ -100,9 +103,10 @@ class DeclarativeRuntime implements RuntimePort {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.detach();
-		for (const observation of this.observations) observation.dispose();
+		for (const observation of [...this.observations]) observation.dispose();
 		this.observations.clear();
 		this.listeners.clear();
+		this.snapshot = undefined;
 		this.expressions.dispose();
 	};
 }

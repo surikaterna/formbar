@@ -1,5 +1,4 @@
-import type { FormApi, FormState, ValidationIssue } from "@formbar/core";
-import { toDot, toPointer } from "@formbar/core";
+import type { FormState, ValidationIssue } from "@formbar/core";
 import type { JsonValue, NamespaceProvider, Scopes, StateRef } from "@formbar/expressions";
 import { readOwn, resolveRef } from "@formbar/expressions";
 import type { Binding } from "./bindings.js";
@@ -42,24 +41,16 @@ export function exactIssues(state: FormState<unknown, unknown>, binding: StateRe
 	);
 }
 
-export function directFieldLifecycle(
-	form: FormApi<unknown, unknown>,
-	state: FormState<unknown, unknown>,
-	binding: StateRef,
-): DirectFieldLifecycle {
+export function directFieldLifecycle(state: FormState<unknown, unknown>, binding: StateRef): DirectFieldLifecycle {
 	const issues = exactIssues(state, binding);
 	const valid = !issues.some((issue) => issue.severity === "error");
-	try {
-		const field = form.fieldDynamic(runtimePath(binding));
-		return Object.freeze({
-			valid,
-			validating: field.isValidating(),
-			dirty: field.isDirty(),
-			touched: field.isTouched(),
-		});
-	} catch {
-		return Object.freeze({ valid, validating: false, dirty: false, touched: false });
-	}
+	const metadata = binding.namespace === "data" ? state.fieldMeta[fieldMetadataKey(binding)] : undefined;
+	return Object.freeze({
+		valid,
+		validating: metadata?.isValidating ?? false,
+		dirty: metadata?.dirty ?? false,
+		touched: metadata?.touched ?? false,
+	});
 }
 
 export function createSnapshotProviders(
@@ -103,7 +94,11 @@ function scopePrefix(candidate: RuntimeNodeInstance, current: RuntimeNodeInstanc
 	});
 }
 
-function runtimePath(binding: StateRef): string {
-	const path = { namespace: binding.namespace, segments: binding.segments } as Parameters<typeof toDot>[0];
-	return binding.namespace === "data" ? toPointer(path) : toDot(path);
+function fieldMetadataKey(binding: StateRef): string {
+	const segments = binding.segments.map(normalizeMetadataSegment);
+	if (segments.every((segment) => typeof segment === "number" || !segment.includes("."))) return segments.join(".");
+	return `/${segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
 }
+
+const normalizeMetadataSegment = (segment: string | number): string | number =>
+	typeof segment === "string" && /^(?:0|[1-9]\d*)$/.test(segment) ? Number(segment) : segment;

@@ -42,7 +42,6 @@ interface ExpandFrame {
 }
 
 interface ProjectionContext {
-	readonly form: FormApi<unknown, unknown>;
 	readonly state: FormState<unknown, unknown>;
 	readonly formStatus: RuntimeFormStatus;
 	readonly concrete: readonly ConcreteNode[];
@@ -62,9 +61,9 @@ export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot 
 	const concrete = expandDefinition(options.definition, state);
 	const diagnostics: RuntimeDiagnostic[] = [];
 	const baselines = normalizeBaselines(options.definition, options.baseline ?? [], diagnostics);
-	const formStatus = resolveFormStatus(options.form, state);
+	const formStatus = resolveFormStatus(state);
 	const fields = concreteFields(concrete);
-	const context = { form: options.form, state, formStatus, concrete, fields, baselines, diagnostics };
+	const context = { state, formStatus, concrete, fields, baselines, diagnostics };
 	const resolved = resolveNodes(context);
 	return Object.freeze({
 		data: state.data as JsonValue,
@@ -205,7 +204,6 @@ function resolveNode(
 		evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
 	const baseline = context.baselines.get(concrete.node.id);
 	const field = resolveFieldState({
-		form: context.form,
 		state: context.state,
 		node: concrete.node,
 		instance: concrete.instance,
@@ -283,17 +281,17 @@ function expressionFailure(
 
 function expressionProviders(context: ProjectionContext, concrete: ConcreteNode) {
 	const fieldSnapshot = contextualFieldSnapshot(concrete.instance, context.fields, (binding) =>
-		directFieldLifecycle(context.form, context.state, binding),
+		directFieldLifecycle(context.state, binding),
 	);
 	return createSnapshotProviders(context.state, context.formStatus, fieldSnapshot);
 }
 
-function resolveFormStatus(form: FormApi<unknown, unknown>, state: FormState<unknown, unknown>): RuntimeFormStatus {
+function resolveFormStatus(state: FormState<unknown, unknown>): RuntimeFormStatus {
 	return Object.freeze({
 		valid: !state.issues.some((issue) => issue.severity === "error"),
 		validating: state.meta.validation.validating === true,
 		submitting: state.meta.submission?.status === "running",
-		dirty: form.isDirty(),
+		dirty: Object.values(state.fieldMeta).some((entry) => entry.dirty),
 		touched: Object.values(state.fieldMeta).some((entry) => entry.touched),
 		submitted: state.meta.submitted === true,
 	});
