@@ -1,5 +1,11 @@
 # @formbar/from-schema
 
+## 0.10.0
+
+### Minor Changes
+
+- dca4052: Add JSON-only schema widget hints and renderer-scoped trusted widget and custom-node registrations, including built-in tabs and accordion rendering.
+
 ## 0.8.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/react-schema",
-	"version": "0.9.0",
+	"version": "0.10.0",
 	"type": "module",
 	"description": "React preparation and native rendering for schema-compiled forms",
 	"license": "MIT",
@@ -30,7 +30,7 @@
 		"@formbar/core": "^0.8.0",
 		"@formbar/declarative": "^0.8.0",
 		"@formbar/react": "^0.9.0",
-		"@formbar/from-schema": "^0.8.0"
+		"@formbar/from-schema": "^0.10.0"
 	},
 	"peerDependencies": {
 		"react": ">=18.0.0"
