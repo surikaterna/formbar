@@ -1,7 +1,6 @@
 import type { JsonValue } from "@formbar/declarative";
 import type { WidgetProps } from "@formbar/react-schema";
 import type { CSSProperties, ReactNode } from "react";
-import type { SchemaDemoRuntimeProfile } from "../demos/baseline-contracts";
 
 function stateAttributes(props: WidgetProps, labelledBy = props.a11y.labelId) {
 	return {
@@ -254,7 +253,7 @@ export function ProgressWidget(props: WidgetProps) {
 	);
 }
 
-const widgets = Object.freeze([
+export const customWidgetRegistrations = Object.freeze([
 	Object.freeze({ id: "demo16.rating", component: RatingWidget }),
 	Object.freeze({ id: "demo16.color", component: ColorWidget }),
 	Object.freeze({ id: "demo16.checkbox-group", component: CheckboxGroupWidget }),
@@ -262,8 +261,3 @@ const widgets = Object.freeze([
 	Object.freeze({ id: "demo16.range", component: RangeWidget }),
 	Object.freeze({ id: "demo16.progress", component: ProgressWidget }),
 ]);
-
-export const customWidgetProfile = Object.freeze({
-	id: "demo16.trusted-widgets.v1",
-	extensions: Object.freeze({ widgets }),
-}) satisfies SchemaDemoRuntimeProfile;

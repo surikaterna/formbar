@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demos } from "../demos/index";
-import { compatibilityMatrix } from "../playground/presets";
-import host from "../renderers/SchemaDemoHost.tsx?raw";
+import { getPlaygroundCompatibility } from "../playground/examples";
+import runtime from "../renderers/SchemaFormRuntime.tsx?raw";
 
 const fixtureModules = import.meta.glob(
 	"../demos/{07-conditional-fields,12-survey-questionnaire,18-arbiter-visibility,21-arbiter-dynamic-sections}.ts",
@@ -25,13 +25,12 @@ describe("conditional demo architecture", () => {
 	});
 
 	it("extends the sole schema host with one commit-phase released Arbiter plugin path", () => {
-		expect(host.match(/const prepared = useSchemaForm/g)).toHaveLength(1);
-		expect(host.match(/<FormRenderer/g)).toHaveLength(1);
-		expect(host.match(/createArbiterPlugin\(\{/g)).toHaveLength(1);
-		expect(host).toMatch(/useEffect\(\(\) => \{[\s\S]*createArbiterPlugin/);
-		expect(host).toContain("[rules]");
-		expect(host).toContain("plugins,");
-		expect(host).not.toMatch(/useMemo|useRef|useFormSelector|useField|form\.subscribe|setFieldPolicy|createForm\(/);
+		expect(runtime.match(/useSchemaForm</g)).toHaveLength(1);
+		expect(runtime.match(/<FormRenderer/g)).toHaveLength(1);
+		expect(runtime.match(/createArbiterPlugin\(\{/g)).toHaveLength(1);
+		expect(runtime).toMatch(/useEffect\(\(\) => \{[\s\S]*createArbiterPlugin/);
+		expect(runtime).toContain("[rules]");
+		expect(runtime).not.toMatch(/setFieldPolicy|createForm\(/);
 	});
 
 	it("contains normalized policy records only in the two Arbiter fixtures", () => {
@@ -41,7 +40,7 @@ describe("conditional demo architecture", () => {
 		expect(owners).toEqual(["18-arbiter-visibility.ts", "21-arbiter-dynamic-sections.ts"]);
 	});
 
-	it("keeps numeric demo routes without expanding playground support", () => {
+	it("keeps numeric demo routes with registry-derived playground support", () => {
 		expect(demos.map((demo) => demo.id)).toEqual([
 			"basic-contact",
 			"user-profile",
@@ -66,6 +65,6 @@ describe("conditional demo architecture", () => {
 			"arbiter-dynamic-sections",
 			"schema-compilation",
 		]);
-		expect(compatibilityMatrix.map((entry) => entry.demoId)).toEqual(["schema-compilation"]);
+		expect(getPlaygroundCompatibility().map((entry) => entry.demoId)).toEqual(demos.map((demo) => demo.id));
 	});
 });

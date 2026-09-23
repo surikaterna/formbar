@@ -11,11 +11,13 @@ import widgetFixtureSource from "../demos/16-custom-renderers.ts?raw";
 import { customLayoutDefinitionVariants, customLayoutTypesDemo } from "../demos/17-custom-layout";
 import layoutFixtureSource from "../demos/17-custom-layout.ts?raw";
 import { demos } from "../demos/index";
-import { customLayoutProfile } from "../extensions/custom-layout-profile";
+import { customLayoutRegistrations } from "../extensions/custom-layout-profile";
 import layoutProfileSource from "../extensions/custom-layout-profile.tsx?raw";
-import { customWidgetProfile } from "../extensions/custom-widget-profile";
+import { customWidgetRegistrations } from "../extensions/custom-widget-profile";
 import widgetProfileSource from "../extensions/custom-widget-profile.tsx?raw";
 import hostSource from "../renderers/SchemaDemoHost.tsx?raw";
+import runtimeSource from "../renderers/SchemaFormRuntime.tsx?raw";
+import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 
@@ -60,11 +62,12 @@ function serverRender(fixture: typeof customRenderersDemo | typeof customLayoutT
 		initialData: { ...source.initialData },
 		initialUiState: {},
 	});
+	const profile = resolveTrustedRuntimeProfiles(["formbar.standard.v1", ...(fixture.runtimeProfileIds ?? [])]);
 	const html = renderToString(
 		createElement(FormRenderer<Record<string, unknown>, Record<string, never>>, {
 			...prepared,
 			form,
-			extensions: fixture.runtimeProfile?.extensions,
+			extensions: profile.extensions,
 		}),
 	);
 	form.dispose();
@@ -113,10 +116,8 @@ describe("extension demo architecture", () => {
 				}
 			}
 		}
-		expect(Object.isFrozen(customWidgetProfile)).toBe(true);
-		expect(Object.isFrozen(customWidgetProfile.extensions.widgets)).toBe(true);
-		expect(Object.isFrozen(customLayoutProfile)).toBe(true);
-		expect(Object.isFrozen(customLayoutProfile.extensions.nodes)).toBe(true);
+		expect(Object.isFrozen(customWidgetRegistrations)).toBe(true);
+		expect(Object.isFrozen(customLayoutRegistrations)).toBe(true);
 		expect(`${widgetFixtureSource}\n${layoutFixtureSource}`).not.toMatch(
 			/from ["']react|useSchemaForm|FormRenderer|<(?:input|select|textarea)/,
 		);
@@ -140,8 +141,8 @@ describe("extension demo architecture", () => {
 			expect(registration?.fixture?.id).toBe(id);
 			expect(Object.isFrozen(registration)).toBe(true);
 		}
-		expect(customWidgetProfile.id).toBe("demo16.trusted-widgets.v1");
-		expect(customWidgetProfile.extensions.widgets?.map((entry) => entry.id)).toEqual([
+		expect(customRenderersDemo.runtimeProfileIds).toEqual(["demo16.trusted-widgets.v1"]);
+		expect(customWidgetRegistrations.map((entry) => entry.id)).toEqual([
 			"demo16.rating",
 			"demo16.color",
 			"demo16.checkbox-group",
@@ -149,8 +150,8 @@ describe("extension demo architecture", () => {
 			"demo16.range",
 			"demo16.progress",
 		]);
-		expect(customLayoutProfile.id).toBe("demo17.advanced-layout.v1");
-		expect(customLayoutProfile.extensions.nodes?.map((entry) => entry.id)).toEqual([
+		expect(customLayoutTypesDemo.runtimeProfileIds).toEqual(["demo17.advanced-layout.v1"]);
+		expect(customLayoutRegistrations.map((entry) => entry.id)).toEqual([
 			"demo17.inspection-panel",
 			"demo17.field-grid",
 		]);
@@ -318,9 +319,9 @@ describe("extension demo architecture", () => {
 	});
 
 	it("retains one host/store/renderer path and server-renders both fixtures", () => {
-		expect(hostSource.match(/useSchemaForm/g)).toHaveLength(2);
-		expect(hostSource.match(/<FormRenderer/g)).toHaveLength(1);
-		expect(hostSource).toContain("extensions={runtimeProfile?.extensions}");
+		expect(hostSource).not.toContain("useSchemaForm");
+		expect(runtimeSource.match(/useSchemaForm/g)).toHaveLength(2);
+		expect(runtimeSource.match(/<FormRenderer/g)).toHaveLength(1);
 		expect(hostSource).toContain("key={`${fixture.id}:${source.key}`}");
 		for (const fixture of [customRenderersDemo, customLayoutTypesDemo]) {
 			const html = serverRender(fixture);

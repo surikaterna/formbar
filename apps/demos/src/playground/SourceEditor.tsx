@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useRef } from "react";
+import { type KeyboardEvent, useEffect, useRef } from "react";
 import { type PlaygroundSources, SOURCE_KEYS, type SourceErrors, type SourceKey } from "./contracts";
 
 const SOURCE_LABELS = {
@@ -27,9 +27,14 @@ function nextTab(current: SourceKey, direction: number): SourceKey {
 function useTabNavigation(active: SourceKey, onChange: (key: SourceKey) => void) {
 	const refs = useRef<Partial<Record<SourceKey, HTMLButtonElement>>>({});
 	const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-		if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+		if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
 		event.preventDefault();
-		const next = nextTab(active, event.key === "ArrowRight" ? 1 : -1);
+		const next =
+			event.key === "Home"
+				? SOURCE_KEYS[0]
+				: event.key === "End"
+					? SOURCE_KEYS[2]
+					: nextTab(active, event.key === "ArrowRight" ? 1 : -1);
 		onChange(next);
 		window.setTimeout(() => refs.current[next]?.focus(), 0);
 	};
@@ -65,6 +70,10 @@ function SourceTabs(props: Pick<SourceEditorProps, "active" | "sources" | "basel
 
 function SourcePanel(props: Pick<SourceEditorProps, "active" | "sources" | "errors" | "onChange" | "onApply">) {
 	const error = props.errors[props.active];
+	const errorRef = useRef<HTMLParagraphElement>(null);
+	useEffect(() => {
+		if (error) errorRef.current?.focus();
+	}, [error]);
 	return (
 		<>
 			{SOURCE_KEYS.map((key) => {
@@ -98,7 +107,13 @@ function SourcePanel(props: Pick<SourceEditorProps, "active" | "sources" | "erro
 									className="min-h-80 flex-1 resize-y rounded-md border border-input bg-surface-inset p-3 font-mono text-xs text-code-foreground outline-none focus:ring-2 focus:ring-ring"
 								/>
 								{error && (
-									<p id={`source-error-${key}`} role="alert" tabIndex={-1} className="mt-2 text-xs text-destructive">
+									<p
+										ref={errorRef}
+										id={`source-error-${key}`}
+										role="alert"
+										tabIndex={-1}
+										className="mt-2 text-xs text-destructive"
+									>
 										{error}
 									</p>
 								)}

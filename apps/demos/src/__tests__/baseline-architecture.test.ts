@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import host from "../renderers/SchemaDemoHost.tsx?raw";
+import runtime from "../renderers/SchemaFormRuntime.tsx?raw";
 
 const fixtureModules = import.meta.glob(
 	"../demos/{01-basic-contact,02-user-profile,03-nested-address,04-settings-panel,05-product-entry,09-custom-layout,10-multi-section-responsive,13-multi-schema-sources,15-kitchen-sink}.ts",
@@ -19,11 +20,12 @@ describe("baseline demo architecture", () => {
 	});
 
 	it("uses one released host path with only keyed source-selection chrome", () => {
-		expect(host.match(/useSchemaForm/g)).toHaveLength(2);
-		expect(host.match(/<FormRenderer/g)).toHaveLength(1);
+		expect(host).not.toContain("useSchemaForm");
+		expect(runtime.match(/useSchemaForm/g)).toHaveLength(2);
+		expect(runtime.match(/<FormRenderer/g)).toHaveLength(1);
 		expect(host).toContain("key={`${fixture.id}:${source.key}`}");
-		expect(host).toContain("createJsonSchemaValidators(source.schema)");
-		expect(host).toContain("validators,");
+		expect(runtime).toContain("createJsonSchemaValidators(props.document.schema)");
+		expect(runtime).toContain("validators:");
 		expect(host).not.toMatch(/useFormSelector|useField|fieldDynamic|<(?:input|textarea)\b/);
 		expect(host.match(/<select\b/g)).toHaveLength(2);
 	});

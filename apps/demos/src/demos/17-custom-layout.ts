@@ -1,5 +1,4 @@
 import type { FormDefinition, FormNode } from "@formbar/declarative";
-import { customLayoutProfile } from "../extensions/custom-layout-profile";
 import type { SchemaDemoDefinitionVariant, SchemaDemoFixture } from "./baseline-contracts";
 
 const fieldSpecs = Object.freeze({
@@ -148,7 +147,7 @@ export const customLayoutTypesDemo: SchemaDemoFixture = Object.freeze({
 	subtitle: "One schema through sections, tabs, and accordion",
 	copy: "The same vessel inspection schema rendered via three different LayoutNode JSON trees: sections (group), tabs, and accordion. The layout JSON drives the rendering — swap the tree, change the UX.",
 	category: "layout",
-	runtimeProfile: customLayoutProfile,
+	runtimeProfileIds: ["demo17.advanced-layout.v1"] as const,
 	sources: Object.freeze([
 		Object.freeze({
 			key: "vessel-inspection",

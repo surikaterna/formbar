@@ -1,7 +1,11 @@
 import { createForm } from "@formbar/core";
 import { describe, expect, it, vi } from "vitest";
 import { baselineFixtures } from "../demos";
-import { createJsonSchemaValidator, createJsonSchemaValidators } from "../validation/json-schema-validator";
+import {
+	createJsonSchemaValidator,
+	createJsonSchemaValidators,
+	preflightJsonSchema,
+} from "../validation/json-schema-validator";
 
 function validate(schema: Readonly<Record<string, unknown>>, data: Record<string, unknown>) {
 	return createJsonSchemaValidator(schema)({ data, uiState: {} });
@@ -233,6 +237,10 @@ describe("Draft 2020-12 JSON Schema adapter", () => {
 
 	it("caches deterministic failures for invalid, cyclic, and hostile schemas", () => {
 		const invalid = { type: "not-a-json-schema-type" } as const;
+		expect(preflightJsonSchema(invalid)).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("Schema is not valid Draft 2020-12"),
+		});
 		expect(validate(invalid, {})).toEqual([adapterFailure]);
 		expect(createJsonSchemaValidator(invalid)).toBe(createJsonSchemaValidator(invalid));
 		expect(createJsonSchemaValidators(invalid)).toBe(createJsonSchemaValidators(invalid));

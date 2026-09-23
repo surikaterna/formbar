@@ -92,3 +92,9 @@ jobs:
 
       - name: Build demos
         run: bun run --filter @formbar/demos build
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Test demos in Chromium
+        run: bun run --filter @formbar/demos test:e2e

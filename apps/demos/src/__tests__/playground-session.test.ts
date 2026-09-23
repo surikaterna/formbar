@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPreset } from "../playground/presets";
+import { getPlaygroundExample } from "../playground/examples";
 import {
 	applySources,
 	createPlaygroundSession,
@@ -10,7 +10,7 @@ import {
 import { type StorageLike, saveDraft } from "../playground/storage";
 
 function presetDocument() {
-	const preset = getPreset("schema-compilation");
+	const preset = getPlaygroundExample("schema-compilation");
 	if (!preset) throw new Error("missing test preset");
 	return preset.document;
 }
@@ -22,6 +22,20 @@ describe("playground session", () => {
 		expect(result.applied).toBe(original.applied);
 		expect(result.revision).toBe(0);
 		expect(result.errors.definition).toBeTruthy();
+	});
+
+	it("keeps the exact applied session and revision when schema preflight fails, then recovers", () => {
+		const original = createPlaygroundSession(presetDocument());
+		const invalid = updateSource(original, "schema", '{"type":"object","minProperties":-1}');
+		const rejected = applySources(invalid);
+		expect(rejected.applied).toBe(original.applied);
+		expect(rejected.revision).toBe(original.revision);
+		expect(rejected.errors.schema).toContain("Schema is not valid Draft 2020-12");
+
+		const recovered = applySources(updateSource(rejected, "schema", original.sources.schema));
+		expect(recovered.applied).not.toBe(original.applied);
+		expect(recovered.revision).toBe(original.revision + 1);
+		expect(recovered.errors).toEqual({});
 	});
 
 	it("applies v2 sources atomically", () => {

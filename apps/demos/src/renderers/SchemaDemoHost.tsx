@@ -1,14 +1,12 @@
-import { createArbiterPlugin } from "@formbar/arbiter";
-import type { SubmitExecutionContext } from "@formbar/core";
-import { jsonSchemaProvider } from "@formbar/from-schema";
-import { FormRenderer, type UseSchemaFormResult, useSchemaForm } from "@formbar/react-schema";
-import { useEffect, useId, useState } from "react";
-import type { SchemaDemoFixture, SchemaDemoRuntimeProfile, SchemaDemoSource } from "../demos/baseline-contracts";
-import { createJsonSchemaValidators } from "../validation/json-schema-validator";
+import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
+import { useState } from "react";
+import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
+import type { PlaygroundDocument } from "../playground/contracts";
+import { runtimeProfileIdsFor } from "../runtime/runtime-profile-selection";
 import { CodeBlock } from "./CodeBlock";
+import { SchemaFormRuntime } from "./SchemaFormRuntime";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
-const noPlugins: readonly ReturnType<typeof detachedPlugin>[] = [];
 
 interface SchemaDemoHostProps {
 	readonly fixture: SchemaDemoFixture;
@@ -24,170 +22,77 @@ export function SchemaDemoHost({ fixture, onSubmit }: SchemaDemoHostProps) {
 				<h1 className="text-xl font-bold">{fixture.title}</h1>
 				<p className="mt-1 text-sm text-muted-foreground">{fixture.copy}</p>
 				{fixture.sources.length > 1 ? (
-					<label className="mt-4 block text-sm font-medium">
-						JSON Schema source
-						<select className="ml-3" value={source.key} onChange={(event) => setSourceKey(event.currentTarget.value)}>
-							{fixture.sources.map((candidate) => (
-								<option key={candidate.key} value={candidate.key}>
-									{candidate.label}
-								</option>
-							))}
-						</select>
-					</label>
+					<SourceChooser fixture={fixture} value={source.key} onChange={setSourceKey} />
 				) : null}
 			</header>
-			<PreparedDemo
-				key={`${fixture.id}:${source.key}`}
-				source={source}
-				runtimeProfile={fixture.runtimeProfile}
-				actionControls={fixture.actionControls ?? "host"}
-				onSubmit={onSubmit}
-			/>
+			<PreparedDemo key={`${fixture.id}:${source.key}`} fixture={fixture} source={source} onSubmit={onSubmit} />
 		</main>
 	);
 }
 
-function PreparedDemo({
-	source,
-	runtimeProfile,
-	actionControls,
-	onSubmit,
-}: {
+function SourceChooser(props: {
+	readonly fixture: SchemaDemoFixture;
+	readonly value: string;
+	readonly onChange: (key: string) => void;
+}) {
+	return (
+		<label className="mt-4 block text-sm font-medium">
+			JSON Schema source
+			<select className="ml-3" value={props.value} onChange={(event) => props.onChange(event.currentTarget.value)}>
+				{props.fixture.sources.map((source) => (
+					<option key={source.key} value={source.key}>
+						{source.label}
+					</option>
+				))}
+			</select>
+		</label>
+	);
+}
+
+function PreparedDemo(props: {
+	readonly fixture: SchemaDemoFixture;
 	readonly source: SchemaDemoSource;
-	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
-	readonly actionControls: "host" | "definition";
 	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
 }) {
-	const committed = useCommittedArbiterPlugin(source.arbiterRules);
-	if (!source.arbiterRules)
-		return (
-			<RenderedDemo
-				key="plain"
-				source={source}
-				plugins={noPlugins}
-				runtimeProfile={runtimeProfile}
-				actionControls={actionControls}
-				onSubmit={onSubmit}
-			/>
-		);
-	if (!committed || committed.rules !== source.arbiterRules || !committed.active) return <PreparingRules />;
-	return (
-		<RenderedDemo
-			key="arbiter"
-			source={source}
-			plugins={committed.plugins}
-			runtimeProfile={runtimeProfile}
-			actionControls={actionControls}
-			onSubmit={onSubmit}
-		/>
-	);
-}
-
-interface CommittedPlugin {
-	readonly rules: NonNullable<SchemaDemoSource["arbiterRules"]>;
-	readonly plugins: readonly ReturnType<typeof detachedPlugin>[];
-	active: boolean;
-}
-
-function useCommittedArbiterPlugin(rules: SchemaDemoSource["arbiterRules"]): CommittedPlugin | undefined {
-	const [committed, setCommitted] = useState<CommittedPlugin>();
-	useEffect(() => {
-		if (!rules) return;
-		const owned = createArbiterPlugin({ rules });
-		const next: CommittedPlugin = { rules, plugins: [detachedPlugin(owned)], active: true };
-		setCommitted(next);
-		return () => {
-			next.active = false;
-			owned.onDispose?.();
-		};
-	}, [rules]);
-	return committed;
-}
-
-function detachedPlugin(plugin: ReturnType<typeof createArbiterPlugin>) {
-	return { ...plugin, onDispose: undefined };
-}
-
-function PreparingRules() {
-	return (
-		<section className="schema-demo-form mt-6 rounded-lg border border-border bg-card p-5" aria-busy="true">
-			<output aria-live="polite">Preparing rule-governed form.</output>
-		</section>
-	);
-}
-
-interface RenderedDemoProps {
-	readonly source: SchemaDemoSource;
-	readonly plugins: typeof noPlugins;
-	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
-	readonly actionControls: "host" | "definition";
-	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
-}
-
-function RenderedDemo({ source, plugins, runtimeProfile, actionControls, onSubmit }: RenderedDemoProps) {
-	const [lastSubmission, setLastSubmission] = useState<string>();
-	const variants = source.definitionVariants;
+	const variants = props.source.definitionVariants;
 	const [variantKey, setVariantKey] = useState(variants?.[0].key);
-	const activeVariant = variants?.find((variant) => variant.key === variantKey) ?? variants?.[0];
-	const definition = activeVariant?.definition ?? source.definition;
-	const validators = createJsonSchemaValidators(source.schema);
-	const prepared = useSchemaForm<Record<string, unknown>, Record<string, unknown>>(source.schema, {
-		provider,
-		side: "input",
-		...(definition ? { definition } : {}),
-		initialData: source.initialData,
-		initialUiState: source.initialUiState ?? {},
-		plugins,
-		validators,
-		onSubmit: async ({ payload }: SubmitExecutionContext<Record<string, unknown>, Record<string, unknown>>) => {
-			const snapshot = immutableSnapshot(payload);
-			setLastSubmission(JSON.stringify(snapshot, null, 2));
-			onSubmit?.(snapshot);
-			return { ok: true, submitId: "demo-submit" };
-		},
-	});
+	const variant = variants?.find(({ key }) => key === variantKey) ?? variants?.[0];
+	const definition = variant?.definition ?? props.source.definition ?? generatedDefinition(props.source);
+	const document: PlaygroundDocument = {
+		version: 2,
+		schema: props.source.schema,
+		definition,
+		initialData: props.source.initialData,
+	};
 	return (
 		<>
-			<section className="schema-demo-form mt-6 rounded-lg border border-border bg-card p-5">
-				{variants ? (
-					<DefinitionModeChooser variants={variants} activeKey={activeVariant?.key} onChange={setVariantKey} />
-				) : null}
-				<FormRenderer {...prepared} extensions={runtimeProfile?.extensions} actions={runtimeProfile?.actions} />
-				{actionControls === "host" ? <HostActions prepared={prepared} /> : null}
-			</section>
-			<SubmissionResult json={lastSubmission} />
+			{variants ? <DefinitionChooser variants={variants} value={variant?.key ?? ""} onChange={setVariantKey} /> : null}
+			<SchemaFormRuntime
+				document={document}
+				profileIds={runtimeProfileIdsFor(props.fixture, props.source)}
+				initialUiState={props.source.initialUiState}
+				arbiterRules={props.source.arbiterRules}
+				actionControls={props.fixture.actionControls}
+				onSubmit={props.onSubmit}
+				showObservability
+			/>
 			<section className="mt-6 grid gap-4 lg:grid-cols-2" aria-label="Compiled source">
-				<CodeBlock title={source.label} code={source.schema} />
-				<CodeBlock title="Validated FormDefinition v1" code={prepared.definition} />
+				<CodeBlock title={props.source.label} code={props.source.schema} />
+				<CodeBlock title="Validated FormDefinition v1" code={definition} />
 			</section>
 		</>
 	);
 }
 
-function HostActions({
-	prepared,
-}: { readonly prepared: UseSchemaFormResult<Record<string, unknown>, Record<string, unknown>> }) {
-	return (
-		<div className="schema-demo-actions mt-5 flex gap-3 border-t border-border pt-4">
-			<button type="button" onClick={() => void prepared.form.submit().catch(() => undefined)}>
-				Submit
-			</button>
-			<button type="button" onClick={() => prepared.form.reset()}>
-				Reset
-			</button>
-		</div>
-	);
-}
-
-function DefinitionModeChooser(props: {
+function DefinitionChooser(props: {
 	readonly variants: NonNullable<SchemaDemoSource["definitionVariants"]>;
-	readonly activeKey?: string;
+	readonly value: string;
 	readonly onChange: (key: string) => void;
 }) {
 	return (
-		<label className="mb-5 block text-sm font-medium">
+		<label className="mt-5 block text-sm font-medium">
 			Definition mode
-			<select className="ml-3" value={props.activeKey} onChange={(event) => props.onChange(event.currentTarget.value)}>
+			<select className="ml-3" value={props.value} onChange={(event) => props.onChange(event.currentTarget.value)}>
 				{props.variants.map((variant) => (
 					<option key={variant.key} value={variant.key}>
 						{variant.label}
@@ -198,32 +103,6 @@ function DefinitionModeChooser(props: {
 	);
 }
 
-function immutableSnapshot<T>(value: T): T {
-	return deepFreeze(structuredClone(value));
-}
-
-function deepFreeze<T>(value: T): T {
-	if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
-	for (const child of Object.values(value)) deepFreeze(child);
-	return Object.freeze(value);
-}
-
-function SubmissionResult({ json }: { readonly json?: string }) {
-	const headingId = useId();
-	return (
-		<section
-			className="mt-6 rounded-lg border border-border bg-card p-5"
-			aria-labelledby={headingId}
-			aria-live="polite"
-		>
-			<h2 id={headingId} className="font-semibold">
-				Last successful submission
-			</h2>
-			{json === undefined ? (
-				<p className="mt-2 text-sm text-muted-foreground">No successful submission yet.</p>
-			) : (
-				<pre className="mt-2 overflow-auto rounded bg-muted p-3 text-sm">{json}</pre>
-			)}
-		</section>
-	);
+function generatedDefinition(source: SchemaDemoSource) {
+	return createSchemaForm(source.schema, { provider, side: "input" }).definition;
 }

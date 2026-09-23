@@ -1,5 +1,4 @@
 import type { FormDefinition, FormNode } from "@formbar/declarative";
-import { customWidgetProfile } from "../extensions/custom-widget-profile";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
 const binding = (path: string) => ({ namespace: "data" as const, segments: [path] });
@@ -83,7 +82,7 @@ export const richValidationDemo = {
 	copy: "Demonstrates various JSON Schema validation constraints including min/max length, patterns, format validation, and number ranges.",
 	category: "baseline",
 	actionControls: "definition",
-	runtimeProfile: customWidgetProfile,
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"],
 	sources: [
 		{
 			key: "default",

@@ -1,6 +1,5 @@
 import type { RendererContext } from "@formbar/react-schema";
 import type { CSSProperties } from "react";
-import type { SchemaDemoRuntimeProfile } from "../demos/baseline-contracts";
 
 export function InspectionPanel({ children, props, policy }: RendererContext) {
 	const title = typeof props.title === "string" ? props.title : "Vessel Inspection";
@@ -33,12 +32,7 @@ export function FieldGrid({ children, props, policy }: RendererContext) {
 	);
 }
 
-const nodes = Object.freeze([
+export const customLayoutRegistrations = Object.freeze([
 	Object.freeze({ id: "demo17.inspection-panel", component: InspectionPanel }),
 	Object.freeze({ id: "demo17.field-grid", component: FieldGrid }),
 ]);
-
-export const customLayoutProfile = Object.freeze({
-	id: "demo17.advanced-layout.v1",
-	extensions: Object.freeze({ nodes }),
-}) satisfies SchemaDemoRuntimeProfile;

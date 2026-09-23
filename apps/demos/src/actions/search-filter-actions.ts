@@ -1,5 +1,4 @@
 import type { ActionHandlerContext, ActionRegistration, ActionRequest, JsonValue } from "@formbar/declarative";
-import type { SchemaDemoRuntimeProfile } from "../demos/baseline-contracts";
 
 export const filtersAppliedEvent = "formbar:demo11-filters-applied";
 
@@ -22,8 +21,3 @@ export const searchFilterActions: readonly ActionRegistration[] = Object.freeze(
 		},
 	}),
 ]);
-
-export const searchFilterRuntimeProfile: SchemaDemoRuntimeProfile = Object.freeze({
-	id: "demo11.search-actions.v1",
-	actions: searchFilterActions,
-});
