@@ -52,7 +52,7 @@ const definition = {
 					field("f-price", "price", "number", "Price (USD)", "Retail price", half),
 					field("f-weight", "weight", "number", "Weight (kg)", "Shipping weight", half),
 					field("f-quantity", "quantity", "number", "Stock Quantity", "Units in stock", half),
-					field("f-rating", "rating", "number", "Quality Rating", "Internal quality score", half),
+					field("f-rating", "rating", "demo16.range", "Quality Rating", "Internal quality score", half),
 				],
 			},
 			{
@@ -74,6 +74,7 @@ export const productEntryDemo = {
 	subtitle: "Schema-owned product constraints",
 	copy: "The original product catalog fields retain their constraints, descriptions, category order, inventory, and status controls.",
 	category: "baseline",
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"],
 	sources: [
 		{
 			key: "default",
