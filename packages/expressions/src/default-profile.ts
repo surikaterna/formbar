@@ -24,6 +24,7 @@ export function createDefaultExpressionProfile(report: FailureReporter): Express
 
 export function prepareDefaultExpression(input: JsonValue): JsonValue {
 	if (!isOperation(input)) return input;
+	if (input.op === BACKEND_SUM_BY) throw new ExpressionError("invalid-input");
 	const args = input.args.map(prepareDefaultExpression);
 	if (input.op !== "sumBy") return Object.freeze({ ...input, args: Object.freeze(args) });
 	if (args.length === 2) validateLiteralPath(args[1]);

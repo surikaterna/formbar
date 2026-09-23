@@ -231,14 +231,52 @@ describe("default sumBy operator", () => {
 
 	it("retains the collection dependency and immutable public sumBy expression", () => {
 		const path = ["amount"];
+		const expression = sumBy(ref("lines"), path);
 		const service = createExpressionService({ namespaces: { data: namespace({ lines: [{ amount: 2 }] }).provider } });
-		const compiled = service.compile(sumBy(ref("lines"), path));
+		const compiled = service.compile(expression);
 		if (!compiled.ok) throw new Error("compile");
 		path[0] = "changed";
 		expect(compiled.value.dependencies).toEqual([{ namespace: "data", segments: ["lines"] }]);
-		expect(compiled.value.expression).toMatchObject({ kind: "op", op: "sumBy" });
+		expect(compiled.value.expression).toEqual(sumBy(ref("lines"), ["amount"]));
+		expect(JSON.stringify(compiled.value.expression)).not.toContain("formbar:sum-by");
 		expect(Object.isFrozen(compiled.value.expression)).toBe(true);
 		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: 2 });
+	});
+
+	it("restores a transformed public sumBy nested inside another operator", () => {
+		const service = createExpressionService({});
+		const expression = op("add", sumBy(literal([{ amount: 2 }, { amount: 3.5 }]), ["amount"]), literal(1));
+		const compiled = service.compile(expression);
+		if (!compiled.ok) throw new Error("compile");
+		expect(compiled.value.expression).toEqual(expression);
+		expect(JSON.stringify(compiled.value.expression)).not.toContain("formbar:sum-by");
+		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: 6.5 });
+	});
+
+	it("rejects direct and nested authored use of the reserved backend operator", () => {
+		const service = createExpressionService({});
+		const internal = op("formbar:sum-by", literal([{ amount: 2 }]), literal(["amount"]));
+		for (const expression of [
+			internal,
+			op("add", literal(1), internal),
+			op("if", literal(true), internal, literal(0)),
+		]) {
+			expect(service.compile(expression)).toEqual({ ok: false, diagnostics: [{ code: "invalid-input" }] });
+		}
+	});
+
+	it("rejects reference and computed paths through both public and reserved spellings", () => {
+		const service = createExpressionService({});
+		const collection = literal([{ amount: 2 }]);
+		const computedPath = op("if", literal(true), literal(["amount"]), literal([]));
+		for (const name of ["sumBy", "formbar:sum-by"]) {
+			for (const path of [ref("path"), computedPath]) {
+				expect(service.compile(op(name, collection, path))).toEqual({
+					ok: false,
+					diagnostics: [{ code: "invalid-input" }],
+				});
+			}
+		}
 	});
 
 	it.each([
