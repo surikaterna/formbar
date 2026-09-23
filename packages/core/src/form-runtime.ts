@@ -16,7 +16,7 @@ import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import { parsePath } from "./path-parser.js";
-import { pathEquals, pathStartsWith } from "./path-relations.js";
+import { issuesForPath } from "./path-relations.js";
 import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
 import { deactivateFormResources, initializeFormResources, validatePluginIds } from "./plugin-initializer.js";
@@ -49,6 +49,8 @@ export class FormRuntime<TData, TUi> {
 	private active = false;
 	private readonly deferred: boolean;
 	private readonly activationSubscriptions: (() => void)[] = [];
+	private readonly initializedMiddlewares: Middleware[] = [];
+	private deactivating = false;
 
 	constructor(
 		private readonly options: CreateFormOptions<TData, TUi>,
@@ -106,7 +108,7 @@ export class FormRuntime<TData, TUi> {
 
 	/** Commit-scoped lifecycle for React; imperative forms remain eagerly initialized. */
 	activate(): void {
-		if (this.disposal.isDisposed() || this.active) return;
+		if (this.disposal.isDisposed() || this.active || this.deactivating) return;
 		this.active = true;
 		try {
 			this.initialize();
@@ -117,11 +119,16 @@ export class FormRuntime<TData, TUi> {
 	}
 
 	deactivate(): void {
-		if (!this.deferred || !this.active) return;
+		if (!this.deferred || !this.active || this.deactivating) return;
 		this.active = false;
-		this.submitHandler.reset();
-		this.coordinator.reset();
-		deactivateFormResources(this.options.middleware ?? [], this.pluginDisposers, this.activationSubscriptions);
+		this.deactivating = true;
+		try {
+			this.submitHandler.reset();
+			this.coordinator.reset();
+			deactivateFormResources(this.initializedMiddlewares, this.pluginDisposers, this.activationSubscriptions);
+		} finally {
+			this.deactivating = false;
+		}
 	}
 
 	private createInitialState(): FormState<TData, TUi> {
@@ -148,12 +155,6 @@ export class FormRuntime<TData, TUi> {
 			current = (current as Record<string | number, unknown>)[segment];
 		}
 		return current;
-	}
-
-	private getIssues(path: CanonicalPath): readonly ValidationIssue[] {
-		return this.store
-			.getState()
-			.issues.filter((issue) => pathEquals(issue.path, path) || pathStartsWith(issue.path, path));
 	}
 
 	private propagateListeners(pathKey: string, trigger: "change" | "blur"): void {
@@ -286,7 +287,7 @@ export class FormRuntime<TData, TUi> {
 			rawPath: path,
 			getState: () => this.store.getState(),
 			setValue: this.dispatchSetValue as unknown as (path: string, value: unknown) => FormDispatchResult,
-			getIssues: (value) => this.getIssues(value),
+			getIssues: (value) => issuesForPath(this.store.getState().issues, value),
 			getInitialValue: () => this.resolveInitialValue(canonical),
 			getFieldMeta: (key) => (this.store.getState().fieldMeta as Record<string, FieldMetaEntry>)[key],
 			markTouched: this.markFieldTouched,
@@ -381,12 +382,14 @@ export class FormRuntime<TData, TUi> {
 		initializeFormResources({
 			plugins: this.plugins,
 			middlewares: this.options.middleware ?? [],
-			state: this.initialState,
+			state: this.store.getState(),
 			store: this.store,
 			initialData: this.initialDataSnapshot,
 			deferred: this.deferred,
 			disposers: this.pluginDisposers,
 			subscriptions: this.activationSubscriptions,
+			initializedMiddlewares: this.initializedMiddlewares,
+			isActive: () => this.active && !this.disposal.isDisposed(),
 			dispatch: (action) => {
 				this.dispatch(action);
 			},

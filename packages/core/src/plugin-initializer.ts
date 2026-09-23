@@ -1,5 +1,4 @@
 import type { FormAction, Middleware } from "./contracts.js";
-import { initMiddlewares } from "./middleware-runner.js";
 import type { FormPlugin, PluginInitContext } from "./plugin-types.js";
 import type { FormState } from "./state.js";
 import type { FormStore } from "./store.js";
@@ -21,16 +20,28 @@ interface InitResources<TData, TUi> {
 	readonly deferred: boolean;
 	readonly disposers: (() => void)[];
 	readonly subscriptions: (() => void)[];
+	readonly initializedMiddlewares: Middleware[];
+	isActive(): boolean;
 	dispatch(action: FormAction): void;
 }
 
 export function initializeFormResources<TData, TUi>(resources: InitResources<TData, TUi>): void {
-	initMiddlewares(resources.middlewares, { state: resources.state });
+	for (const middleware of resources.middlewares) {
+		if (!resources.isActive()) return;
+		resources.initializedMiddlewares.push(middleware);
+		try {
+			middleware.onInit?.({ state: resources.state });
+		} catch {
+			// Middleware init failures are isolated, as in the eager lifecycle.
+		}
+	}
 	for (const plugin of resources.plugins) {
+		if (!resources.isActive()) return;
 		if (!plugin.onInit) continue;
 		const context: PluginInitContext<TData, TUi> = {
 			getState: () => ({ data: resources.store.getState().data, uiState: resources.store.getState().uiState }),
 			subscribe: (listener) => {
+				if (!resources.isActive()) return () => {};
 				const unsubscribe = resources.store.subscribe((state) =>
 					listener({ data: state.data, uiState: state.uiState }),
 				);
@@ -41,13 +52,22 @@ export function initializeFormResources<TData, TUi>(resources: InitResources<TDa
 			initialData: resources.initialData,
 		};
 		const disposer = plugin.onInit(context);
-		if (disposer) resources.disposers.push(disposer);
+		if (!disposer) continue;
+		if (!resources.isActive()) {
+			try {
+				disposer();
+			} catch {
+				// An already disposed form still releases any late-returned resource.
+			}
+			return;
+		}
+		resources.disposers.push(disposer);
 	}
 }
 
 /** Release every acquired resource even when a user disposer throws. */
 export function deactivateFormResources(
-	middlewares: readonly Middleware[],
+	middlewares: Middleware[],
 	disposers: (() => void)[],
 	subscriptions: (() => void)[],
 ): void {
@@ -59,7 +79,7 @@ export function deactivateFormResources(
 			/* Keep releasing remaining resources. */
 		}
 	}
-	for (const middleware of [...middlewares].reverse()) {
+	for (const middleware of middlewares.splice(0).reverse()) {
 		try {
 			middleware.onDispose?.();
 		} catch {
