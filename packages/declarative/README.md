@@ -35,6 +35,10 @@ Field policy merges conservatively: visibility uses restrictive AND; disabled/re
 
 The runtime uses the existing expression service and core namespaces. `form` references expose `valid`, `validating`, `submitting`, `dirty`, `touched`, and `submitted`. Contextual `field` references expose only direct `valid`, `validating`, `dirty`, and `touched` lifecycle for the current or enclosing repeater instance. Runtime writes continue through core and are not authorization checks for projected disabled/read-only state.
 
+Output nodes are pure snapshot projections. A visible output evaluates its `value` expression against the same captured state as the rest of the runtime and exposes either its raw JSON value or a code-only failure. Hidden outputs are not evaluated. The optional `label` is presentation metadata, and `format` is one of `plain`, `number`, `currency-usd`, or `percent`; formatting is renderer-owned and never changes form data, field lifecycle, validation, reset state, or submission payloads.
+
+`StoredComputation` declarations currently receive static duplicate-target and cycle validation only; the runtime does not execute or persist them. Atomic stored computation lifecycle is tracked separately in [#129](https://github.com/surikaterna/formbar/issues/129). Consumers must not treat accepted declarations as persisted calculations until that work is delivered.
+
 ## Non-ownership
 
 This package does not import Scheman or `@formbar/from-schema`, compile schemas, own constraints/default/provenance evidence, render React/DOM, resolve registry membership, add validation rules, or own a second state store. Schema evidence is limited to the optional `{ nodeId, required?, label? }` baseline supplied by an adapter. DOM and ARIA remain outside this package.

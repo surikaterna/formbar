@@ -1,6 +1,6 @@
 import type { Expression, JsonValue, Scopes } from "@formbar/expressions";
 import type { DiagnosticPathSegment } from "../diagnostics.js";
-import type { BaseNode, FormNode } from "../nodes.js";
+import type { BaseNode, FormNode, OutputFormat } from "../nodes.js";
 import { binding } from "./bindings.js";
 import { type NodeContext, diagnostic } from "./context.js";
 import { expression, props } from "./expressions.js";
@@ -14,7 +14,7 @@ const KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	field: ["binding", "widget", "label", "required", "props"],
 	repeater: ["binding", "scope", "children", "minItems", "maxItems"],
 	action: ["action", "label", "payload", "props"],
-	output: ["value", "format", "props"],
+	output: ["value", "label", "format", "props"],
 	conditional: ["condition", "then", "else"],
 	tabs: ["tabs"],
 	accordion: ["items"],
@@ -179,16 +179,30 @@ function valueNode(
 			: undefined;
 	}
 	const value = requiredExpression(source.value, [...path, "value"], context);
-	const format = optionalString(source.format, [...path, "format"], context);
+	const label = optionalString(source.label, [...path, "label"], context);
+	const format = outputFormat(source.format, [...path, "format"], context);
 	return value
 		? Object.freeze({
 				...base,
 				type,
 				value,
+				...(label === undefined ? {} : { label }),
 				...(format === undefined ? {} : { format }),
 				...(definitions ? { props: definitions } : {}),
 			})
 		: undefined;
+}
+
+function outputFormat(
+	value: JsonValue | undefined,
+	path: readonly DiagnosticPathSegment[],
+	context: NodeContext,
+): OutputFormat | undefined {
+	const format = optionalString(value, path, context);
+	if (format === undefined) return undefined;
+	if (["plain", "number", "currency-usd", "percent"].includes(format)) return format as OutputFormat;
+	diagnostic(context, "unsupported-output-format", path, `Unsupported output format '${format}'.`);
+	return undefined;
 }
 
 function conditionalNode(

@@ -4,10 +4,10 @@ import { CallbackBoundary, createExpressionService, failure } from "@formbar/exp
 import type { JsonValue, Observation, Segment, StateRef, WriteResult } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
 import type {
-	ResolvedNodeState,
 	RuntimeFieldBaseline,
 	RuntimeFormStatus,
 	RuntimePort,
+	RuntimeResolvedNodeState,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
 import { RuntimeObservation } from "./runtime-observation.js";
@@ -71,7 +71,7 @@ class DeclarativeRuntime implements RuntimePort {
 
 	observeForm = (): Observation<RuntimeFormStatus> => this.observation(() => this.getSnapshot().form);
 
-	observeNode = (instanceKey: string): Observation<ResolvedNodeState | undefined> =>
+	observeNode = (instanceKey: string): Observation<RuntimeResolvedNodeState | undefined> =>
 		this.observation(() => this.getSnapshot().nodes.find((node) => node.instance.instanceKey === instanceKey));
 
 	private observation<T>(read: () => T): Observation<T> {

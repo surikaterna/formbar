@@ -1,5 +1,5 @@
 import { createFormRuntime } from "@formbar/declarative";
-import type { CreateFormRuntimeOptions, ResolvedNodeState, RuntimePort } from "@formbar/declarative";
+import type { CreateFormRuntimeOptions, RuntimePort, RuntimeResolvedNodeState } from "@formbar/declarative";
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 interface RuntimeLease {
@@ -25,7 +25,7 @@ export function useOwnedRuntime<TData, TUi>(options: CreateFormRuntimeOptions<TD
 	return lease.runtime;
 }
 
-export function useNodeObservation(runtime: RuntimePort, instanceKey: string): ResolvedNodeState | undefined {
+export function useNodeObservation(runtime: RuntimePort, instanceKey: string): RuntimeResolvedNodeState | undefined {
 	const observation = useRef<ReturnType<RuntimePort["observeNode"]> | undefined>(undefined);
 	const readDirect = useCallback(
 		() => runtime.getSnapshot().nodes.find((item) => item.instance.instanceKey === instanceKey),

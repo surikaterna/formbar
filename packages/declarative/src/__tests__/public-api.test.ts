@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { createFormRuntime, validateFormDefinition } from "../index.js";
+import type { OutputFormat, ResolvedOutputState, RuntimeSnapshot } from "../index.js";
 
 const root = new URL("../../../../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf8");
@@ -14,9 +15,14 @@ const neutralDependencyManifests = {
 } as const;
 type NeutralDependency = keyof typeof neutralDependencyManifests;
 type NeutralVersions = Record<NeutralDependency, string>;
+type SnapshotOutput = Extract<RuntimeSnapshot["nodes"][number], { readonly type: "output" }>;
+const outputFormatCompiles: OutputFormat = "currency-usd";
+const outputStateCompiles: ResolvedOutputState | SnapshotOutput | undefined = undefined;
 
 describe("public package boundary", () => {
 	it("exports validation without owning expression language behavior", () => {
+		expect(outputFormatCompiles).toBe("currency-usd");
+		expect(outputStateCompiles).toBeUndefined();
 		expect(typeof validateFormDefinition).toBe("function");
 		expect(typeof createFormRuntime).toBe("function");
 		const sources = readdirSync(new URL("packages/declarative/src/", root), { recursive: true })

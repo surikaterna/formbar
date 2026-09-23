@@ -1,5 +1,4 @@
 import type { FormApi, FormState, FormStateCapture } from "@formbar/core";
-import { createExpressionService } from "@formbar/expressions";
 import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
 import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
@@ -7,22 +6,19 @@ import type { FormNode } from "./nodes.js";
 import type {
 	ResolvedFieldState,
 	ResolvedNodeState,
+	ResolvedOutputState,
 	RuntimeDiagnostic,
 	RuntimeExpressionProperty,
 	RuntimeFieldBaseline,
 	RuntimeFormStatus,
 	RuntimeNodeInstance,
+	RuntimeResolvedNodeState,
 	RuntimeScopeInstance,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
 import { runtimeDiagnostic, sortRuntimeDiagnostics } from "./runtime-diagnostics.js";
-import {
-	contextualFieldSnapshot,
-	createSnapshotProviders,
-	directFieldLifecycle,
-	readBinding,
-	resolveBinding,
-} from "./runtime-references.js";
+import { evaluateRuntimeExpression } from "./runtime-expressions.js";
+import { readBinding, resolveBinding } from "./runtime-references.js";
 import type { ConcreteFieldReference } from "./runtime-references.js";
 
 interface ConcreteNode {
@@ -169,12 +165,12 @@ function concreteFields(concrete: readonly ConcreteNode[]): readonly ConcreteFie
 }
 
 function resolveNodes(context: ProjectionContext): {
-	readonly nodes: ResolvedNodeState[];
+	readonly nodes: RuntimeResolvedNodeState[];
 	readonly fields: ResolvedFieldState[];
 } {
-	const nodes: ResolvedNodeState[] = [];
+	const nodes: RuntimeResolvedNodeState[] = [];
 	const fields: ResolvedFieldState[] = [];
-	const byKey = new Map<string, ResolvedNodeState>();
+	const byKey = new Map<string, RuntimeResolvedNodeState>();
 	for (const concrete of context.concrete) {
 		const resolved = resolveNode(context, concrete, byKey);
 		nodes.push(resolved.node);
@@ -187,8 +183,8 @@ function resolveNodes(context: ProjectionContext): {
 function resolveNode(
 	context: ProjectionContext,
 	concrete: ConcreteNode,
-	byKey: ReadonlyMap<string, ResolvedNodeState>,
-): { readonly node: ResolvedNodeState; readonly field?: ResolvedFieldState } {
+	byKey: ReadonlyMap<string, RuntimeResolvedNodeState>,
+): { readonly node: RuntimeResolvedNodeState; readonly field?: ResolvedFieldState } {
 	const parent = concrete.parentKey ? byKey.get(concrete.parentKey) : undefined;
 	const own = resolveOwnState(context, concrete);
 	const branchVisible = !concrete.requiredBranch || parent?.branch === concrete.requiredBranch;
@@ -200,7 +196,9 @@ function resolveNode(
 		readOnly: (parent?.readOnly ?? false) || own.readOnly,
 		...(own.branch ? { branch: own.branch } : {}),
 	});
-	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState };
+	if (concrete.node.type === "output")
+		return { node: resolveOutput(context, concrete, nodeState, concrete.node.value) };
+	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState as RuntimeResolvedNodeState };
 	nodeState = mergeFieldRestrictions(nodeState, fieldContributions(context.state, concrete.binding));
 	const conditionalRequired =
 		evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
@@ -216,6 +214,21 @@ function resolveNode(
 		conditionalRequired,
 	});
 	return { node: field, field };
+}
+
+function resolveOutput(
+	context: ProjectionContext,
+	concrete: ConcreteNode,
+	nodeState: ResolvedNodeState,
+	expression: Expression,
+): ResolvedOutputState {
+	if (!nodeState.visible) return Object.freeze({ ...nodeState, type: "output", output: { status: "hidden" as const } });
+	const result = evaluateRuntimeExpression(expressionFrame(context, concrete), expression);
+	if (result.ok)
+		return Object.freeze({ ...nodeState, type: "output", output: { status: "ready" as const, value: result.value } });
+	const code = result.diagnostics[0]?.code ?? "backend";
+	context.diagnostics.push(runtimeDiagnostic("expression", concrete.instance, "value", code));
+	return Object.freeze({ ...nodeState, type: "output", output: { status: "error" as const, code } });
 }
 
 function resolveOwnState(context: ProjectionContext, concrete: ConcreteNode) {
@@ -250,24 +263,12 @@ function evaluateBoolean(
 	condition = false,
 ): boolean | undefined {
 	if (!expression) return defaultValue;
-	const service = createExpressionService({
-		scopes: concrete.scopes,
-		namespaces: expressionProviders(context, concrete),
-		authorize: (reference) => ["data", "ui", "form", "field"].includes(reference.namespace),
-	});
-	try {
-		const compiled = service.compile(expression);
-		if (!compiled.ok)
-			return expressionFailure(context, concrete, property, compiled.diagnostics[0]?.code, failureValue, condition);
-		const result = service.evaluate(compiled.value);
-		if (!result.ok)
-			return expressionFailure(context, concrete, property, result.diagnostics[0]?.code, failureValue, condition);
-		if (typeof result.value === "boolean") return result.value;
-		context.diagnostics.push(runtimeDiagnostic("non-boolean", concrete.instance, property, "type"));
-		return condition ? undefined : failureValue;
-	} finally {
-		service.dispose();
-	}
+	const result = evaluateRuntimeExpression(expressionFrame(context, concrete), expression);
+	if (!result.ok)
+		return expressionFailure(context, concrete, property, result.diagnostics[0]?.code, failureValue, condition);
+	if (typeof result.value === "boolean") return result.value;
+	context.diagnostics.push(runtimeDiagnostic("non-boolean", concrete.instance, property, "type"));
+	return condition ? undefined : failureValue;
 }
 
 function expressionFailure(
@@ -282,11 +283,15 @@ function expressionFailure(
 	return condition ? undefined : fallback;
 }
 
-function expressionProviders(context: ProjectionContext, concrete: ConcreteNode) {
-	const fieldSnapshot = contextualFieldSnapshot(concrete.instance, context.fields, (binding) =>
-		directFieldLifecycle(context.capture, binding),
-	);
-	return createSnapshotProviders(context.state, context.formStatus, fieldSnapshot);
+function expressionFrame(context: ProjectionContext, concrete: ConcreteNode) {
+	return {
+		capture: context.capture,
+		state: context.state,
+		formStatus: context.formStatus,
+		fields: context.fields,
+		instance: concrete.instance,
+		scopes: concrete.scopes,
+	};
 }
 
 function resolveFormStatus(capture: FormStateCapture<unknown, unknown>): RuntimeFormStatus {

@@ -22,7 +22,9 @@ export type RendererDiagnostic =
 	| "unsupported-widget"
 	| "unsupported-binding"
 	| "unsupported-options"
-	| "conditional-unresolved";
+	| "conditional-unresolved"
+	| "output-unresolved"
+	| "unsupported-output-value";
 
 export type ScalarOption = string | number | boolean | null;
 

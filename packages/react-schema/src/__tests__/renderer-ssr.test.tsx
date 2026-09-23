@@ -11,6 +11,52 @@ import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
 describe("renderer SSR", () => {
+	it.each([
+		["omitted", undefined, "Calculated value"],
+		["empty", "", "Calculated value"],
+		["whitespace-only", " \t ", "Calculated value"],
+		["authored", "  Total  ", "  Total  "],
+	] as const)("renders and hydrates %s output labels without mismatches", async (_name, authored, expected) => {
+		const definition: FormDefinition = {
+			version: 1,
+			id: "output-ssr",
+			root: {
+				type: "output",
+				id: "total",
+				...(authored === undefined ? {} : { label: authored }),
+				format: "currency-usd",
+				value: { kind: "ref", ref: binding("total") },
+			},
+		};
+		const prepared = createSchemaForm(
+			{ type: "object", properties: { total: { type: "number" } } },
+			{ provider: jsonSchemaProvider(), side: "input", definition },
+		);
+		const form = createForm({ initialData: { total: 12.5 }, initialUiState: {} });
+		const renderer = <FormRenderer {...prepared} form={form} />;
+		const html = renderToString(renderer);
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		document.body.append(container);
+		const serverOutput = container.querySelector("output");
+		const serverLabel = serverOutput?.getAttribute("aria-labelledby");
+		expect(serverLabel ? document.getElementById(serverLabel)?.textContent : undefined).toBe(expected);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		let root: ReturnType<typeof hydrateRoot>;
+		await act(async () => {
+			root = hydrateRoot(container, renderer);
+			await Promise.resolve();
+		});
+		expect(container.querySelector("output")?.textContent).toBe("$12.50");
+		expect(container.querySelector("output")?.getAttribute("aria-labelledby")).toBe(serverLabel);
+		expect(serverLabel ? document.getElementById(serverLabel)?.textContent : undefined).toBe(expected);
+		expect(error).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		error.mockRestore();
+		container.remove();
+		form.dispose();
+	});
+
 	it("renders and hydrates stable IDs without mismatch diagnostics", async () => {
 		const definition: FormDefinition = {
 			version: 1,

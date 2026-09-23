@@ -1,10 +1,11 @@
-import type { FormNode, ResolvedFieldState, ResolvedNodeState } from "@formbar/declarative";
+import type { FormNode, ResolvedFieldState, ResolvedOutputState, RuntimeResolvedNodeState } from "@formbar/declarative";
 import { fieldId } from "@formbar/react";
 import { memo } from "react";
 import type { ReactElement } from "react";
 import { AccordionView, TabsView } from "./collection-nodes.js";
 import { CustomNodeView } from "./extension-node.js";
 import { FormField, FormValidation } from "./form-field.js";
+import { OutputNodeView } from "./output-node.js";
 import { DiagnosticFallback, layoutProps } from "./renderer-elements.js";
 import { domIdToken, spanOutput } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
@@ -25,6 +26,7 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} widget={node.widget} layout={layout} />;
 		return <FormField node={node} state={state} environment={environment} layout={layout} />;
 	}
+	if (node.type === "output") return renderOutput(node, state, environment, layout);
 	if (node.type === "validation")
 		return <FormValidation node={node} environment={environment} visible={state.visible} layout={layout} />;
 	if (node.type === "group") return renderGroup(node, environment, layout);
@@ -62,6 +64,17 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 		);
 	return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 });
+
+function renderOutput(
+	node: Extract<FormNode, { type: "output" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	if (!isResolvedOutputState(state))
+		return <DiagnosticFallback code="output-unresolved" nodeId={node.id} layout={layout} />;
+	return <OutputNodeView node={node} state={state} environment={environment} layout={layout} />;
+}
 
 function renderGroup(
 	node: Extract<FormNode, { type: "group" }>,
@@ -134,6 +147,10 @@ function renderChildren(nodes: readonly FormNode[], environment: RendererEnviron
 	);
 }
 
-function isResolvedFieldState(state: ResolvedNodeState): state is ResolvedFieldState {
+function isResolvedFieldState(state: RuntimeResolvedNodeState): state is ResolvedFieldState {
 	return state.type === "field" && "binding" in state && "issues" in state && "dirty" in state && "touched" in state;
+}
+
+function isResolvedOutputState(state: RuntimeResolvedNodeState): state is ResolvedOutputState {
+	return state.type === "output" && "output" in state;
 }
