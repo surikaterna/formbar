@@ -19,6 +19,8 @@ import { OutputNodeView } from "./output-node.js";
 import { DiagnosticFallback, layoutProps } from "./renderer-elements.js";
 import { domIdToken, spanOutput } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
+import { bindingKey, repeaterIdentity } from "./repeater-coordinator.js";
+import type { RepeaterIdentity } from "./repeater-coordinator.js";
 import { RepeaterNodeView } from "./repeater-node.js";
 import { runtimeInstanceKey, useNodeObservation } from "./use-runtime-observation.js";
 
@@ -77,13 +79,16 @@ function renderRepeater(
 ): ReactElement {
 	if (!isResolvedRepeaterState(state))
 		return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+	const childEnvironment = state.binding
+		? { ...environment, repeaterOwner: repeaterIdentity(state.instance.instanceKey, state.binding) }
+		: environment;
 	return (
 		<RepeaterNodeView
 			node={node}
 			state={state}
 			environment={environment}
 			layout={layout}
-			renderChildren={(children, itemScopes) => renderChildren(children, environment, itemScopes)}
+			renderChildren={(children, itemScopes) => renderChildren(children, childEnvironment, itemScopes)}
 		/>
 	);
 }
@@ -241,9 +246,40 @@ function NodeChildren(props: {
 	readonly environment: RendererEnvironment;
 	readonly scopes: readonly RuntimeScopeInstance[];
 }) {
-	return props.nodes.map((node) => (
-		<FormNodeView key={node.id} node={node} environment={props.environment} scopes={props.scopes} />
-	));
+	const environments = childEnvironments(props.nodes, props.environment, props.scopes);
+	return (
+		<>
+			{props.nodes.map((node) => (
+				<FormNodeView
+					key={node.id}
+					node={node}
+					environment={environments.get(node.id) ?? props.environment}
+					scopes={props.scopes}
+				/>
+			))}
+		</>
+	);
+}
+
+function childEnvironments(
+	nodes: readonly FormNode[],
+	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
+): ReadonlyMap<string, RendererEnvironment> {
+	const owners = new Map<string, RepeaterIdentity>();
+	const environments = new Map<string, RendererEnvironment>();
+	if (environment.repeaterOwner) owners.set(environment.repeaterOwner.bindingKey, environment.repeaterOwner);
+	for (const node of nodes) {
+		const state = environment.runtime.getNode(runtimeInstanceKey(node.id, scopes));
+		if (node.type === "repeater" && state && isResolvedRepeaterState(state) && state.binding) {
+			const owner = repeaterIdentity(state.instance.instanceKey, state.binding);
+			owners.set(owner.bindingKey, owner);
+		}
+		if (node.type !== "action" || !state || !isResolvedActionState(state) || !state.target) continue;
+		const owner = owners.get(bindingKey(state.target));
+		if (owner) environments.set(node.id, { ...environment, repeaterOwner: owner });
+	}
+	return environments;
 }
 
 function renderChildren(
@@ -251,13 +287,7 @@ function renderChildren(
 	environment: RendererEnvironment,
 	scopes: readonly RuntimeScopeInstance[],
 ): ReactElement {
-	return (
-		<>
-			{nodes.map((node) => (
-				<FormNodeView key={node.id} node={node} environment={environment} scopes={scopes} />
-			))}
-		</>
-	);
+	return <NodeChildren nodes={nodes} environment={environment} scopes={scopes} />;
 }
 
 function isResolvedFieldState(state: RuntimeResolvedNodeState): state is ResolvedFieldState {

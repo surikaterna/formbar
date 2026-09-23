@@ -1,11 +1,11 @@
 import type { FormNode, ResolvedRepeaterState, RuntimeScopeInstance } from "@formbar/declarative";
 import { fieldId } from "@formbar/react";
-import { useEffect, useLayoutEffect, useReducer, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactElement, RefObject } from "react";
 import type { LayoutProps } from "./renderer-elements.js";
 import { domIdToken } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
-import { bindingKey } from "./repeater-coordinator.js";
+import { repeaterIdentity } from "./repeater-coordinator.js";
 import type { RepeaterIntentListener, StructuralIntent } from "./repeater-coordinator.js";
 import { applyRowOperation, initialRowKeys } from "./repeater-keys.js";
 import type { RowKeyState } from "./repeater-keys.js";
@@ -30,17 +30,14 @@ export function RepeaterNodeView(props: RepeaterProps): ReactElement {
 	const announcement = useRef("");
 	const rowElements = useRef(new Map<string, HTMLFieldSetElement>());
 	const container = useRef<HTMLFieldSetElement>(null);
+	const identity = useMemo(
+		() => repeaterIdentity(state.instance.instanceKey, state.binding ?? { namespace: "data", segments: [] }),
+		[state.binding, state.instance.instanceKey],
+	);
 	reconcileRows(rows, rollback.current.size, state, generation);
 	const listener = useRef<RepeaterIntentListener | undefined>(undefined);
 	listener.current = intentListener(rows, rollback, focus, announcement, generation, render);
-	useEffect(
-		() =>
-			environment.repeaters.register(
-				bindingKey(state.binding ?? { namespace: "data", segments: [] }),
-				listenerProxy(listener),
-			),
-		[environment.repeaters, state.binding],
-	);
+	useEffect(() => environment.repeaters.register(identity, listenerProxy(listener)), [environment.repeaters, identity]);
 	useIsomorphicLayoutEffect(() =>
 		restoreFocus(focus, rows.current, rowElements.current, container.current, environment.repeaters.appendTarget),
 	);

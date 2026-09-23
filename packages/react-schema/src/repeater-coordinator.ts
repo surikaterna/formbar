@@ -10,9 +10,15 @@ export type StructuralOperation =
 
 export interface StructuralIntent {
 	readonly key: string;
+	readonly bindingKey: string;
 	readonly operation: StructuralOperation;
 	readonly actionNodeId: string;
 	readonly token: symbol;
+}
+
+export interface RepeaterIdentity {
+	readonly instanceKey: string;
+	readonly bindingKey: string;
 }
 
 export interface RepeaterIntentListener {
@@ -24,18 +30,27 @@ export interface RepeaterIntentListener {
 export class RepeaterCoordinator {
 	private readonly listeners = new Map<string, Set<RepeaterIntentListener>>();
 	private readonly appendButtons = new Map<string, Set<HTMLButtonElement>>();
+	private readonly instances = new Map<string, Set<string>>();
 
-	register(key: string, listener: RepeaterIntentListener): () => void {
+	register(identity: RepeaterIdentity, listener: RepeaterIntentListener): () => void {
+		const key = identityKey(identity);
 		const listeners = this.listeners.get(key) ?? new Set();
 		listeners.add(listener);
 		this.listeners.set(key, listeners);
+		const instances = this.instances.get(identity.bindingKey) ?? new Set();
+		instances.add(key);
+		this.instances.set(identity.bindingKey, instances);
 		return () => {
 			listeners.delete(listener);
-			if (!listeners.size) this.listeners.delete(key);
+			if (listeners.size) return;
+			this.listeners.delete(key);
+			instances.delete(key);
+			if (!instances.size) this.instances.delete(identity.bindingKey);
 		};
 	}
 
-	registerAppend(key: string, button: HTMLButtonElement): () => void {
+	registerAppend(identity: RepeaterIdentity, button: HTMLButtonElement): () => void {
+		const key = identityKey(identity);
 		const buttons = this.appendButtons.get(key) ?? new Set();
 		buttons.add(button);
 		this.appendButtons.set(key, buttons);
@@ -52,11 +67,13 @@ export class RepeaterCoordinator {
 		return undefined;
 	};
 
-	begin(state: ResolvedActionState, actionNodeId: string): StructuralIntent | undefined {
+	begin(state: ResolvedActionState, actionNodeId: string, owner?: RepeaterIdentity): StructuralIntent | undefined {
 		const operation = structuralOperation(state);
 		if (!operation || !state.target) return undefined;
-		const key = bindingKey(state.target);
-		const intent = { key, operation, actionNodeId, token: Symbol(actionNodeId) };
+		const targetKey = bindingKey(state.target);
+		const key = this.resolveInstance(targetKey, owner);
+		if (!key) return undefined;
+		const intent = { key, bindingKey: targetKey, operation, actionNodeId, token: Symbol(actionNodeId) };
 		for (const listener of this.listeners.get(key) ?? []) listener.apply(intent);
 		return intent;
 	}
@@ -69,10 +86,27 @@ export class RepeaterCoordinator {
 	reset(): void {
 		for (const listeners of this.listeners.values()) for (const listener of listeners) listener.reset();
 	}
+
+	private resolveInstance(binding: string, owner?: RepeaterIdentity): string | undefined {
+		if (owner?.bindingKey === binding) {
+			const key = identityKey(owner);
+			return this.listeners.has(key) ? key : undefined;
+		}
+		const instances = this.instances.get(binding);
+		return instances?.size === 1 ? instances.values().next().value : undefined;
+	}
 }
 
 export function bindingKey(binding: { readonly namespace: string; readonly segments: readonly (string | number)[] }) {
 	return JSON.stringify([binding.namespace, binding.segments]);
+}
+
+export function repeaterIdentity(instanceKey: string, binding: Parameters<typeof bindingKey>[0]): RepeaterIdentity {
+	return Object.freeze({ instanceKey, bindingKey: bindingKey(binding) });
+}
+
+function identityKey(identity: RepeaterIdentity): string {
+	return JSON.stringify([identity.bindingKey, identity.instanceKey]);
 }
 
 function structuralOperation(state: ResolvedActionState): StructuralOperation | undefined {
