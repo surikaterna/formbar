@@ -47,6 +47,12 @@ list. Execution is isolated per concrete node instance with `drop` (default),
 `replace`, or FIFO `queue` concurrency; payloads and snapshots are re-evaluated
 when a run starts. Results and diagnostics are code-only, and reset or disposal
 aborts active and queued work even when a trusted handler ignores its signal.
+Each executor permits at most 32 waiting `queue` intents per concrete instance,
+in addition to its active run. Valid excess activations resolve immediately with
+`{ status: "dropped" }` without displacing accepted FIFO work; unavailable actions
+still fail preflight first. Capacity is reclaimed as work starts. This is not a
+global limit across instances or executors, and there is no per-node or executor
+option to configure it.
 
 `StoredComputation` declarations currently receive static duplicate-target and cycle validation only; the runtime does not execute or persist them. Atomic stored computation lifecycle is tracked separately in [#129](https://github.com/surikaterna/formbar/issues/129). Consumers must not treat accepted declarations as persisted calculations until that work is delivered.
 

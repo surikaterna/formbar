@@ -27,6 +27,8 @@ interface Lane {
 }
 
 const ABORTED: ActionExecutionResult = Object.freeze({ status: "aborted", diagnostic: "action-aborted" });
+const DROPPED: ActionExecutionResult = Object.freeze({ status: "dropped" });
+const MAX_WAITING_INTENTS = 32;
 
 class DeclarativeActionExecutor implements ActionExecutor {
 	private readonly form: FormApi<unknown, unknown>;
@@ -41,6 +43,8 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	private resetToken: RunToken | undefined;
 	private attached = false;
 	private disposed = false;
+	private generation = 0;
+	private cancelling = false;
 
 	constructor(options: CreateActionExecutorOptions) {
 		this.form = options.form;
@@ -73,36 +77,55 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	};
 
 	private executeSafe(instanceKey: string): Promise<ActionExecutionResult> {
-		if (this.disposed) return Promise.resolve(ABORTED);
+		if (this.disposed || this.cancelling) return Promise.resolve(ABORTED);
+		const generation = this.generation;
 		this.attach();
-		if (this.disposed) return Promise.resolve(ABORTED);
+		if (this.disposed || generation !== this.generation) return Promise.resolve(ABORTED);
 		const state = this.resolvedState(instanceKey);
+		if (this.disposed || generation !== this.generation) return Promise.resolve(ABORTED);
 		const lane = this.lanes.get(instanceKey) ?? { active: undefined, queue: [] };
 		this.lanes.set(instanceKey, lane);
 		if (!lane.active) return this.start(instanceKey, lane);
 		const diagnostic = preflightAction(this.form, state, state ? this.registry.handlers.has(state.action) : false);
+		if (!this.owns(instanceKey, lane)) return Promise.resolve(ABORTED);
 		if (diagnostic) return Promise.resolve(Object.freeze({ status: "failed", diagnostic }));
-		if (state?.concurrency === "queue") return new Promise((resolve) => lane.queue.push({ resolve }));
-		if (state?.concurrency !== "replace") return Promise.resolve(Object.freeze({ status: "dropped" }));
+		if (state?.concurrency === "queue") {
+			if (lane.queue.length >= MAX_WAITING_INTENTS) return Promise.resolve(DROPPED);
+			return new Promise((resolve) => lane.queue.push({ resolve }));
+		}
+		if (state?.concurrency !== "replace") return Promise.resolve(DROPPED);
 		this.cancelActive(instanceKey, lane);
+		if (!this.owns(instanceKey, lane)) return Promise.resolve(ABORTED);
+		if (lane.active) return Promise.resolve(ABORTED);
 		return this.start(instanceKey, lane);
 	}
 
 	private start(instanceKey: string, lane: Lane): Promise<ActionExecutionResult> {
+		try {
+			return this.startSafe(instanceKey, lane);
+		} catch {
+			if (!this.owns(instanceKey, lane)) return Promise.resolve(ABORTED);
+			return this.failStart(instanceKey, lane, "action-failed");
+		}
+	}
+
+	private startSafe(instanceKey: string, lane: Lane): Promise<ActionExecutionResult> {
+		if (!this.owns(instanceKey, lane) || lane.active) return Promise.resolve(ABORTED);
 		const state = this.resolvedState(instanceKey);
+		if (!this.owns(instanceKey, lane) || lane.active) return Promise.resolve(ABORTED);
 		const diagnostic = preflightAction(this.form, state, state ? this.registry.handlers.has(state.action) : false);
+		if (!this.owns(instanceKey, lane) || lane.active) return Promise.resolve(ABORTED);
 		if (diagnostic) return this.failStart(instanceKey, lane, diagnostic);
 		const token = { controller: new AbortController() };
 		lane.active = token;
 		this.setState(instanceKey, Object.freeze({ status: "pending" }));
+		if (!this.owns(instanceKey, lane) || lane.active !== token) return Promise.resolve(ABORTED);
 		return this.run(instanceKey, lane, token);
 	}
 
 	private failStart(instanceKey: string, lane: Lane, diagnostic: ActionDiagnosticCode) {
 		const result = this.fail(instanceKey, diagnostic);
-		const next = lane.queue.shift();
-		if (next) void this.start(instanceKey, lane).then(next.resolve);
-		else this.lanes.delete(instanceKey);
+		this.drain(instanceKey, lane);
 		return Promise.resolve(result);
 	}
 
@@ -111,10 +134,20 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		if (lane.active !== token) return ABORTED;
 		lane.active = undefined;
 		const result = this.finish(instanceKey, diagnostic);
+		if (!this.owns(instanceKey, lane)) return ABORTED;
+		this.drain(instanceKey, lane);
+		return result;
+	}
+
+	private owns(instanceKey: string, lane: Lane): boolean {
+		return !this.disposed && this.lanes.get(instanceKey) === lane;
+	}
+
+	private drain(instanceKey: string, lane: Lane): void {
+		if (!this.owns(instanceKey, lane) || lane.active) return;
 		const next = lane.queue.shift();
 		if (next) void this.start(instanceKey, lane).then(next.resolve);
-		else if (!lane.active) this.lanes.delete(instanceKey);
-		return result;
+		else this.lanes.delete(instanceKey);
 	}
 
 	private async invoke(instanceKey: string, token: RunToken): Promise<ActionDiagnosticCode | undefined> {
@@ -190,15 +223,29 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		const active = lane.active;
 		lane.active = undefined;
 		active?.controller.abort();
-		this.setState(instanceKey, Object.freeze({ status: "idle" }));
+		if (!this.lanes.has(instanceKey) || this.owns(instanceKey, lane)) {
+			this.setState(instanceKey, Object.freeze({ status: "idle" }));
+		}
 	}
 
 	private cancelAll(except?: RunToken): void {
-		for (const [instanceKey, lane] of this.lanes) {
-			for (const intent of lane.queue.splice(0)) intent.resolve(ABORTED);
-			if (lane.active === except) continue;
-			this.cancelActive(instanceKey, lane);
-			this.lanes.delete(instanceKey);
+		this.generation++;
+		const lanes = [...this.lanes];
+		this.lanes.clear();
+		if (except) {
+			const retained = lanes.find(([, lane]) => lane.active === except);
+			if (retained) this.lanes.set(retained[0], retained[1]);
+		}
+		const wasCancelling = this.cancelling;
+		this.cancelling = true;
+		try {
+			for (const [instanceKey, lane] of lanes) {
+				for (const intent of lane.queue.splice(0)) intent.resolve(ABORTED);
+				if (lane.active === except) continue;
+				this.cancelActive(instanceKey, lane);
+			}
+		} finally {
+			this.cancelling = wasCancelling;
 		}
 	}
 
