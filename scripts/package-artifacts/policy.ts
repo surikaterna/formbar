@@ -21,10 +21,11 @@ export const expressionAdr = "docs/adr/0001-expression-service-and-reactive-prop
 export const standardPackageFiles = ["LICENSE", "README.md", "package.json"] as const;
 
 export interface ExportConditions {
-	readonly import: string;
-	readonly require: string;
-	readonly types: string;
+	readonly import: { readonly types: string; readonly default: string };
+	readonly require: { readonly types: string; readonly default: string };
 }
+
+export const exportEntries = [".", "./path", "./transforms", "./validation"] as const;
 
 export interface PackageManifest {
 	readonly dependencies?: Readonly<Record<string, string>>;

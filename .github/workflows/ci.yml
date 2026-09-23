@@ -90,6 +90,9 @@ jobs:
       - name: Check package artifacts
         run: bun run check:package-artifacts
 
+      - name: Check external packed consumers
+        run: bun run check:consumer-exports
+
       - name: Typecheck demos
         run: bun run --filter @formbar/demos typecheck
 

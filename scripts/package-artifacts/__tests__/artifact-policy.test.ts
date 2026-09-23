@@ -21,6 +21,26 @@ afterEach(() => {
 	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
+function exportFixture(): PackageManifest {
+	return {
+		main: "./dist/index.cjs",
+		module: "./dist/index.js",
+		types: "./dist/index.d.ts",
+		exports: Object.fromEntries(
+			[".", "./path", "./transforms", "./validation"].map((subpath) => {
+				const stem = subpath === "." ? "index" : `${subpath.slice(2)}.entry`;
+				return [
+					subpath,
+					{
+						import: { types: `./dist/${stem}.d.ts`, default: `./dist/${stem}.js` },
+						require: { types: `./dist/${stem}.d.cts`, default: `./dist/${stem}.cjs` },
+					},
+				];
+			}),
+		),
+	} as PackageManifest;
+}
+
 describe("package artifact policy", () => {
 	it("rejects a test file selected by native npm pack", () => {
 		const directory = temporaryDirectory("pack-leak");
@@ -41,17 +61,43 @@ describe("package artifact policy", () => {
 	});
 
 	it("requires every runtime, declaration, and subpath target to be packed", () => {
-		const manifest = {
-			main: "./dist/index.cjs",
-			module: "./dist/index.js",
-			types: "./dist/index.d.ts",
-			exports: {
-				".": { types: "./dist/index.d.ts", import: "./dist/index.js", require: "./dist/index.cjs" },
-				"./path": { types: "./dist/path.d.ts", import: "./dist/path.js", require: "./dist/path.cjs" },
-			},
-		} as PackageManifest;
-		const files = [...standardFiles, "dist/index.cjs", "dist/index.js", "dist/index.d.ts"];
-		expect(() => validateExportTargets(policy, manifest, files)).toThrow(/path.*target is not packed/);
+		const manifest = exportFixture();
+		const files = [
+			...standardFiles,
+			...Object.values(manifest.exports).flatMap((entry) =>
+				[...Object.values(entry.import), ...Object.values(entry.require)].map((target) => target.slice(2)),
+			),
+		];
+		expect(() => validateExportTargets(policy, manifest, files)).not.toThrow();
+		for (const target of files.filter((file) => file.startsWith("dist/"))) {
+			expect(() =>
+				validateExportTargets(
+					policy,
+					manifest,
+					files.filter((file) => file !== target),
+				),
+			).toThrow(/not packed/);
+		}
+		const mutated = (exports: unknown, overrides = {}) => ({ ...manifest, ...overrides, exports }) as PackageManifest;
+		const root = manifest.exports["."];
+		const invalid = [
+			mutated({ ...manifest.exports, ".": { types: manifest.types, ...root } }),
+			mutated({ ...manifest.exports, ".": { ...root, default: manifest.module } }),
+			mutated({ ...manifest.exports, ".": { import: root.import } }),
+			mutated({ ...manifest.exports, ".": { require: root.require, import: root.import } }),
+			mutated({
+				...manifest.exports,
+				".": { ...root, require: { default: root.require.default, types: root.require.types } },
+			}),
+			mutated({ ...manifest.exports, ".": { ...root, require: { ...root.require, types: root.import.types } } }),
+			mutated({ ...manifest.exports, ".": { ...root, require: { ...root.require, default: root.import.default } } }),
+			mutated({ ...manifest.exports, "./path": { ...manifest.exports["./path"], import: root.import } }),
+			mutated(manifest.exports, { main: manifest.module }),
+			mutated(manifest.exports, { types: root.require.types }),
+			mutated(manifest.exports, { module: manifest.main }),
+			mutated({ ...manifest.exports, "./extra": root }),
+		];
+		for (const entry of invalid) expect(() => validateExportTargets(policy, entry, files)).toThrow();
 	});
 
 	it("accepts complete relative production maps and rejects local or test sources", () => {

@@ -52,9 +52,8 @@ describe("expression ownership and source principles", () => {
 		for (const name of ["expressions"]) {
 			const pkg = manifest(name);
 			expect(pkg.exports["."]).toEqual({
-				types: "./dist/index.d.ts",
-				import: "./dist/index.js",
-				require: "./dist/index.cjs",
+				import: { types: "./dist/index.d.ts", default: "./dist/index.js" },
+				require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },
 			});
 			expect(linked).toContain(pkg.name);
 			if (existsSync(release)) {
