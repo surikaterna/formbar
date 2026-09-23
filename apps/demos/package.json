@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
+		"test:e2e": "playwright test",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"preview": "vite preview"
 	},
@@ -22,6 +23,7 @@
 		"react-dom": "^19.0.0"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.55.0",
 		"@tailwindcss/vite": "^4.0.0",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
