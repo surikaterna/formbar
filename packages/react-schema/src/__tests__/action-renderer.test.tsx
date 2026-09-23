@@ -94,11 +94,16 @@ describe("action rendering", () => {
 		expect(submitView.container.querySelectorAll("output")).toHaveLength(0);
 	});
 
-	it("disables every action during submission and gives submit no action status node", async () => {
-		let resolve!: () => void;
-		const pending = new Promise<void>((done) => {
-			resolve = done;
+	it("reactively disables a pending replace action during a repeated submission", async () => {
+		let resolveAction!: () => void;
+		const pendingAction = new Promise<void>((done) => {
+			resolveAction = done;
 		});
+		let resolveSubmit!: () => void;
+		const pendingSubmit = new Promise<void>((done) => {
+			resolveSubmit = done;
+		});
+		let submissions = 0;
 		const definition: FormDefinition = {
 			version: 1,
 			id: "submission-lock",
@@ -115,22 +120,94 @@ describe("action rendering", () => {
 			schema,
 			definition,
 			data: { name: "Ada" },
-			formOptions: { onSubmit: () => pending },
-			actions: [{ id: "host.save", handler: vi.fn() }],
+			formOptions: {
+				onSubmit: async () => {
+					if (++submissions === 1) return { ok: true, submitId: "first" };
+					await pendingSubmit;
+					return { ok: true, submitId: "second" };
+				},
+			},
+			actions: [{ id: "host.save", handler: () => pendingAction }],
 		});
 		mounted.push(view);
 		const submitButton = view.container.querySelector('[data-formbar-action="submit"] button') as HTMLButtonElement;
 		const saveButton = view.container.querySelector('[data-formbar-action="host.save"] button') as HTMLButtonElement;
 
-		act(() => submitButton.click());
+		await act(async () => view.form.submit());
+		act(() => saveButton.click());
+		await act(async () => Promise.resolve());
+		expect(saveButton.disabled).toBe(false);
+		expect(saveButton.getAttribute("aria-busy")).toBe("true");
+		let submission!: ReturnType<typeof view.form.submit>;
+		act(() => {
+			submission = view.form.submit();
+		});
 		await act(async () => Promise.resolve());
 		expect(submitButton.disabled).toBe(true);
-		expect(submitButton.getAttribute("aria-busy")).toBe("true");
+		expect(submitButton.getAttribute("aria-busy")).toBeNull();
 		expect(saveButton.disabled).toBe(true);
+		expect(saveButton.getAttribute("aria-busy")).toBe("true");
 		expect(view.container.querySelectorAll('output[data-formbar-action="submit"]')).toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-formbar-status=""]')).toHaveLength(1);
 
-		await act(async () => resolve());
+		resolveSubmit();
+		await act(async () => submission);
+		expect(saveButton.disabled).toBe(false);
+		expect(saveButton.getAttribute("aria-busy")).toBe("true");
+		await act(async () => resolveAction());
+	});
+
+	it("keeps reset accessible while it aborts submission and restores the baseline", async () => {
+		let started!: (signal: AbortSignal) => void;
+		const submissionStarted = new Promise<AbortSignal>((resolve) => {
+			started = resolve;
+		});
+		const pending = new Promise<void>(() => undefined);
+		const definition: FormDefinition = {
+			version: 1,
+			id: "submission-reset",
+			root: {
+				type: "group",
+				id: "actions",
+				children: [
+					{ type: "action", id: "submit", action: "submit" },
+					{ type: "action", id: "reset", action: "reset" },
+				],
+			},
+		};
+		const view = mountForm({
+			schema,
+			definition,
+			data: { name: "Ada" },
+			formOptions: {
+				onSubmit: async ({ signal }) => {
+					started(signal);
+					await pending;
+					return { ok: true, submitId: "late" };
+				},
+			},
+		});
+		mounted.push(view);
+		const submitButton = view.container.querySelector('[data-formbar-action="submit"] button') as HTMLButtonElement;
+		const resetButton = view.container.querySelector('[data-formbar-action="reset"] button') as HTMLButtonElement;
+		act(() => view.form.setValue("name", "edited"));
+		act(() => submitButton.click());
+		let signal!: AbortSignal;
+		await act(async () => {
+			signal = await submissionStarted;
+		});
+
+		expect(submitButton.disabled).toBe(true);
+		expect(resetButton.disabled).toBe(false);
+		const statusId = resetButton.getAttribute("aria-describedby") ?? "";
+		expect(document.getElementById(statusId)?.tagName).toBe("OUTPUT");
+		await act(async () => resetButton.click());
+		expect(signal.aborted).toBe(true);
+		expect(view.form.getState().data).toEqual({ name: "Ada" });
+		expect(view.form.isSubmitting()).toBe(false);
+		expect(resetButton.disabled).toBe(false);
+		expect(document.getElementById(statusId)?.textContent).toBe("Action completed.");
+		expect(view.container.querySelectorAll('output[data-formbar-action="submit"]')).toHaveLength(0);
 	});
 
 	it("is StrictMode-safe across unmount with ignored pending work", async () => {

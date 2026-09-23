@@ -80,6 +80,8 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		const lane = this.lanes.get(instanceKey) ?? { active: undefined, queue: [] };
 		this.lanes.set(instanceKey, lane);
 		if (!lane.active) return this.start(instanceKey, lane);
+		const diagnostic = preflightAction(this.form, state, state ? this.registry.handlers.has(state.action) : false);
+		if (diagnostic) return Promise.resolve(Object.freeze({ status: "failed", diagnostic }));
 		if (state?.concurrency === "queue") return new Promise((resolve) => lane.queue.push({ resolve }));
 		if (state?.concurrency !== "replace") return Promise.resolve(Object.freeze({ status: "dropped" }));
 		this.cancelActive(instanceKey, lane);
@@ -221,7 +223,6 @@ class DeclarativeActionExecutor implements ActionExecutor {
 
 	private readStateSafe(instanceKey: string): ActionExecutionState {
 		const current = this.states.get(instanceKey);
-		if (current?.status === "pending") return current;
 		const state = this.resolvedState(instanceKey);
 		const diagnostic = preflightAction(this.form, state, state ? this.registry.handlers.has(state.action) : false);
 		if (diagnostic) {
@@ -278,7 +279,6 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		if (this.attached || this.disposed) return;
 		this.attached = true;
 		this.addCleanup(this.runtime.subscribe(this.notifyAll));
-		this.addCleanup(this.form.subscribe(this.notifyAll));
 		this.addCleanup(this.runtime.onDispose(this.dispose));
 		this.addCleanup(this.form.onDispose(this.dispose));
 		this.addCleanup(this.form.onReset(this.onReset));

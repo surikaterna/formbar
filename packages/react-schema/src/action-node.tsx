@@ -24,7 +24,6 @@ export function ActionNodeView({ node, state, environment, layout }: ActionNodeP
 		!state.visible ||
 		state.disabled ||
 		state.readOnly ||
-		environment.form.isSubmitting() ||
 		(execution.status === "pending" && state.concurrency === "drop");
 	return (
 		<div data-formbar-node={node.id} data-formbar-action={state.action} {...layout.attributes} style={layout.style}>

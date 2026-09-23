@@ -43,7 +43,7 @@ function preflightActionUnsafe(
 ): ActionDiagnosticCode | undefined {
 	if (!state) return "action-unavailable";
 	if (!state.visible || state.disabled || state.readOnly) return "action-unavailable";
-	if (form.isSubmitting()) return "action-unavailable";
+	if (form.isSubmitting() && state.action !== "reset") return "action-unavailable";
 	if (state.payload.status === "error") return "invalid-action-payload";
 	if (!BUILT_IN_ACTIONS.has(state.action)) return hasCustomHandler ? undefined : "unknown-action";
 	if (!state.action.startsWith("array.")) return undefined;

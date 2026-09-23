@@ -135,15 +135,21 @@ describe("action executor concurrency", () => {
 		form.dispose();
 	});
 
-	it("blocks queued and newly requested actions while core submission has authority", async () => {
+	it("reactively locks pending actions on a repeated submit with one core subscription", async () => {
 		const active = deferred();
 		const submission = deferred();
 		const handler = vi.fn(() => active.promise);
+		let submissions = 0;
 		const form = createForm({
 			initialData: {},
 			initialUiState: {},
-			onSubmit: () => submission.promise,
+			onSubmit: async () => {
+				if (++submissions === 1) return { ok: true, submitId: "first" };
+				await submission.promise;
+				return { ok: true, submitId: "second" };
+			},
 		});
+		const subscribe = vi.spyOn(form, "subscribe");
 		const runtime = createFormRuntime({
 			form,
 			definition: definition([
@@ -152,25 +158,83 @@ describe("action executor concurrency", () => {
 			]),
 		});
 		const executor = createActionExecutor({ form, runtime, actions: [{ id: "host.run", handler }] });
+		const observation = executor.observe(key("run"));
+		const listener = vi.fn();
+		observation.getSnapshot();
+		const stop = observation.subscribe(listener);
+		await form.submit();
 		const first = executor.execute(key("run"));
 		await Promise.resolve();
 		const queued = executor.execute(key("run"));
+		listener.mockClear();
 		const submit = form.submit();
 		await Promise.resolve();
 
+		expect(subscribe).toHaveBeenCalledOnce();
+		expect(listener).toHaveBeenCalled();
+		expect(observation.getSnapshot()).toEqual({ status: "pending", availability: "action-unavailable" });
+		expect(await executor.execute(key("run"))).toEqual({ status: "failed", diagnostic: "action-unavailable" });
 		expect(executor.observe(key("other")).getSnapshot().availability).toBe("action-unavailable");
 		expect(await executor.execute(key("other"))).toEqual({ status: "failed", diagnostic: "action-unavailable" });
-		active.resolve();
-		expect(await first).toEqual({ status: "completed" });
-		expect(await queued).toEqual({ status: "failed", diagnostic: "action-unavailable" });
-		expect(handler).toHaveBeenCalledOnce();
 		submission.resolve();
 		await submit;
+		expect(observation.getSnapshot()).toEqual({ status: "pending" });
+		active.resolve();
+		expect(await first).toEqual({ status: "completed" });
+		expect(await queued).toEqual({ status: "completed" });
+		expect(handler).toHaveBeenCalledTimes(2);
 
+		stop();
+		observation.dispose();
 		executor.dispose();
 		runtime.dispose();
 		form.dispose();
 	});
+
+	it.each(["drop", "replace"] as const)(
+		"composes submission availability into a pending %s snapshot",
+		async (concurrency) => {
+			const active = deferred();
+			const submission = deferred();
+			let submissions = 0;
+			const form = createForm({
+				initialData: {},
+				initialUiState: {},
+				onSubmit: async () => {
+					if (++submissions === 1) return { ok: true, submitId: "first" };
+					await submission.promise;
+					return { ok: true, submitId: "second" };
+				},
+			});
+			const runtime = createFormRuntime({
+				form,
+				definition: definition([{ type: "action", id: "run", action: "host.run", concurrency }]),
+			});
+			const executor = createActionExecutor({
+				form,
+				runtime,
+				actions: [{ id: "host.run", handler: () => active.promise }],
+			});
+			const observation = executor.observe(key("run"));
+			await form.submit();
+			const execution = executor.execute(key("run"));
+			await Promise.resolve();
+			const secondSubmit = form.submit();
+			await Promise.resolve();
+
+			expect(observation.getSnapshot()).toEqual({ status: "pending", availability: "action-unavailable" });
+			submission.resolve();
+			await secondSubmit;
+			expect(observation.getSnapshot()).toEqual({ status: "pending" });
+			active.resolve();
+			expect(await execution).toEqual({ status: "completed" });
+
+			observation.dispose();
+			executor.dispose();
+			runtime.dispose();
+			form.dispose();
+		},
+	);
 
 	it("reset aborts active and queued work before restoring core state", async () => {
 		const ignored = deferred();
@@ -195,6 +259,53 @@ describe("action executor concurrency", () => {
 		expect(await active).toEqual({ status: "aborted", diagnostic: "action-aborted" });
 		expect(await queued).toEqual({ status: "aborted", diagnostic: "action-aborted" });
 		expect(form.getState().data).toEqual({ name: "first" });
+		ignored.resolve();
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("keeps reset available to abort submission and repeat the reset lifecycle", async () => {
+		let started!: (signal: AbortSignal) => void;
+		const submissionStarted = new Promise<AbortSignal>((resolve) => {
+			started = resolve;
+		});
+		const ignored = deferred();
+		const form = createForm({
+			initialData: { name: "first" },
+			initialUiState: {},
+			onSubmit: async ({ signal }) => {
+				started(signal);
+				await ignored.promise;
+				return { ok: true, submitId: "late" };
+			},
+		});
+		const runtime = createFormRuntime({
+			form,
+			definition: definition([
+				{ type: "action", id: "submit", action: "submit" },
+				{ type: "action", id: "reset", action: "reset" },
+			]),
+		});
+		const executor = createActionExecutor({ form, runtime });
+		const resets = vi.fn();
+		form.onReset(resets);
+		form.setValue("name", "edited");
+		const submission = executor.execute(key("submit"));
+		const signal = await submissionStarted;
+
+		expect(form.isSubmitting()).toBe(true);
+		expect(executor.observe(key("reset")).getSnapshot().availability).toBeUndefined();
+		expect(await executor.execute(key("reset"))).toEqual({ status: "completed" });
+		expect(signal.aborted).toBe(true);
+		expect(await submission).toEqual({ status: "aborted", diagnostic: "action-aborted" });
+		expect(form.getState().data).toEqual({ name: "first" });
+		expect(form.getState().meta.submitted).toBeUndefined();
+		expect(form.isSubmitting()).toBe(false);
+		expect(resets).toHaveBeenCalledOnce();
+		expect(await executor.execute(key("reset"))).toEqual({ status: "completed" });
+		expect(resets).toHaveBeenCalledTimes(2);
+
 		ignored.resolve();
 		executor.dispose();
 		runtime.dispose();
