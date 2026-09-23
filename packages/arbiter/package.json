@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/arbiter",
-	"version": "0.14.3",
+	"version": "0.15.0",
 	"type": "module",
 	"description": "Arbiter rule engine bridge for @formbar/core — declarative UI governance via production rules",
 	"license": "MIT",
@@ -33,7 +33,7 @@
 	},
 	"dependencies": {
 		"@formbar/expressions": "^0.14.3",
-		"@formbar/core": "^0.14.3"
+		"@formbar/core": "^0.15.0"
 	},
 	"peerDependencies": {
 		"@arbitre/core": "^0.3.1",
