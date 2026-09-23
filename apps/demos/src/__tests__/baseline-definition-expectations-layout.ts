@@ -19,7 +19,7 @@ export const vesselDefinition = expectedDefinition("custom-layout", "root", [
 	expectedField("identity", 2, "f-callSign", "callSign", "text", "Call Sign", { span: half }),
 	expectedField("identity", 3, "f-flag", "flag", "select", "Flag State", { span: half }),
 	expectedSection("root", 1, "classification", "Classification"),
-	expectedField("classification", 0, "f-type", "vesselType", "select", "Vessel Type", { span: half }),
+	expectedField("classification", 0, "f-type", "vesselType", "radio", "Vessel Type", { span: half }),
 	expectedField("classification", 1, "f-year", "yearBuilt", "demo16.range", "Year Built", { span: half }),
 	expectedField(
 		"classification",

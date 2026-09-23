@@ -60,7 +60,7 @@ export const searchFiltersDefinition = {
 					field("f-category", "category", "select", "Category", true),
 					field("f-date-range", "dateRange", "select", "Date Range", true),
 					field("f-sort-by", "sortBy", "select", "Sort By", true),
-					field("f-file-size", "fileSize", "select", "File Size", true),
+					field("f-file-size", "fileSize", "radio", "File Size", true),
 				],
 			},
 			{
@@ -82,7 +82,7 @@ export const searchFiltersDemo = {
 	id: "search-filters",
 	title: "11. Search Filter Bar",
 	subtitle: "Compact filter panel UI",
-	copy: "A compact search and filter panel demonstrating formbar for non-traditional form UIs. Select components keep the interface clean, while switch toggles provide quick boolean options.",
+	copy: "A compact search and filter panel demonstrating formbar for non-traditional form UIs. Selects and file size radios offer quick choices alongside boolean options.",
 	category: "layout",
 	actionControls: "definition",
 	runtimeProfileIds: ["demo11.search-actions.v1"],

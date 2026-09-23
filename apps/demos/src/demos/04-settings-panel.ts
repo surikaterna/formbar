@@ -59,7 +59,7 @@ const definition = {
 				id: "localization",
 				title: "Localization",
 				children: [
-					field("f-language", "language", "select", "Language", undefined, half),
+					field("f-language", "language", "radio", "Language", undefined, half),
 					field("f-timezone", "timezone", "select", "Time Zone", undefined, half),
 				],
 			},

@@ -8,8 +8,10 @@ import { userProfileDemo } from "../demos/02-user-profile";
 import { nestedAddressDemo } from "../demos/03-nested-address";
 import { settingsPanelDemo } from "../demos/04-settings-panel";
 import { productEntryDemo } from "../demos/05-product-entry";
+import { arrayItemsDemo } from "../demos/08-array-items";
 import { customLayoutDemo } from "../demos/09-custom-layout";
 import { responsiveSectionsDemo } from "../demos/10-multi-section-responsive";
+import { searchFiltersDemo } from "../demos/11-search-filters";
 import { multiSchemaSourcesDemo } from "../demos/13-multi-schema-sources";
 import { kitchenSinkDemo } from "../demos/15-kitchen-sink";
 import type { SchemaDemoFixture } from "../demos/baseline-contracts";
@@ -75,6 +77,10 @@ function change(element: HTMLSelectElement, value: string): void {
 	});
 }
 
+function radios(view: MountedHost, id: string): HTMLInputElement[] {
+	return [...view.container.querySelectorAll<HTMLInputElement>(`[data-formbar-node="${id}"] input[type="radio"]`)];
+}
+
 async function click(view: MountedHost, text: string): Promise<void> {
 	const button = [...view.container.querySelectorAll("button")].find(
 		(candidate) => candidate.textContent?.trim() === text,
@@ -91,7 +97,7 @@ function fillRequiredFields(view: MountedHost, fixture: SchemaDemoFixture): void
 		input(control(view, "First Name") as HTMLInputElement, "Ada");
 		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
 		input(control(view, "Email") as HTMLInputElement, "ada@example.com");
-		change(control(view, "Role") as HTMLSelectElement, "option-0");
+		act(() => radios(view, "f-role")[0].click());
 	} else if (fixture === productEntryDemo) {
 		input(control(view, "Product Name") as HTMLInputElement, "Widget");
 		input(control(view, "SKU") as HTMLInputElement, "SKU-1");
@@ -114,6 +120,31 @@ describe("SchemaDemoHost routes", () => {
 });
 
 describe("generated and schema-evidence behavior", () => {
+	it.each([
+		[userProfileDemo, "f-role", "Role", ["Developer", "Designer", "Manager", "QA", "DevOps"], true],
+		[settingsPanelDemo, "f-language", "Language", ["English", "Spanish", "French", "German", "Japanese"], false],
+		[arrayItemsDemo, "f-priority", "Priority", ["Low", "Medium", "High", "Critical"], false],
+		[
+			customLayoutDemo,
+			"f-type",
+			"Vessel Type",
+			["Container", "Bulk Carrier", "Tanker", "RoRo", "General Cargo"],
+			false,
+		],
+		[searchFiltersDemo, "f-file-size", "File Size", ["Any", "< 1 MB", "1-10 MB", "10-100 MB", "> 100 MB"], false],
+	] as const)("renders %s native radio choices in historical order", (fixture, id, label, options, required) => {
+		const view = mount(fixture);
+		const choices = radios(view, id);
+		expect(choices.map((choice) => choice.nextElementSibling?.textContent)).toEqual(options);
+		expect(choices.every((choice) => choice.required === required && !choice.checked)).toBe(true);
+		expect(choices[0].closest("fieldset")?.querySelector("legend")?.textContent).toBe(label);
+		act(() => choices[1].click());
+		expect(choices[1].checked).toBe(true);
+		expect(view.container.querySelector(`[data-formbar-node="${id}"]`)?.getAttribute("data-formbar-span-md")).toBe(
+			id === "f-priority" ? null : "6",
+		);
+		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
+	});
 	it("renders generated required, format, textarea, nested, and option controls", () => {
 		const contact = mount(basicContactDemo);
 		const name = control(contact, "Full Name") as HTMLInputElement;
@@ -240,7 +271,7 @@ describe("lifecycle and accessibility", () => {
 		input(control(view, "First Name") as HTMLInputElement, "Ada");
 		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
 		input(control(view, "Email") as HTMLInputElement, "ada@example.com");
-		change(control(view, "Role") as HTMLSelectElement, "option-0");
+		act(() => radios(view, "f-role")[0].click());
 		const age = control(view, "Age") as HTMLInputElement;
 		input(age, "42");
 		await click(view, "Submit");

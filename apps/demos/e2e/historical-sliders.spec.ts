@@ -28,7 +28,8 @@ async function fillRequired(preview: Locator, demo: string, required: readonly s
 			.getByLabel(name, { exact: true })
 			.fill(name === "Email" ? "ada@example.com" : name === "Price (USD)" ? "10" : "Example");
 	}
-	if (demo === "user-profile") await preview.getByRole("combobox", { name: "Role" }).selectOption({ index: 1 });
+	if (demo === "user-profile")
+		await preview.getByRole("group", { name: "Role" }).getByRole("radio", { name: "Developer" }).check();
 	if (demo === "product-entry") await preview.getByRole("combobox", { name: "Category" }).selectOption({ index: 1 });
 }
 

@@ -4,6 +4,7 @@ import type { SchemaDemoFixture } from "./baseline-contracts";
 const disabledBackendOption = Object.freeze({ value: "backend", title: "Back end", disabled: true });
 const tagSchemaOptions = Object.freeze(["frontend", disabledBackendOption]);
 const tagPresentationOptions = Object.freeze([
+	Object.freeze({ value: "", title: "(empty tag)" }),
 	Object.freeze({ value: "frontend", title: "frontend" }),
 	disabledBackendOption,
 ]);
@@ -27,7 +28,7 @@ function richOptionsField(id: string, target: Binding, label: string, options: J
 		type: "field",
 		id,
 		binding: target,
-		widget: "demo16.rich-options",
+		widget: "demo16.rich-select",
 		label,
 		props: { richOptions: { mode: "literal", value: options } },
 	};
@@ -150,7 +151,7 @@ export const arrayItemsDefinition = {
 		children: [
 			field("f-project-name", binding("projectName"), "text", "Project Name"),
 			field("f-description", binding("description"), "textarea", "Description"),
-			field("f-priority", binding("priority"), "select", "Priority"),
+			field("f-priority", binding("priority"), "radio", "Priority"),
 			...repeater(
 				"tags",
 				"tags",
