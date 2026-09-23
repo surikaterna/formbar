@@ -1,5 +1,16 @@
 # @formbar/react-schema
 
+## 0.14.3
+
+### Patch Changes
+
+- ae3c091: Select CJS declarations for require consumers and ESM declarations for import consumers via paired conditional type exports (#154).
+- Updated dependencies [ae3c091]
+  - @formbar/core@0.14.3
+  - @formbar/declarative@0.14.3
+  - @formbar/from-schema@0.14.3
+  - @formbar/react@0.14.3
+
 ## 0.14.2
 
 ### Patch Changes

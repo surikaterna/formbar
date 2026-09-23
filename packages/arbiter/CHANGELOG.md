@@ -1,5 +1,16 @@
 # @formbar/arbiter
 
+## 0.14.3
+
+### Patch Changes
+
+- ae3c091: Select CJS declarations for require consumers and ESM declarations for import consumers via paired conditional type exports (#154).
+- 1ceb6f1: Require @arbitre/core 0.3.1 and Kuery 2.1.1 or newer so CommonJS consumers can resolve the correct upstream declaration branches.
+- Updated dependencies [ae3c091]
+- Updated dependencies [1ceb6f1]
+  - @formbar/expressions@0.14.3
+  - @formbar/core@0.14.3
+
 ## 0.14.2
 
 ### Patch Changes
