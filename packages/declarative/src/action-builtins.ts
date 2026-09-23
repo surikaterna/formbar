@@ -1,5 +1,5 @@
 import type { ArrayFieldHelpers, FormApi } from "@formbar/core";
-import { copyJson, readOwn } from "@formbar/expressions";
+import { copyJson, inspectDataContainer, readOwn } from "@formbar/expressions";
 import type { JsonValue } from "@formbar/expressions";
 import { BUILT_IN_ACTIONS } from "./action-registry.js";
 import type { ActionDiagnosticCode } from "./actions.js";
@@ -114,7 +114,7 @@ function prepareArray(form: FormApi<unknown, unknown>, state: ResolvedActionStat
 	try {
 		if (!Array.isArray(value)) return { diagnostic: "invalid-action-target" };
 		length = value.length;
-		if (!Number.isSafeInteger(length) || length < 0) return { diagnostic: "invalid-action-target" };
+		if (inspectDataContainer(value).length !== length) return { diagnostic: "invalid-action-target" };
 	} catch {
 		return { diagnostic: "invalid-action-target" };
 	}
@@ -248,5 +248,7 @@ function policyBlocked(form: FormApi<unknown, unknown>, state: ResolvedActionSta
 }
 
 function pointer(segments: readonly (string | number)[]): string {
-	return `/${segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+	return segments.length
+		? `/${segments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`
+		: "";
 }

@@ -1,5 +1,5 @@
 import type { FormApi, FormState, FormStateCapture } from "@formbar/core";
-import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressions";
+import type { Expression, JsonValue, StateRef } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
 import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
 import type { FormNode } from "./nodes.js";
@@ -15,35 +15,16 @@ import type {
 	RuntimeExpressionProperty,
 	RuntimeFieldBaseline,
 	RuntimeFormStatus,
-	RuntimeNodeInstance,
 	RuntimeRepeaterBaseline,
 	RuntimeResolvedNodeState,
-	RuntimeScopeInstance,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
 import { runtimeDiagnostic, sortRuntimeDiagnostics } from "./runtime-diagnostics.js";
+import { type ConcreteNode, expandDefinition } from "./runtime-expansion.js";
 import { evaluateRuntimeExpression } from "./runtime-expressions.js";
-import { readBinding, resolveBinding } from "./runtime-references.js";
 import type { ConcreteFieldReference } from "./runtime-references.js";
-import { resolveRepeaterState, sameBinding } from "./runtime-repeaters.js";
+import { resolveRepeaterState } from "./runtime-repeaters.js";
 import { resolveFormStatus } from "./runtime-status.js";
-
-interface ConcreteNode {
-	readonly node: FormNode;
-	readonly instance: RuntimeNodeInstance;
-	readonly scopes: Scopes;
-	readonly parentKey?: string;
-	readonly requiredBranch?: "then" | "else";
-	readonly binding?: StateRef;
-	readonly target?: StateRef;
-}
-
-interface ExpandFrame {
-	readonly scopes: Scopes;
-	readonly scopeInstances: readonly RuntimeScopeInstance[];
-	readonly parentKey?: string;
-	readonly requiredBranch?: "then" | "else";
-}
 
 interface ProjectionContext {
 	readonly capture: FormStateCapture<unknown, unknown>;
@@ -98,91 +79,6 @@ export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot 
 	});
 }
 
-function expandDefinition(
-	definition: ValidatedFormDefinition,
-	state: FormState<unknown, unknown>,
-): readonly ConcreteNode[] {
-	const output: ConcreteNode[] = [];
-	expandNode(definition.root, { scopes: Object.freeze({}), scopeInstances: Object.freeze([]) }, state, output);
-	return Object.freeze(output);
-}
-
-function expandNode(
-	node: FormNode,
-	frame: ExpandFrame,
-	state: FormState<unknown, unknown>,
-	output: ConcreteNode[],
-): void {
-	const instance = createInstance(node.id, frame.scopeInstances);
-	const binding = "binding" in node ? safeBinding(node.binding, frame.scopes) : undefined;
-	const target = node.type === "action" && node.target ? safeBinding(node.target, frame.scopes) : undefined;
-	output.push({
-		node,
-		instance,
-		scopes: frame.scopes,
-		...(frame.parentKey ? { parentKey: frame.parentKey } : {}),
-		...(frame.requiredBranch ? { requiredBranch: frame.requiredBranch } : {}),
-		...(binding ? { binding } : {}),
-		...(target ? { target } : {}),
-	});
-	const childFrame = { scopes: frame.scopes, scopeInstances: frame.scopeInstances, parentKey: instance.instanceKey };
-	if (node.type === "repeater") expandRepeater(node, binding, childFrame, state, output);
-	else if (node.type === "conditional") expandConditional(node, childFrame, state, output);
-	else for (const child of nodeChildren(node)) expandNode(child, childFrame, state, output);
-}
-
-function expandRepeater(
-	node: Extract<FormNode, { type: "repeater" }>,
-	binding: StateRef | undefined,
-	frame: ExpandFrame,
-	state: FormState<unknown, unknown>,
-	output: ConcreteNode[],
-): void {
-	if (!binding) return;
-	const items = readBinding(state, binding);
-	if (!Array.isArray(items)) return;
-	for (let index = 0; index < items.length; index++) {
-		const scope = Object.freeze({
-			namespace: binding.namespace,
-			segments: Object.freeze([...binding.segments, index]),
-		});
-		const scopes = Object.freeze({ ...frame.scopes, [node.scope]: scope });
-		const scopeInstances = Object.freeze([...frame.scopeInstances, Object.freeze({ scope: node.scope, index })]);
-		for (const child of node.children) expandNode(child, { ...frame, scopes, scopeInstances }, state, output);
-	}
-}
-
-function expandConditional(
-	node: Extract<FormNode, { type: "conditional" }>,
-	frame: ExpandFrame,
-	state: FormState<unknown, unknown>,
-	output: ConcreteNode[],
-): void {
-	for (const child of node.then) expandNode(child, { ...frame, requiredBranch: "then" }, state, output);
-	for (const child of node.else ?? []) expandNode(child, { ...frame, requiredBranch: "else" }, state, output);
-}
-
-function nodeChildren(node: FormNode): readonly FormNode[] {
-	if (node.type === "group" || node.type === "section") return node.children;
-	if (node.type === "tabs") return node.tabs.flatMap((tab) => tab.children);
-	if (node.type === "accordion") return node.items.flatMap((item) => item.children);
-	if (node.type === "custom") return node.children ?? [];
-	return [];
-}
-
-function createInstance(nodeId: string, scopes: readonly RuntimeScopeInstance[]): RuntimeNodeInstance {
-	const frozenScopes = Object.freeze([...scopes]);
-	return Object.freeze({ nodeId, scopes: frozenScopes, instanceKey: JSON.stringify([nodeId, frozenScopes]) });
-}
-
-function safeBinding(binding: Parameters<typeof resolveBinding>[0], scopes: Scopes): StateRef | undefined {
-	try {
-		return resolveBinding(binding, scopes);
-	} catch {
-		return undefined;
-	}
-}
-
 function concreteFields(concrete: readonly ConcreteNode[]): readonly ConcreteFieldReference[] {
 	return Object.freeze(
 		concrete
@@ -199,42 +95,49 @@ function resolveNodes(context: ProjectionContext): {
 	const nodes: RuntimeResolvedNodeState[] = [];
 	const fields: ResolvedFieldState[] = [];
 	const repeaters: ResolvedRepeaterState[] = [];
-	const byKey = new Map<string, RuntimeResolvedNodeState>();
+	const index = preindexNodes(context);
 	for (const concrete of context.concrete) {
-		const resolved = resolveNode(context, concrete, byKey, repeaters);
+		const resolved = resolveNode(context, concrete, index);
 		nodes.push(resolved.node);
-		byKey.set(concrete.instance.instanceKey, resolved.node);
 		if (resolved.field) fields.push(resolved.field);
 		if (resolved.node.type === "repeater") repeaters.push(resolved.node);
 	}
 	return { nodes, fields, repeaters };
 }
 
+interface ProjectionIndex {
+	readonly states: ReadonlyMap<string, ResolvedNodeState>;
+	readonly repeaters: ReadonlyMap<string, ResolvedRepeaterState>;
+}
+
+function preindexNodes(context: ProjectionContext): ProjectionIndex {
+	const states = new Map<string, ResolvedNodeState>();
+	const repeaters = new Map<string, ResolvedRepeaterState>();
+	for (const concrete of context.concrete) {
+		const parent = concrete.parentKey ? states.get(concrete.parentKey) : undefined;
+		let state = baseNodeState(context, concrete, parent);
+		if (concrete.node.type === "repeater") {
+			state = projectRepeater(context, { ...concrete, node: concrete.node }, state);
+			if (concrete.binding) repeaters.set(bindingKey(concrete.binding), state as ResolvedRepeaterState);
+		}
+		states.set(concrete.instance.instanceKey, state);
+	}
+	return { states, repeaters };
+}
+
 function resolveNode(
 	context: ProjectionContext,
 	concrete: ConcreteNode,
-	byKey: ReadonlyMap<string, RuntimeResolvedNodeState>,
-	repeaters: readonly ResolvedRepeaterState[],
+	index: ProjectionIndex,
 ): { readonly node: RuntimeResolvedNodeState; readonly field?: ResolvedFieldState } {
-	const parent = concrete.parentKey ? byKey.get(concrete.parentKey) : undefined;
-	const own = resolveOwnState(context, concrete);
-	const branchVisible = !concrete.requiredBranch || parent?.branch === concrete.requiredBranch;
-	let nodeState: ResolvedNodeState = Object.freeze({
-		instance: concrete.instance,
-		type: concrete.node.type,
-		visible: (parent?.visible ?? true) && branchVisible && own.visible,
-		disabled: (parent?.disabled ?? false) || own.disabled,
-		readOnly: (parent?.readOnly ?? false) || own.readOnly,
-		...(own.branch ? { branch: own.branch } : {}),
-	});
+	let nodeState = index.states.get(concrete.instance.instanceKey) as ResolvedNodeState;
 	if (concrete.node.type === "output")
 		return { node: resolveOutput(context, concrete, nodeState, concrete.node.value) };
 	if (concrete.node.type === "action")
 		return {
-			node: resolveScopedAction(context, { ...concrete, node: concrete.node }, nodeState, repeaters),
+			node: resolveScopedAction(context, { ...concrete, node: concrete.node }, nodeState, index.repeaters),
 		};
-	if (concrete.node.type === "repeater")
-		return { node: projectRepeater(context, { ...concrete, node: concrete.node }, nodeState) };
+	if (concrete.node.type === "repeater") return { node: nodeState as ResolvedRepeaterState };
 	if (concrete.node.type === "validation" && concrete.binding)
 		return { node: projectValidation(nodeState, concrete.binding) };
 	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState as RuntimeResolvedNodeState };
@@ -253,6 +156,23 @@ function resolveNode(
 		conditionalRequired,
 	});
 	return { node: field, field };
+}
+
+function baseNodeState(
+	context: ProjectionContext,
+	concrete: ConcreteNode,
+	parent: ResolvedNodeState | undefined,
+): ResolvedNodeState {
+	const own = resolveOwnState(context, concrete);
+	const branchVisible = !concrete.requiredBranch || parent?.branch === concrete.requiredBranch;
+	return Object.freeze({
+		instance: concrete.instance,
+		type: concrete.node.type,
+		visible: (parent?.visible ?? true) && branchVisible && own.visible,
+		disabled: (parent?.disabled ?? false) || own.disabled,
+		readOnly: (parent?.readOnly ?? false) || own.readOnly,
+		...(own.branch ? { branch: own.branch } : {}),
+	});
 }
 
 function projectRepeater(
@@ -286,11 +206,9 @@ function resolveScopedAction(
 	context: ProjectionContext,
 	concrete: ConcreteNode & { readonly node: Extract<FormNode, { type: "action" }> },
 	nodeState: ResolvedNodeState,
-	repeaters: readonly ResolvedRepeaterState[],
+	repeaters: ReadonlyMap<string, ResolvedRepeaterState>,
 ) {
-	const repeater = concrete.node.action.startsWith("array.")
-		? [...repeaters].reverse().find((candidate) => sameBinding(candidate.binding, concrete.target))
-		: undefined;
+	const repeater = concrete.node.action.startsWith("array.") ? repeaters.get(bindingKey(concrete.target)) : undefined;
 	const effectiveState = repeater
 		? Object.freeze({
 				...nodeState,
@@ -315,6 +233,10 @@ function resolveScopedAction(
 		frame: expressionFrame(context, concrete),
 		diagnostics: context.diagnostics,
 	});
+}
+
+function bindingKey(binding: StateRef | undefined): string {
+	return binding ? JSON.stringify([binding.namespace, binding.segments]) : "";
 }
 
 function resolveOutput(

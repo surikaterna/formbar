@@ -7,7 +7,7 @@ import type {
 	ResolvedFieldState,
 	ResponsiveSpan,
 } from "@formbar/declarative";
-import type { DescriptorDocument, NormalizedEvidence } from "@formbar/from-schema";
+import type { DescriptorDocument, DescriptorOccurrence, NormalizedEvidence } from "@formbar/from-schema";
 
 export type RendererDiagnostic =
 	| "duplicate-extension-id"
@@ -60,6 +60,7 @@ const NUMERIC_SEGMENT = /^(?:0|[1-9]\d*)$/;
 const BREAKPOINTS = ["base", "sm", "md", "lg", "xl"] as const;
 const STRING_FORMATS = new Set(["email", "url", "tel", "date", "time"]);
 const MAX_NATIVE_DATE = { year: "275760", monthDay: "09-13" } as const;
+const occurrenceParentCache = new WeakMap<DescriptorDocument, ReadonlyMap<string, DescriptorOccurrence>>();
 export const NATIVE_WIDGET_IDS = new Set([
 	"text",
 	"textarea",
@@ -86,7 +87,7 @@ export function editablePath(binding: Binding): string | undefined {
 export function descriptorEvidence(document: DescriptorDocument, binding: Binding): NormalizedEvidence {
 	if (binding.namespace !== "data") return Object.freeze({});
 	const matches = Object.values(document.occurrences)
-		.filter((occurrence) => samePath(occurrence.path, binding.segments))
+		.filter((occurrence) => occurrenceMatches(document, occurrence, binding.segments))
 		.sort((left, right) => left.id.localeCompare(right.id));
 	const merged: NormalizedEvidence = {};
 	for (const occurrence of matches) Object.assign(merged, document.evidence[occurrence.nodeId]);
@@ -96,7 +97,7 @@ export function descriptorEvidence(document: DescriptorDocument, binding: Bindin
 export function descriptorDescription(document: DescriptorDocument, binding: Binding): string | undefined {
 	if (binding.namespace !== "data") return undefined;
 	const occurrence = Object.values(document.occurrences)
-		.filter((candidate) => samePath(candidate.path, binding.segments))
+		.filter((candidate) => occurrenceMatches(document, candidate, binding.segments))
 		.sort((left, right) => left.id.localeCompare(right.id))[0];
 	if (!occurrence) return undefined;
 	const metadata = record(document.nodes[occurrence.nodeId]?.metadata);
@@ -211,8 +212,43 @@ function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
 		: undefined;
 }
 
-function samePath(left: readonly (string | number | "*")[], right: readonly (string | number)[]): boolean {
-	return left.length === right.length && left.every((segment, index) => segment === right[index]);
+function occurrenceMatches(
+	document: DescriptorDocument,
+	occurrence: DescriptorOccurrence,
+	concrete: readonly (string | number)[],
+): boolean {
+	if (occurrence.path.length !== concrete.length) return false;
+	const wildcards = wildcardIndexes(document, occurrence);
+	return occurrence.path.every((segment, index) =>
+		wildcards.has(index) ? typeof concrete[index] === "number" : segment === concrete[index],
+	);
+}
+
+function wildcardIndexes(document: DescriptorDocument, occurrence: DescriptorOccurrence): ReadonlySet<number> {
+	const parents = occurrenceParents(document);
+	const indexes = new Set<number>();
+	let current: DescriptorOccurrence | undefined = occurrence;
+	while (current) {
+		if ((current.relation === "items" || current.relation === "tuple-rest") && current.path.at(-1) === "*") {
+			indexes.add(current.path.length - 1);
+		}
+		current = parents.get(current.id);
+	}
+	return indexes;
+}
+
+function occurrenceParents(document: DescriptorDocument): ReadonlyMap<string, DescriptorOccurrence> {
+	const cached = occurrenceParentCache.get(document);
+	if (cached) return cached;
+	const parents = new Map<string, DescriptorOccurrence>();
+	for (const candidate of Object.values(document.occurrences)) {
+		for (const child of candidate.children) {
+			const childOccurrence = document.occurrences[child];
+			if (childOccurrence) parents.set(child, candidate);
+		}
+	}
+	occurrenceParentCache.set(document, parents);
+	return parents;
 }
 
 function dotSafe(segment: string | number): boolean {

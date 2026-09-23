@@ -90,6 +90,19 @@ describe("form-backed repeater rendering", () => {
 		view.unmount();
 	});
 
+	it("renders and restores focus for root arrays", async () => {
+		const view = mountForm({
+			schema: { type: "array", minItems: 1, maxItems: 2, items: { type: "string" } },
+			data: ["root"],
+		});
+		await click(button(view.container, "Add item"));
+		expect(view.form.getState().data).toEqual(["root", ""]);
+		const inputs = [...view.container.querySelectorAll("input")];
+		expect(document.activeElement).toBe(inputs[1]);
+		expect(button(view.container, "Add item").disabled).toBe(true);
+		view.unmount();
+	});
+
 	it("regenerates rows on reset and submits no renderer identity", async () => {
 		const submitted = vi.fn();
 		const view = mountForm({
@@ -113,6 +126,40 @@ describe("form-backed repeater rendering", () => {
 		const payload = submitted.mock.calls[0]?.[0].payload;
 		expect(payload).toEqual({ tags: ["same", "same"] });
 		expect(JSON.stringify(payload)).not.toMatch(/_id|row:new|generation/);
+		view.unmount();
+	});
+
+	it("maps nested descriptor wildcards to numeric rows without treating literal stars as wildcards", () => {
+		const view = mountForm({
+			schema: {
+				type: "object",
+				properties: {
+					rows: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: {
+								choice: { enum: ["red", "blue"] },
+								code: { type: "string", minLength: 2, maxLength: 4, description: "Row code" },
+							},
+						},
+					},
+					matrix: { type: "array", items: { type: "array", items: { enum: [1, 2] } } },
+					"*": { enum: ["literal-only"] },
+				},
+			},
+			data: { rows: [{ choice: "red", code: "AB" }], matrix: [[1]], "*": "literal-only" },
+		});
+		const options = [...view.container.querySelectorAll("select")].map((select) =>
+			[...select.options].map((option) => option.textContent),
+		);
+		expect(options).toContainEqual(["", "red", "blue"]);
+		expect(options).toContainEqual(["", "1", "2"]);
+		expect(options).toContainEqual(["", "literal-only"]);
+		const code = view.container.querySelector('input[type="text"]') as HTMLInputElement;
+		expect(code.minLength).toBe(2);
+		expect(code.maxLength).toBe(4);
+		expect(view.container.textContent).toContain("Row code");
 		view.unmount();
 	});
 });

@@ -1,4 +1,5 @@
 import type { FormState } from "@formbar/core";
+import { inspectDataContainer } from "@formbar/expressions";
 import type { StateRef } from "@formbar/expressions";
 import type { RepeaterNode } from "./nodes.js";
 import type {
@@ -20,12 +21,12 @@ export function resolveRepeaterState(options: {
 }): ResolvedRepeaterState {
 	const limits = effectiveLimits(options.node, options.baseline);
 	const value = options.binding ? readBinding(options.state, options.binding) : undefined;
-	const ready = Array.isArray(value);
+	const length = inspectArrayLength(value);
+	const ready = length !== undefined;
 	if (!ready) options.diagnostics.push(runtimeDiagnostic("malformed-repeater", options.nodeState.instance, "binding"));
 	if (limits.conflict)
 		options.diagnostics.push(runtimeDiagnostic("conflicting-repeater-limits", options.nodeState.instance, "limits"));
-	const length = ready ? value.length : 0;
-	const items = Array.from({ length }, (_, index) =>
+	const items = Array.from({ length: length ?? 0 }, (_, index) =>
 		Object.freeze({
 			index,
 			scopes: Object.freeze([
@@ -42,7 +43,7 @@ export function resolveRepeaterState(options: {
 		minItems: limits.minItems,
 		...(limits.maxItems === undefined ? {} : { maxItems: limits.maxItems }),
 		limitsConflict: limits.conflict,
-		length,
+		length: length ?? 0,
 		label: options.node.label ?? options.baseline?.label ?? "Items",
 		items: Object.freeze(items),
 	});
@@ -67,4 +68,14 @@ export function sameBinding(left: StateRef | undefined, right: StateRef | undefi
 			left.segments.length === right.segments.length &&
 			left.segments.every((segment, index) => segment === right.segments[index]),
 	);
+}
+
+export function inspectArrayLength(value: unknown): number | undefined {
+	if (!Array.isArray(value)) return undefined;
+	try {
+		const length = value.length;
+		return inspectDataContainer(value).length === length ? length : undefined;
+	} catch {
+		return undefined;
+	}
 }

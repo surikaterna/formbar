@@ -136,4 +136,199 @@ describe("repeater runtime", () => {
 		runtime.dispose();
 		form.dispose();
 	});
+
+	it("associates limits with actions before, after, and inside scoped repeaters", async () => {
+		const append = (id: string, target = binding(["rows"])): FormNode => ({
+			id,
+			type: "action",
+			action: "array.append",
+			target,
+			payload: { kind: "literal", value: "blocked" },
+		});
+		const before = append("before");
+		const after = append("after");
+		const nested = append("nested", scoped("row", ["children"]));
+		const childRepeater: FormNode = {
+			id: "children",
+			type: "repeater",
+			binding: scoped("row", ["children"]),
+			scope: "child",
+			maxItems: 1,
+			children: [],
+		};
+		const form = createForm({ initialData: { rows: [{ children: ["only"] }] } });
+		const runtime = createFormRuntime({
+			form,
+			definition: definition([before, repeater([nested, childRepeater], { maxItems: 1 }), after]),
+		});
+		const executor = createActionExecutor({ form, runtime });
+		for (const id of ["before", "nested", "after"]) {
+			const key = runtime.getSnapshot().nodes.find((candidate) => candidate.instance.nodeId === id)
+				?.instance.instanceKey;
+			expect(await executor.execute(key as string)).toEqual({ status: "failed", diagnostic: "array-max-items" });
+		}
+		expect(form.getState().data).toEqual({ rows: [{ children: ["only"] }] });
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("executes all root-array operations with the empty canonical pointer", async () => {
+		const actions: FormNode[] = [
+			{
+				id: "append",
+				type: "action",
+				action: "array.append",
+				target: binding([]),
+				payload: { kind: "literal", value: "d" },
+			},
+			{
+				id: "insert",
+				type: "action",
+				action: "array.insert",
+				target: binding([]),
+				payload: { kind: "literal", value: { index: 1, item: "x" } },
+			},
+			{
+				id: "remove",
+				type: "action",
+				action: "array.remove",
+				target: binding([]),
+				payload: { kind: "literal", value: 2 },
+			},
+			{
+				id: "move",
+				type: "action",
+				action: "array.move",
+				target: binding([]),
+				payload: { kind: "literal", value: { from: 3, to: 1 } },
+			},
+			{
+				id: "swap",
+				type: "action",
+				action: "array.swap",
+				target: binding([]),
+				payload: { kind: "literal", value: { from: 0, to: 2 } },
+			},
+		];
+		const form = createForm({ initialData: ["a", "b", "c"] });
+		const runtime = createFormRuntime({
+			form,
+			definition: definition([...actions, { ...repeater([]), binding: binding([]), maxItems: 8 }]),
+		});
+		const executor = createActionExecutor({ form, runtime });
+		for (const action of actions) {
+			const key = runtime.getSnapshot().nodes.find((node) => node.instance.nodeId === action.id)?.instance.instanceKey;
+			expect(await executor.execute(key as string)).toEqual({ status: "completed" });
+		}
+		expect(form.getState().data).toEqual(["x", "d", "a", "c"]);
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("applies min, max, and boundary guards to root arrays without side effects", async () => {
+		const actions: FormNode[] = [
+			{
+				id: "append",
+				type: "action",
+				action: "array.append",
+				target: binding([]),
+				payload: { kind: "literal", value: "x" },
+			},
+			{
+				id: "remove",
+				type: "action",
+				action: "array.remove",
+				target: binding([]),
+				payload: { kind: "literal", value: 0 },
+			},
+			{
+				id: "move",
+				type: "action",
+				action: "array.move",
+				target: binding([]),
+				payload: { kind: "literal", value: { from: 0, to: 1 } },
+			},
+		];
+		const form = createForm({ initialData: ["only"] });
+		const runtime = createFormRuntime({
+			form,
+			definition: definition([...actions, { ...repeater([]), binding: binding([]), minItems: 1, maxItems: 1 }]),
+		});
+		const executor = createActionExecutor({ form, runtime });
+		const diagnostics = ["array-max-items", "array-min-items", "array-boundary"];
+		for (const [index, action] of actions.entries()) {
+			const key = runtime.getSnapshot().nodes.find((node) => node.instance.nodeId === action.id)?.instance.instanceKey;
+			expect(await executor.execute(key as string)).toEqual({ status: "failed", diagnostic: diagnostics[index] });
+			expect(form.getState().data).toEqual(["only"]);
+		}
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("fails hostile arrays closed without reading item getters or mutating", async () => {
+		let itemReads = 0;
+		const hostile: unknown[] = [];
+		Object.defineProperty(hostile, "0", {
+			enumerable: true,
+			configurable: true,
+			get() {
+				itemReads += 1;
+				throw new Error("item trap");
+			},
+		});
+		const form = createForm({ initialData: { rows: [] as unknown[] } });
+		form.setValue("rows", hostile);
+		const append: FormNode = {
+			id: "append",
+			type: "action",
+			action: "array.append",
+			target: binding(["rows"]),
+			payload: { kind: "literal", value: "new" },
+		};
+		const runtime = createFormRuntime({ form, definition: definition([append, repeater([])]) });
+		expect(runtime.getSnapshot().repeaters[0]).toMatchObject({ status: "malformed", length: 0 });
+		expect(runtime.getSnapshot().diagnostics).toContainEqual(expect.objectContaining({ code: "malformed-repeater" }));
+		const executor = createActionExecutor({ form, runtime });
+		const key = runtime.getSnapshot().nodes.find((node) => node.instance.nodeId === "append")?.instance.instanceKey;
+		expect(await executor.execute(key as string)).toEqual({ status: "failed", diagnostic: "action-unavailable" });
+		expect(form.getState().data.rows).toBe(hostile);
+		expect(itemReads).toBe(0);
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("contains hostile length traps in projection and action preflight", async () => {
+		const hostile = new Proxy([], {
+			get(target, property, receiver) {
+				if (property === "length") throw new Error("length trap");
+				return Reflect.get(target, property, receiver);
+			},
+		});
+		const form = createForm({ initialData: { rows: [] as unknown[] } });
+		form.setValue("rows", hostile);
+		const runtime = createFormRuntime({ form, definition: definition([repeater([])]) });
+		expect(() => runtime.getSnapshot()).not.toThrow();
+		expect(runtime.getSnapshot().repeaters[0]).toMatchObject({ status: "malformed", length: 0 });
+		const append: FormNode = {
+			id: "append",
+			type: "action",
+			action: "array.append",
+			target: binding(["rows"]),
+			payload: { kind: "literal", value: "new" },
+		};
+		const actionRuntime = createFormRuntime({ form, definition: definition([append]) });
+		const executor = createActionExecutor({ form, runtime: actionRuntime });
+		const key = actionRuntime.getSnapshot().nodes.find((node) => node.instance.nodeId === "append")
+			?.instance.instanceKey;
+		expect(await executor.execute(key as string)).toEqual({ status: "failed", diagnostic: "invalid-action-target" });
+		expect(form.getState().data.rows).toBe(hostile);
+		executor.dispose();
+		actionRuntime.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
 });

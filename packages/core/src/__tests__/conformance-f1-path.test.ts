@@ -81,12 +81,8 @@ describe("F1: Path grammar + namespace conformance", () => {
 		expect(roundTripped).toEqual(original);
 	});
 
-	test("F1.15: empty path rejection", () => {
-		expect(() => parsePath("")).toThrow(FormbarError);
-		try {
-			parsePath("");
-		} catch (err) {
-			expect((err as FormbarError).code).toBe("FORMBAR_PATH_EMPTY");
-		}
+	test("F1.15: empty JSON Pointer resolves the data root", () => {
+		expect(parsePath("")).toEqual({ namespace: "data", segments: [] });
+		expect(toPointer(parsePath(""))).toBe("");
 	});
 });

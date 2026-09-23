@@ -18,6 +18,8 @@ interface RepeaterProps {
 	readonly renderChildren: (children: readonly FormNode[], scopes: readonly RuntimeScopeInstance[]) => ReactElement;
 }
 
+const useIsomorphicLayoutEffect = typeof document === "undefined" ? useEffect : useLayoutEffect;
+
 export function RepeaterNodeView(props: RepeaterProps): ReactElement {
 	const { node, state, environment } = props;
 	const [, render] = useReducer((value) => value + 1, 0);
@@ -39,7 +41,7 @@ export function RepeaterNodeView(props: RepeaterProps): ReactElement {
 			),
 		[environment.repeaters, state.binding],
 	);
-	useLayoutEffect(() => restoreFocus(focus, rows.current, rowElements.current, container.current));
+	useIsomorphicLayoutEffect(() => restoreFocus(focus, rows.current, rowElements.current, container.current));
 	const legendId = fieldId(`${domIdToken(state.instance.instanceKey)}-legend`, environment.prefix);
 	return (
 		<RepeaterMarkup

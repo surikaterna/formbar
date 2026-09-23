@@ -1,3 +1,4 @@
+import { inspectDataContainer } from "@formbar/expressions";
 import type { FormDispatchResult } from "./contracts.js";
 import { moveFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
 import type { FieldMetaEntry } from "./state.js";
@@ -11,7 +12,10 @@ export interface ArrayHelperDeps {
 
 function assertArray(val: unknown, pathKey: string): unknown[] {
 	if (!Array.isArray(val)) throw new Error(`Expected array at "${pathKey}", got ${typeof val}`);
-	return val;
+	const length = val.length;
+	const entries = inspectDataContainer(val);
+	if (length !== entries.length) throw new Error(`Invalid array at "${pathKey}"`);
+	return entries.map((entry) => entry[1]);
 }
 
 export function createArrayHelpers(deps: ArrayHelperDeps) {
