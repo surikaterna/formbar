@@ -56,7 +56,7 @@ export type {
 	FieldPolicyInput,
 } from "./field-policy.js";
 // Form factory (SE1.4)
-export { createForm } from "./create-form.js";
+export { createDeferredForm, createForm } from "./create-form.js";
 export { createCoreExpressionNamespaces } from "./expression-namespaces.js";
 // Equality utility
 export { structuredEqual } from "./equality.js";

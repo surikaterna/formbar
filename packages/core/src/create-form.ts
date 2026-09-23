@@ -22,3 +22,19 @@ export function createForm<TData, TUi>(
 ): FormApi<TData, TUi> {
 	return new FormRuntime(options).build();
 }
+
+/** Opt-in commit-scoped lifecycle for React integrations. Never activate during render or SSR. */
+export function createDeferredForm<TData, TUi>(
+	options: CreateFormOptions<TData, TUi> = {} as CreateFormOptions<TData, TUi>,
+): {
+	readonly form: FormApi<TData, TUi>;
+	activate(): void;
+	deactivate(): void;
+} {
+	const runtime = new FormRuntime(options, true);
+	return {
+		form: runtime.build(),
+		activate: () => runtime.activate(),
+		deactivate: () => runtime.deactivate(),
+	};
+}

@@ -14,51 +14,20 @@ import { createFieldApi } from "./field-api.js";
 import { emptyFieldPolicy, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
-import { initMiddlewares } from "./middleware-runner.js";
+import { normalizeValidators } from "./normalize-validators.js";
 import { parsePath } from "./path-parser.js";
+import { issuesForPath } from "./path-relations.js";
 import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
-import type { FormPlugin, PluginInitContext } from "./plugin-types.js";
+import { deactivateFormResources, initializeFormResources, validatePluginIds } from "./plugin-initializer.js";
+import type { FormPlugin } from "./plugin-types.js";
 import { createResetSignal } from "./reset-signal.js";
-import { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
 import { createFormStateCapture } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { FormStore } from "./store.js";
 import { createSubmitHandler } from "./submit-handler.js";
 import { warnUnknownCreateFormOptionsAtRuntime } from "./unknown-options-warning.js";
 import { type ValidationCoordinator, createValidationCoordinator } from "./validation-coordinator.js";
-
-function pathEquals(a: CanonicalPath, b: CanonicalPath): boolean {
-	return (
-		a.namespace === b.namespace &&
-		a.segments.length === b.segments.length &&
-		a.segments.every((seg, i) => seg === b.segments[i])
-	);
-}
-
-function pathStartsWith(path: CanonicalPath, prefix: CanonicalPath): boolean {
-	return (
-		path.namespace === prefix.namespace &&
-		path.segments.length >= prefix.segments.length &&
-		prefix.segments.every((seg, i) => seg === path.segments[i])
-	);
-}
-
-function normalizeValidators(options: CreateFormOptions<unknown, unknown>): readonly ValidatorFn[] {
-	return (options.validators ?? []).map((validator) => {
-		if (typeof validator === "function") return validator as ValidatorFn;
-		if (isStandardSchemaLike(validator)) return createStandardSchemaValidator(validator);
-		throw new FormbarError("FORMBAR_INVALID_VALIDATOR", "Validator must be a function or a Standard Schema v1 object");
-	});
-}
-
-function validatePluginIds<TData, TUi>(plugins: readonly FormPlugin<TData, TUi>[]): void {
-	const ids = new Set<string>();
-	for (const plugin of plugins) {
-		if (!plugin.id || ids.has(plugin.id)) throw new Error(`Plugin id must be unique: "${plugin.id}"`);
-		ids.add(plugin.id);
-	}
-}
 
 export class FormRuntime<TData, TUi> {
 	private initialDataSnapshot: TData;
@@ -77,8 +46,17 @@ export class FormRuntime<TData, TUi> {
 	private readonly disposal = createDisposalSignal();
 	private readonly resetSignal = createResetSignal();
 	private readonly api: FormApi<TData, TUi>;
+	private active = false;
+	private readonly deferred: boolean;
+	private readonly activationSubscriptions: (() => void)[] = [];
+	private readonly initializedMiddlewares: Middleware[] = [];
+	private deactivating = false;
 
-	constructor(private readonly options: CreateFormOptions<TData, TUi>) {
+	constructor(
+		private readonly options: CreateFormOptions<TData, TUi>,
+		deferred = false,
+	) {
+		this.deferred = deferred;
 		warnUnknownCreateFormOptionsAtRuntime(options);
 		this.initialDataSnapshot = structuredClone((options.initialData ?? {}) as TData);
 		this.initialUiStateSnapshot = structuredClone((options.initialUiState ?? {}) as TUi);
@@ -90,27 +68,67 @@ export class FormRuntime<TData, TUi> {
 		this.pipelineStore = this.store as unknown as FormStore<unknown, unknown>;
 		this.pipelineOptions = Object.create(options as object, {
 			validators: { value: this.normalizedValidators, enumerable: true },
+			middleware: { get: () => this.activeMiddlewares, enumerable: true },
 		}) as CreateFormOptions<unknown, unknown>;
 		this.coordinator = createValidationCoordinator({
 			validators: options.asyncValidators ?? [],
 			getState: () => this.store.getState(),
 			updateState: (updater) => this.updateState(updater),
 		});
+		const runtime = this;
 		this.submitHandler = createSubmitHandler({
 			store: this.store,
 			pipelineStore: this.pipelineStore,
 			pipelineOptions: this.pipelineOptions,
 			options,
-			plugins: this.plugins,
+			get plugins() {
+				return runtime.activePlugins;
+			},
 			coordinator: this.coordinator,
 			getApi: () => this.api,
 		});
 		this.api = this.createApi();
-		this.initialize();
+		if (!deferred) {
+			this.active = true;
+			this.initialize();
+		}
 	}
 
 	build(): FormApi<TData, TUi> {
 		return this.api;
+	}
+
+	private get activePlugins(): readonly FormPlugin<TData, TUi>[] {
+		return this.active ? this.plugins : [];
+	}
+
+	private get activeMiddlewares(): readonly Middleware[] {
+		return this.active ? (this.options.middleware ?? []) : [];
+	}
+
+	/** Commit-scoped lifecycle for React; imperative forms remain eagerly initialized. */
+	activate(): void {
+		if (this.disposal.isDisposed() || this.active || this.deactivating) return;
+		this.active = true;
+		try {
+			this.initialize();
+		} catch (error) {
+			this.deactivate();
+			throw error;
+		}
+	}
+
+	deactivate(): void {
+		if (!this.deferred || !this.active || this.deactivating) return;
+		this.active = false;
+		this.deactivating = true;
+		try {
+			this.submitHandler.reset();
+			this.coordinator.reset();
+			deactivateFormResources(this.initializedMiddlewares, this.pluginDisposers, this.activationSubscriptions);
+		} finally {
+			this.deactivating = false;
+		}
 	}
 
 	private createInitialState(): FormState<TData, TUi> {
@@ -137,12 +155,6 @@ export class FormRuntime<TData, TUi> {
 			current = (current as Record<string | number, unknown>)[segment];
 		}
 		return current;
-	}
-
-	private getIssues(path: CanonicalPath): readonly ValidationIssue[] {
-		return this.store
-			.getState()
-			.issues.filter((issue) => pathEquals(issue.path, path) || pathStartsWith(issue.path, path));
 	}
 
 	private propagateListeners(pathKey: string, trigger: "change" | "blur"): void {
@@ -172,7 +184,7 @@ export class FormRuntime<TData, TUi> {
 			store: this.pipelineStore,
 			options: this.pipelineOptions,
 			isSubmit: false,
-			plugins: this.plugins,
+			plugins: this.activePlugins,
 		});
 		if (result.ok) this.afterSetValue(rawPath, before);
 		const error = result.error ?? result.vetoReason;
@@ -200,7 +212,7 @@ export class FormRuntime<TData, TUi> {
 			store: this.pipelineStore,
 			options: this.pipelineOptions,
 			isSubmit: false,
-			plugins: this.plugins,
+			plugins: this.activePlugins,
 		});
 		const after = this.store.getState();
 		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState)) this.coordinator.onMutation();
@@ -275,7 +287,7 @@ export class FormRuntime<TData, TUi> {
 			rawPath: path,
 			getState: () => this.store.getState(),
 			setValue: this.dispatchSetValue as unknown as (path: string, value: unknown) => FormDispatchResult,
-			getIssues: (value) => this.getIssues(value),
+			getIssues: (value) => issuesForPath(this.store.getState().issues, value),
 			getInitialValue: () => this.resolveInitialValue(canonical),
 			getFieldMeta: (key) => (this.store.getState().fieldMeta as Record<string, FieldMetaEntry>)[key],
 			markTouched: this.markFieldTouched,
@@ -311,7 +323,7 @@ export class FormRuntime<TData, TUi> {
 		this.fieldCache.clear();
 		this.listeners.clear();
 		this.resetSignal.notify();
-		for (const plugin of this.plugins) plugin.onReset?.();
+		for (const plugin of this.activePlugins) plugin.onReset?.();
 	};
 
 	private createApi(): FormApi<TData, TUi> {
@@ -350,33 +362,37 @@ export class FormRuntime<TData, TUi> {
 	}
 
 	private createDispose(): () => void {
-		return createFormDisposer(this.disposal, {
+		const permanent = createFormDisposer(this.disposal, {
 			abort: this.submitHandler.dispose,
 			cancel: this.coordinator.dispose,
 			plugins: this.plugins,
 			pluginDisposers: this.pluginDisposers,
-			middlewares: this.options.middleware ?? [],
+			middlewares: this.deferred ? [] : (this.options.middleware ?? []),
 			clearFields: () => this.fieldCache.clear(),
 			clearResetListeners: () => this.resetSignal.clear(),
 			disposeStore: () => this.store.dispose(),
 		});
+		return () => {
+			this.deactivate();
+			permanent();
+		};
 	}
 
 	private initialize(): void {
-		initMiddlewares((this.options.middleware ?? []) as readonly Middleware[], { state: this.initialState });
-		for (const plugin of this.plugins) {
-			if (!plugin.onInit) continue;
-			const context: PluginInitContext<TData, TUi> = {
-				getState: () => ({ data: this.store.getState().data, uiState: this.store.getState().uiState }),
-				subscribe: (listener) =>
-					this.store.subscribe((state) => listener({ data: state.data, uiState: state.uiState })),
-				dispatch: (action) => {
-					this.dispatch({ ...action, origin: `plugin:${plugin.id}` });
-				},
-				initialData: this.initialDataSnapshot,
-			};
-			const disposer = plugin.onInit(context);
-			if (disposer) this.pluginDisposers.push(disposer);
-		}
+		initializeFormResources({
+			plugins: this.plugins,
+			middlewares: this.options.middleware ?? [],
+			state: this.store.getState(),
+			store: this.store,
+			initialData: this.initialDataSnapshot,
+			deferred: this.deferred,
+			disposers: this.pluginDisposers,
+			subscriptions: this.activationSubscriptions,
+			initializedMiddlewares: this.initializedMiddlewares,
+			isActive: () => this.active && !this.disposal.isDisposed(),
+			dispatch: (action) => {
+				this.dispatch(action);
+			},
+		});
 	}
 }

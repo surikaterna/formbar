@@ -89,6 +89,27 @@ export function ContactForm() {
 
 ## When to use this package
 
+### Plugin lifecycle in React 18/19 (#160)
+
+`useForm` (and `useSchemaForm`) constructs a dormant core store during render. Initial
+data/UI and snapshots are available for SSR and hydration, but plugin `onInit` and
+middleware `onInit` run only after a committed effect. On every effect cleanup,
+including StrictMode replay and unmount, `onInit` disposers, plugin init subscriptions,
+and middleware `onDispose` run synchronously. The same store survives a replay, so
+field values persist and resources are reacquired once. No plugin policy is available
+during SSR or the first client render; a plugin `onInit` dispatch or a later mutation
+can publish policy after commit (there is no automatic initial evaluation).
+
+React cannot distinguish a replay cleanup from final unmount synchronously. As a
+result, unmount does **not** permanently dispose the store: an externally retained
+hook `FormApi` reports `isDisposed() === false`, and `onDispose` does not fire until
+its owner explicitly calls `form.dispose()`. Plugin `onDispose` is permanent-dispose
+only, not replay cleanup. If a caller constructs a plugin object in render (for
+example `createArbiterPlugin({ rules })`, which allocates a rules session immediately),
+that allocation is caller-owned even for discarded renders and SSR. Construct such
+objects outside render and explicitly manage their lifetime. For eager lifecycle
+semantics outside React, use `createForm()` directly.
+
 - Use `@formbar/react` when you want React lifecycle management, field subscriptions, selectors, and ARIA helpers for a Formbar form.
 - Use `@formbar/core` directly for non-React environments or custom framework bindings.
 - Use `@formbar/react-schema` when forms should be prepared from schemas and rendered through layout nodes.
