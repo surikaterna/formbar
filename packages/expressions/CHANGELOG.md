@@ -1,5 +1,11 @@
 # @formbar/expressions
 
+## 0.14.0
+
+### Minor Changes
+
+- e12e761: Add the bounded default-profile `sumBy` collection projection and support it in declarative output nodes.
+
 ## 0.4.0
 
 ### Minor Changes
