@@ -16,6 +16,8 @@ export type {
 	ServiceOptions,
 	Setter,
 	StateRef,
+	SumByExpression,
+	SumByPath,
 	WriteResult,
 } from "@formbar/expressions";
 export type * from "./actions.js";

@@ -4,6 +4,8 @@ import { ExpressionProfile, createExpressionService, failure, forwardExpressionP
 import type { JsonValue, PropDefinitions } from "../index.js";
 
 describe("expression boundary hardening", () => {
+	const sumByLines = () => op("sumBy", ref("lines"), literal(["amount"]));
+
 	it("clears prior mounted values if provider replacement cannot subscribe, then recovers", () => {
 		const state = namespace({ x: "secret" });
 		const service = createExpressionService({ namespaces: { data: state.provider } });
@@ -134,5 +136,57 @@ describe("expression boundary hardening", () => {
 		const result = service.evaluate(compiled.value);
 		expect(result).toEqual({ ok: true, value: { x: [1, 2] } });
 		if (result.ok) expect(Object.isFrozen(result.value)).toBe(true);
+	});
+
+	it("rejects sparse arrays and own accessors without invoking getters", () => {
+		const getter = vi.fn(() => 9);
+		const accessor = {} as Record<string, unknown>;
+		Object.defineProperty(accessor, "amount", { enumerable: true, get: getter });
+		const sparse = Array(2);
+		sparse[0] = { amount: 1 };
+		for (const lines of [[accessor], sparse]) {
+			const service = createExpressionService({ namespaces: { data: namespace({ lines }).provider } });
+			const compiled = service.compile(sumByLines());
+			if (!compiled.ok) throw new Error("compile");
+			expect(() => service.evaluate(compiled.value)).not.toThrow();
+			expect(service.evaluate(compiled.value)).toEqual(failure("invalid-input"));
+		}
+		expect(getter).not.toHaveBeenCalled();
+	});
+
+	it("rejects inherited data and hostile or revoked collection containers without throwing", () => {
+		const inherited = Object.create({ amount: 7 });
+		const hostile = new Proxy([], {
+			ownKeys() {
+				throw new Error("secret");
+			},
+		});
+		const { proxy: revoked, revoke } = Proxy.revocable([], {});
+		revoke();
+		for (const lines of [[inherited], hostile, revoked]) {
+			const service = createExpressionService({ namespaces: { data: namespace({ lines }).provider } });
+			const compiled = service.compile(sumByLines());
+			if (!compiled.ok) throw new Error("compile");
+			const result = service.evaluate(compiled.value);
+			expect(result.ok).toBe(false);
+			expect(() => JSON.stringify(result)).not.toThrow();
+			expect(JSON.stringify(result)).not.toContain("secret");
+		}
+	});
+
+	it("rejects accessor and revoked literal paths without invoking path getters", () => {
+		const getter = vi.fn(() => "amount");
+		const accessorPath: unknown[] = [];
+		Object.defineProperty(accessorPath, "0", { enumerable: true, get: getter });
+		Object.defineProperty(accessorPath, "length", { value: 1, writable: true });
+		const { proxy: revokedPath, revoke } = Proxy.revocable([], {});
+		revoke();
+		const service = createExpressionService({});
+		for (const path of [accessorPath, revokedPath]) {
+			const expression = op("sumBy", literal([{ amount: 1 }]), literal(path as never));
+			expect(() => service.compile(expression)).not.toThrow();
+			expect(service.compile(expression).ok).toBe(false);
+		}
+		expect(getter).not.toHaveBeenCalled();
 	});
 });

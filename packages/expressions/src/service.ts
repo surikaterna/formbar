@@ -1,5 +1,5 @@
-import { compileExpression, standardV1 } from "kuery/expression";
-import type { CompiledExpression, ExpressionDiagnosticCode } from "kuery/expression";
+import { compileExpression } from "kuery/expression";
+import type { CompiledExpression, ExpressionDiagnosticCode, ExpressionProfile } from "kuery/expression";
 import { isAsync } from "./async.js";
 import { Capabilities, capabilityFailure } from "./capabilities.js";
 import { EXPRESSION_LIMITS, stateReferenceCodec } from "./compile.js";
@@ -16,6 +16,11 @@ import type {
 	Setter,
 	StateRef,
 } from "./contracts.js";
+import {
+	createDefaultExpressionProfile,
+	prepareDefaultExpression,
+	restoreDefaultExpression,
+} from "./default-profile.js";
 import { copyJson } from "./json.js";
 import { createObservation } from "./observation.js";
 import { createPropObservation } from "./props.js";
@@ -26,20 +31,31 @@ export class ExpressionService {
 	private readonly programs = new WeakMap<Program, CompiledExpression<StateRef>>();
 	readonly capabilities: Capabilities;
 	private readonly options: ServiceOptions;
+	private readonly profile: ExpressionProfile;
+	private readonly usesDefaultProfile: boolean;
+	private operatorFailure: DiagnosticCode | undefined;
 
 	constructor(options: ServiceOptions) {
 		this.options = {
 			...options,
 			...(options.scopes !== undefined ? { scopes: parseScopes(options.scopes) } : {}),
 		};
+		this.usesDefaultProfile = options.profile === undefined;
+		this.profile = options.profile ?? createDefaultExpressionProfile(this.reportOperatorFailure);
 		this.capabilities = new Capabilities(options);
 	}
+
+	private reportOperatorFailure = (code: DiagnosticCode): void => {
+		this.operatorFailure = code;
+	};
 
 	compile(input: unknown): Result<Program> {
 		if (this.capabilities.disposed) return failure("disposed");
 		try {
-			const compiled = compileExpression<StateRef>(copyJson(input), {
-				profile: this.options.profile ?? standardV1,
+			const source = copyJson(input);
+			const expression = this.usesDefaultProfile ? prepareDefaultExpression(source) : source;
+			const compiled = compileExpression<StateRef>(expression, {
+				profile: this.profile,
 				reference: stateReferenceCodec(this.options.scopes),
 				limits: EXPRESSION_LIMITS,
 			});
@@ -48,7 +64,9 @@ export class ExpressionService {
 				dependencyKey(left).localeCompare(dependencyKey(right)),
 			);
 			const program = Object.freeze({
-				expression: compiled.value.expression,
+				expression: this.usesDefaultProfile
+					? restoreDefaultExpression(compiled.value.expression)
+					: compiled.value.expression,
 				dependencies: Object.freeze(dependencies),
 			});
 			this.programs.set(program, compiled.value);
@@ -64,15 +82,25 @@ export class ExpressionService {
 		const compiled = this.programs.get(program);
 		if (!compiled) return failure("unknown-program");
 		try {
+			this.operatorFailure = undefined;
 			const providers = context ? new Map(Object.entries(context)) : undefined;
 			const frame = this.capabilities.capture(program.dependencies, providers);
 			const result = compiled.evaluate((ref: StateRef) => {
 				return frame.get(dependencyKey(ref)) ?? { found: false, reason: "denied" };
 			});
 			if (isAsync(result)) return failure("backend");
-			if (!result.ok) return failure(kueryDiagnosticCode(result.diagnostic.code));
+			if (!result.ok) {
+				const code =
+					result.diagnostic.code === "EXPRESSION_OPERATOR_ERROR" && this.operatorFailure
+						? this.operatorFailure
+						: kueryDiagnosticCode(result.diagnostic.code);
+				this.operatorFailure = undefined;
+				return failure(code);
+			}
+			this.operatorFailure = undefined;
 			return { ok: true, value: copyJson(result.value) };
 		} catch (error) {
+			this.operatorFailure = undefined;
 			return failure(error instanceof ExpressionError ? error.code : "backend");
 		}
 	}

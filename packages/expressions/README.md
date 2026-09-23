@@ -40,6 +40,33 @@ runtime.dispose();
 form.dispose();
 ```
 
+The default profile also provides the bounded projection operator
+`sumBy(collection, path)`. `collection` may be any expression that resolves to a
+JSON array; `path` must be a literal JSON array of safe string or non-negative
+integer segments. It reads only own enumerable data descriptors and returns the
+finite sum of the numeric value at that path in every item (`0` for an empty
+array):
+
+```ts
+const subtotal = runtime.compile({
+  kind: "op",
+  op: "sumBy",
+  args: [
+    { kind: "ref", ref: { namespace: "data", segments: ["lines"] } },
+    { kind: "literal", value: ["amount"] },
+  ],
+});
+```
+
+The collection expression contributes its normal static dependencies, so an
+observation reacts when that collection changes. Sparse, non-array, inherited,
+accessor, missing, non-numeric, non-finite, hostile, and over-limit inputs fail
+with code-only diagnostics. Paths and work use the existing 64-segment and
+1,024-value limits. `sumBy` is projection-only: it has no callback, item scope,
+write target, lifecycle, scheduler, or stored result. Stored computation remains
+separate work tracked by Formbar issue #129. Passing an explicit custom profile
+replaces the default profile and therefore does not implicitly add `sumBy`.
+
 Programs belong to one service. Errors are `{ ok: false, diagnostics: [{ code }] }`.
 Missing refs fail with `missing`; literal/ref `null` succeeds. Root reads are
 permitted by registered authorization; core root writes are intentionally read-only.
@@ -113,9 +140,11 @@ decimal/exponent, named, maximum/non-index, and beyond-length segments are denie
 Providers and profiles are trusted synchronous host code; Proxy traps are not a
 sandbox boundary.
 
-Kuery's immutable `standardExpressionProfile` is the default. Hosts can pass an
-explicit `ExpressionProfile`, built with Kuery's `ExpressionProfileBuilder`, to add
-namespaced custom operators. Formbar compiles the complete AST exactly once and
+Formbar's immutable default profile is Kuery standard-v1 plus bounded `sumBy`.
+The exported `standardExpressionProfile` remains the bare Kuery profile for hosts
+that explicitly select it. Hosts can pass an explicit `ExpressionProfile`, built
+with Kuery's `ExpressionProfileBuilder`, to add namespaced custom operators.
+Formbar compiles the complete AST exactly once and
 preauthorizes/captures every static dependency before evaluation, including refs in
 short-circuited branches. Operator code must be pure, bounded and synchronous;
 Promise results are rejected. The host may explicitly override evaluation
