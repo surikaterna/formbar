@@ -40,30 +40,30 @@
     },
     "packages/arbiter": {
       "name": "@formbar/arbiter",
-      "version": "0.9.0",
+      "version": "0.14.2",
       "dependencies": {
-        "@formbar/core": "^0.8.0",
-        "@formbar/expressions": "^0.4.0",
+        "@formbar/core": "^0.14.2",
+        "@formbar/expressions": "^0.14.2",
       },
       "devDependencies": {
-        "@arbitre/core": "^0.3.0",
-        "kuery": "^2.1.0",
+        "@arbitre/core": "^0.3.1",
+        "kuery": "^2.1.1",
       },
       "peerDependencies": {
-        "@arbitre/core": "^0.3.0",
-        "kuery": "^2.1.0",
+        "@arbitre/core": "^0.3.1",
+        "kuery": "^2.1.1",
       },
     },
     "packages/core": {
       "name": "@formbar/core",
-      "version": "0.8.0",
+      "version": "0.14.2",
       "dependencies": {
-        "@formbar/expressions": "^0.4.0",
+        "@formbar/expressions": "^0.14.2",
       },
     },
     "packages/declarative": {
       "name": "@formbar/declarative",
-      "version": "0.8.0",
+      "version": "0.14.2",
       "dependencies": {
         "@formbar/core": "^0.8.0",
         "@formbar/expressions": "^0.4.0",
@@ -71,14 +71,14 @@
     },
     "packages/expressions": {
       "name": "@formbar/expressions",
-      "version": "0.4.0",
+      "version": "0.14.2",
       "dependencies": {
-        "kuery": "^2.1.0",
+        "kuery": "^2.1.1",
       },
     },
     "packages/from-schema": {
       "name": "@formbar/from-schema",
-      "version": "0.8.0",
+      "version": "0.14.2",
       "dependencies": {
         "@formbar/core": "^0.8.0",
         "@formbar/declarative": "^0.8.0",
@@ -101,7 +101,7 @@
     },
     "packages/react": {
       "name": "@formbar/react",
-      "version": "0.9.0",
+      "version": "0.14.2",
       "dependencies": {
         "@formbar/core": "^0.8.0",
         "@formbar/expressions": "^0.4.0",
@@ -119,7 +119,7 @@
     },
     "packages/react-schema": {
       "name": "@formbar/react-schema",
-      "version": "0.9.0",
+      "version": "0.14.2",
       "dependencies": {
         "@formbar/core": "^0.8.0",
         "@formbar/declarative": "^0.8.0",
@@ -139,7 +139,7 @@
     },
   },
   "packages": {
-    "@arbitre/core": ["@arbitre/core@0.3.0", "", { "dependencies": { "kuery": "^2.1.0" } }, "sha512-T8JWC6Y/bt3YvnRXJMsscoUpb+A8EppViY/BjkJFbK5ograNGBktrlr9pTSxv7eeC1JX/JdN9ycID0D60Cwqrg=="],
+    "@arbitre/core": ["@arbitre/core@0.3.1", "", { "dependencies": { "kuery": "^2.1.0" } }, "sha512-KaquFAOAVTW6gfSIyyHIqQ3m2UyixaSNMVs2KAyMonqFz/ZMu7Gy/LUKM7LWNW2ozp45WIKnzW1MZUVHd5LJBg=="],
 
     "@asamuzakjp/css-color": ["@asamuzakjp/css-color@3.2.0", "", { "dependencies": { "@csstools/css-calc": "^2.1.3", "@csstools/css-color-parser": "^3.0.9", "@csstools/css-parser-algorithms": "^3.0.4", "@csstools/css-tokenizer": "^3.0.3", "lru-cache": "^10.4.3" } }, "sha512-K1A6z8tS3XsmCMM86xoWdn7Fkdn9m6RSVtocUrJYIwZnFVkng/PvkEoWtOWmP+Scc6saYWHWZYbndEEXxl24jw=="],
 
@@ -324,6 +324,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@kalada/core": ["@kalada/core@0.1.0", "", {}, "sha512-e0HRQSe+4o9L1rt05VTFHC4v3fWZJcDHm2mLPJfsC3tE0mcdXfpVdlURbgOlh5yjZmc/UsG8wsAkXrt/Xyz+oQ=="],
 
     "@manypkg/find-root": ["@manypkg/find-root@1.1.0", "", { "dependencies": { "@babel/runtime": "^7.5.5", "@types/node": "^12.7.1", "find-up": "^4.1.0", "fs-extra": "^8.1.0" } }, "sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA=="],
 
@@ -623,7 +625,7 @@
 
     "jsonfile": ["jsonfile@4.0.0", "", { "optionalDependencies": { "graceful-fs": "^4.1.6" } }, "sha512-m6F1R3z8jjlf2imQHS2Qez5sjKWQzbuuhuJ/FKYFRZvPE3PuHcSMVZzfsLhGVOkfd20obL5SWEBew5ShlquNxg=="],
 
-    "kuery": ["kuery@2.1.0", "", {}, "sha512-L7H1oOAJApFQvgAuwBGvUsUcYmqsg04LxfpiCHSrYqDKecOzPDT4X2Yz5YrqrJDJevlZTCmsafV3JcBvAdxnJA=="],
+    "kuery": ["kuery@2.1.1", "", { "dependencies": { "@kalada/core": "^0.1.0" } }, "sha512-bJMgtUYEsZ7GYbEmU2WpMlVvd1pKLR7n/OjIjhMSIqSttVE71NnxHcTceFDvEvdi0uwpCwvKIake4nY49cAbGQ=="],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 

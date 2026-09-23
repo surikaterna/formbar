@@ -27,6 +27,6 @@
 		"test": "vitest run --root ../.. packages/expressions/src/__tests__"
 	},
 	"dependencies": {
-		"kuery": "^2.1.0"
+		"kuery": "^2.1.1"
 	}
 }
