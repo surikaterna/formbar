@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { act } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { orderEntryDemo } from "../demos/14-order-entry";
-import { arbiterCalculatedDemo } from "../demos/19-arbiter-calculated";
-import { button, cleanupDemos, click, labelled, mountDemo, setInput } from "./extension-demo-test-utils";
+import { arbiterCalculatedDemo, arbiterCalculatedSchema } from "../demos/19-arbiter-calculated";
+import { createJsonSchemaValidator } from "../validation/json-schema-validator";
+import { button, cleanupDemos, click, labelled, mountDemo, resultJson, setInput } from "./extension-demo-test-utils";
 
 afterEach(cleanupDemos);
 
@@ -24,7 +26,69 @@ function repeatedInput(view: Awaited<ReturnType<typeof mountDemo>>, label: strin
 	return control;
 }
 
+async function directSubmit(view: Awaited<ReturnType<typeof mountDemo>>) {
+	await act(async () => {
+		view.container.querySelector("form")?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+		await Promise.resolve();
+	});
+}
+
 describe("pure calculated outputs", () => {
+	it("keeps native price validity separate from permissive schema submission and projected USD outputs", async () => {
+		const submitted = vi.fn();
+		const view = await mountDemo(arbiterCalculatedDemo, submitted, true);
+		const price = labelled(view, "Unit Price ($)") as HTMLInputElement;
+		const quantity = labelled(view, "Quantity") as HTMLInputElement;
+		const validate = createJsonSchemaValidator(arbiterCalculatedSchema);
+		expect([price.type, price.min, price.step, quantity.min]).toEqual(["number", "0", "0.01", "1"]);
+		expect(view.container.querySelector("form")?.noValidate).toBe(true);
+		expect(view.container.querySelector("button")).toBeNull();
+		setInput(price, "-1");
+		expect(price.validity.rangeUnderflow).toBe(true);
+		expect(validate({ data: { quantity: 1, unitPrice: -1 }, uiState: {} })).toEqual([]);
+		expect(output(view, "Subtotal")).toBe("-$1.00");
+		await directSubmit(view);
+		expect(submitted).toHaveBeenCalledWith({ quantity: 1, unitPrice: -1 });
+		setInput(price, "0.001");
+		expect(price.validity.stepMismatch).toBe(true);
+		expect(validate({ data: { quantity: 1, unitPrice: 0.001 }, uiState: {} })).toEqual([]);
+		await directSubmit(view);
+		expect(submitted).toHaveBeenLastCalledWith({ quantity: 1, unitPrice: 0.001 });
+	});
+
+	it("preserves decimal price payloads, blocks quantity zero, and remounts with cent presentation", async () => {
+		const submitted = vi.fn();
+		const view = await mountDemo(arbiterCalculatedDemo, submitted, true);
+		const price = labelled(view, "Unit Price ($)") as HTMLInputElement;
+		const quantity = labelled(view, "Quantity") as HTMLInputElement;
+		const validate = createJsonSchemaValidator(arbiterCalculatedSchema);
+		setInput(price, "25.01");
+		expect(output(view, "Subtotal")).toBe("$25.01");
+		await directSubmit(view);
+		expect(submitted).toHaveBeenLastCalledWith({ quantity: 1, unitPrice: 25.01 });
+		const successful = resultJson(view);
+		expect(JSON.parse(successful ?? "")).toEqual({ quantity: 1, unitPrice: 25.01 });
+		setInput(quantity, "0");
+		expect(validate({ data: { quantity: 0, unitPrice: 25.01 }, uiState: {} })).toMatchObject([
+			{ code: "json-schema.minimum", path: { segments: ["quantity"] } },
+		]);
+		await directSubmit(view);
+		expect(submitted).toHaveBeenCalledTimes(1);
+		expect(resultJson(view)).toBe(successful);
+		setInput(quantity, "10");
+		setInput(price, "0.29");
+		expect([output(view, "Subtotal"), output(view, "Bulk Discount (10%)"), output(view, "Total")]).toEqual([
+			"$2.90",
+			"$0.29",
+			"$2.61",
+		]);
+		await directSubmit(view);
+		expect(submitted).toHaveBeenLastCalledWith({ quantity: 10, unitPrice: 0.29 });
+		const remount = await mountDemo(arbiterCalculatedDemo, undefined, true);
+		expect((labelled(remount, "Unit Price ($)") as HTMLInputElement).step).toBe("0.01");
+		expect(output(remount, "Subtotal")).toBe("$25.00");
+	});
+
 	it("transitions demo 19 from small to bulk without stored arithmetic", async () => {
 		const view = await mountDemo(arbiterCalculatedDemo, undefined, true);
 		expect(output(view, "Tier")).toBe("small");

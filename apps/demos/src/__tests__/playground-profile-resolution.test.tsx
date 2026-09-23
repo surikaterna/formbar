@@ -23,6 +23,7 @@ const profileTable = {
 		"widget:demo16.progress",
 	],
 	"demo17.advanced-layout.v1": ["custom-node:demo17.inspection-panel", "custom-node:demo17.field-grid"],
+	"demo19.numeric-presentation.v1": ["widget:demo19.numeric-presentation"],
 } as const;
 
 const hostileProfileIds = [

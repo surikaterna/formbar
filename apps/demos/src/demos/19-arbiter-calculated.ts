@@ -7,7 +7,7 @@ const uiRef = (path: string): Expression => ({ kind: "ref", ref: { namespace: "u
 const literal = (value: string | number): Expression => ({ kind: "literal", value });
 const operation = (op: string, ...args: Expression[]): Expression => ({ kind: "op", op, args });
 
-function field(id: string, path: string, label: string): FormNode {
+function field(id: string, path: string, label: string): Extract<FormNode, { type: "field" }> {
 	return { type: "field", id, binding: { namespace: "data", segments: [path] }, widget: "number", label };
 }
 
@@ -55,7 +55,11 @@ export const arbiterCalculatedDefinition = {
 		title: "Order Form",
 		children: [
 			field("f-quantity", "quantity", "Quantity"),
-			field("f-unit-price", "unitPrice", "Unit Price ($)"),
+			{
+				...field("f-unit-price", "unitPrice", "Unit Price ($)"),
+				widget: "demo19.numeric-presentation",
+				props: { min: { mode: "literal", value: 0 }, step: { mode: "literal", value: 0.01 } },
+			},
 			output("tier", "Tier", uiRef("tier"), "plain"),
 			output("subtotal-output", "Subtotal", subtotal, "currency-usd"),
 			{
@@ -79,6 +83,7 @@ export const arbiterCalculatedDemo = {
 	subtitle: "Tier detection and pure calculated outputs",
 	copy: "Rules handle conditional logic (tier detection, discount eligibility) while derived arithmetic is computed in pure OutputNode expressions. This separates concerns: rules for conditions, expressions for math.",
 	category: "conditional",
+	runtimeProfileIds: ["demo19.numeric-presentation.v1"],
 	actionControls: "definition",
 	sources: [
 		{
