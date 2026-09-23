@@ -239,10 +239,11 @@ describe("runtime demo architecture", () => {
 		const richFields = nodes(definition("array-items").root)
 			.filter((node) => node.type === "field")
 			.filter((node) => ["f-tag", "f-member-role"].includes(node.id));
-		expect(richFields.map((node) => node.widget)).toEqual(["demo16.rich-options", "demo16.rich-options"]);
+		expect(richFields.map((node) => node.widget)).toEqual(["demo16.rich-select", "demo16.rich-select"]);
 		expect(richFields[0]?.props?.richOptions).toEqual({
 			mode: "literal",
 			value: [
+				{ value: "", title: "" },
 				{ value: "frontend", title: "frontend" },
 				{ value: "backend", title: "Back end", disabled: true },
 			],

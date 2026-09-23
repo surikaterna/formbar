@@ -44,7 +44,7 @@ const definition = {
 				id: "work",
 				title: "Work Details",
 				children: [
-					field("f-role", "role", "select", "Role", half),
+					field("f-role", "role", "radio", "Role", half),
 					field("f-department", "department", "select", "Department", half),
 				],
 			},
@@ -71,7 +71,7 @@ const definition = {
 export const userProfileDemo = {
 	id: "user-profile",
 	title: "2. User Profile",
-	subtitle: "Sections, selects, and numeric bounds",
+	subtitle: "Sections, options, and numeric bounds",
 	copy: "Multi-column profile layout with schema-backed options, a bounded age slider, biography, and newsletter preference.",
 	category: "baseline",
 	runtimeProfileIds: ["demo16.trusted-widgets.v1"],

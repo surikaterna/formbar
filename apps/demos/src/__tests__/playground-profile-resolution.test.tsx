@@ -19,6 +19,7 @@ const profileTable = {
 		"widget:demo16.color",
 		"widget:demo16.checkbox-group",
 		"widget:demo16.rich-options",
+		"widget:demo16.rich-select",
 		"widget:demo16.range",
 		"widget:demo16.progress",
 	],

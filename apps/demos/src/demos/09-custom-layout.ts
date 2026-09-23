@@ -44,7 +44,7 @@ const definition = {
 				id: "classification",
 				title: "Classification",
 				children: [
-					field("f-type", "vesselType", "select", "Vessel Type", undefined, half),
+					field("f-type", "vesselType", "radio", "Vessel Type", undefined, half),
 					field("f-year", "yearBuilt", "demo16.range", "Year Built", undefined, half),
 					field("f-active", "isActive", "checkbox", "Active", "Currently in service", half),
 				],

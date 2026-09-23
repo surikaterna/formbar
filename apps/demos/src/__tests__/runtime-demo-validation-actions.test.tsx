@@ -109,8 +109,9 @@ describe("trusted search action", () => {
 		const view = await mountDemo(searchFiltersDemo, submitted, true);
 		input(view, "Search", "release notes");
 		setSelect(labelled(view, "Category") as HTMLSelectElement, "option-1");
+		await click(labelled(view, "1-10 MB"));
 		await click(button(view, "Apply Filters"));
-		expect(snapshots).toEqual([{ query: "release notes", category: "Documents" }]);
+		expect(snapshots).toEqual([{ query: "release notes", category: "Documents", fileSize: "1-10 MB" }]);
 		expect(Object.isFrozen(snapshots[0])).toBe(true);
 		expect(view.container.querySelector('output[data-formbar-action="demo11.apply-filters"]')?.textContent).toBe(
 			"Action completed.",
@@ -118,6 +119,7 @@ describe("trusted search action", () => {
 		expect(submitted).not.toHaveBeenCalled();
 		await click(button(view, "Reset"));
 		expect((labelled(view, "Search") as HTMLInputElement).value).toBe("");
+		expect((labelled(view, "1-10 MB") as HTMLInputElement).checked).toBe(false);
 		window.removeEventListener(filtersAppliedEvent, listener);
 	});
 

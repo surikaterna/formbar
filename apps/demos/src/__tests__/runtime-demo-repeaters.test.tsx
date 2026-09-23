@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { arrayItemsDemo, arrayItemsSchema } from "../demos/08-array-items";
 import { orderEntryDemo } from "../demos/14-order-entry";
+import type { SchemaDemoFixture } from "../demos/baseline-contracts";
 import { createJsonSchemaValidator } from "../validation/json-schema-validator";
 import {
 	button,
@@ -21,17 +22,6 @@ function inputs(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTM
 		.filter((candidate) => candidate.textContent?.trim() === label)
 		.map((candidate) => document.getElementById(candidate.htmlFor))
 		.filter((candidate): candidate is HTMLInputElement => candidate instanceof HTMLInputElement);
-}
-
-function choices(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTMLInputElement[] {
-	return [...view.container.querySelectorAll("label")]
-		.filter((candidate) => candidate.textContent?.trim() === label)
-		.map((candidate) => document.getElementById(candidate.htmlFor))
-		.filter((candidate): candidate is HTMLInputElement => candidate instanceof HTMLInputElement);
-}
-
-function choiceLabels(control: Element): string[] {
-	return [...control.querySelectorAll("label")].map((label) => label.textContent?.trim() ?? "");
 }
 
 function selects(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTMLSelectElement[] {
@@ -58,17 +48,17 @@ describe("array demo repeaters", () => {
 		await click(button(view, "Add Tags"));
 		const tagControls = [...view.container.querySelectorAll('[data-formbar-node="f-tag"] [data-widget]')];
 		expect(tagControls).toHaveLength(2);
-		for (const control of tagControls) expect(choiceLabels(control)).toEqual(["frontend", "Back end"]);
-		expect(choices(view, "frontend")).toHaveLength(2);
-		expect(choices(view, "Back end")).toHaveLength(2);
-		expect(choices(view, "Back end").every((choice) => choice.disabled)).toBe(true);
-		expect(choices(view, "frontend").every((choice) => !choice.checked)).toBe(true);
-		expect(document.activeElement).toBe(choices(view, "frontend")[1]);
+		const tags = selects(view, "Tag");
+		for (const select of tags) {
+			expect([...select.options].map((option) => option.textContent)).toEqual(["", "", "frontend", "Back end"]);
+			expect(select.options[3].disabled).toBe(true);
+			expect(select.selectedOptions[0].value).toBe("option-0");
+			expect(select.getAttribute("aria-labelledby")).toBeTruthy();
+		}
+		expect(document.activeElement).toBe(tags[1]);
 		expect(button(view, "Add Tags").disabled).toBe(true);
-		await click(choices(view, "Back end")[0]);
-		expect(choices(view, "Back end")[0].checked).toBe(false);
-		await click(choices(view, "frontend")[0]);
-		await click(choices(view, "frontend")[1]);
+		setSelect(tags[0], "option-1");
+		setSelect(tags[1], "option-1");
 		await click(button(view, "Submit"));
 		expect(submitted).not.toHaveBeenCalled();
 		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain("uniqueItems");
@@ -79,11 +69,17 @@ describe("array demo repeaters", () => {
 		for (const [index, name] of ["Ada", "Grace"].entries()) setInput(inputs(view, "Name")[index], name);
 		const roleControls = [...view.container.querySelectorAll('[data-formbar-node="f-member-role"] [data-widget]')];
 		expect(roleControls).toHaveLength(2);
-		for (const control of roleControls) {
-			expect(choiceLabels(control)).toEqual(["Team lead", "Developer", "Designer", "Quality assurance"]);
+		for (const role of selects(view, "Role")) {
+			expect([...role.options].map((option) => option.textContent)).toEqual([
+				"",
+				"Team lead",
+				"Developer",
+				"Designer",
+				"Quality assurance",
+			]);
 		}
-		await click(choices(view, "Developer")[0]);
-		await click(choices(view, "Quality assurance")[1]);
+		setSelect(selects(view, "Role")[0], "option-1");
+		setSelect(selects(view, "Role")[1], "option-3");
 		await click(repeaterButton(view, "team-members", "Move up, item 2"));
 		expect(inputs(view, "Name").map((control) => control.value)).toEqual(["Grace", "Ada"]);
 		await click(repeaterButton(view, "team-members", "Remove, item 2"));
@@ -108,14 +104,33 @@ describe("array demo repeaters", () => {
 		const view = await mountDemo(arrayItemsDemo, submitted);
 		setInput(labelled(view, "Project Name") as HTMLInputElement, "Seed project");
 		await click(button(view, "Add Tags"));
-		expect(choices(view, "frontend")).toHaveLength(1);
-		expect(choices(view, "frontend")[0].checked).toBe(false);
+		expect(selects(view, "Tag")[0].value).toBe("option-0");
 		await click(button(view, "Submit"));
 		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ projectName: "Seed project", tags: [""] }));
 		const successful = resultJson(view);
 		await click(button(view, "Reset"));
 		expect(view.container.querySelectorAll('[data-formbar-node="f-tag"]')).toHaveLength(0);
 		expect(resultJson(view)).toBe(successful);
+	});
+
+	it("preserves an unlisted schema-valid tag without silently replacing it with a presented option", async () => {
+		const fixture: SchemaDemoFixture = {
+			...arrayItemsDemo,
+			sources: [
+				{
+					...arrayItemsDemo.sources[0],
+					initialData: { ...arrayItemsDemo.sources[0].initialData, tags: ["outside-ui-domain"] },
+				},
+			],
+		};
+		const submitted = vi.fn();
+		const view = await mountDemo(fixture, submitted);
+		const tag = selects(view, "Tag")[0];
+		expect(tag.selectedOptions[0].textContent).toBe("outside-ui-domain");
+		setInput(labelled(view, "Project Name") as HTMLInputElement, "Outside UI");
+		await click(button(view, "Submit"));
+		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ tags: ["outside-ui-domain"] }));
+		expect(tag.selectedOptions[0].textContent).toBe("outside-ui-domain");
 	});
 
 	it("keeps empty and non-presented tag strings schema-valid while enforcing array constraints", () => {

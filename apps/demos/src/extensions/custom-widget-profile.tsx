@@ -163,6 +163,44 @@ export function RichOptionsWidget(props: WidgetProps) {
 	);
 }
 
+export function RichSelectWidget(props: WidgetProps) {
+	const options = richOptions(props);
+	const selected = options.findIndex((option) => Object.is(option.value, props.value));
+	const unknown = selected < 0 && props.value !== undefined;
+	const token = selected < 0 ? (unknown ? "unlisted" : "") : `option-${selected}`;
+	return (
+		<WidgetState props={props}>
+			<select
+				id={props.a11y.controlId}
+				value={token}
+				disabled={props.policy.disabled || props.policy.readOnly}
+				required={props.a11y.required}
+				{...stateAttributes(props)}
+				{...(props.a11y.invalid ? { "aria-errormessage": props.a11y.errorId } : {})}
+				onChange={(event) => {
+					if (props.policy.readOnly) return;
+					const next = event.currentTarget.value;
+					if (next === "") props.onChange(undefined);
+					else if (next !== "unlisted") props.onChange(options[Number(next.slice("option-".length))]?.value);
+				}}
+				onBlur={props.onBlur}
+			>
+				<option value="" />
+				{unknown ? <option value="unlisted">{String(props.value)}</option> : null}
+				{options.map((option, index) => (
+					<option
+						key={`${typeof option.value}:${String(option.value)}:${index}`}
+						value={`option-${index}`}
+						disabled={option.disabled}
+					>
+						{option.title}
+					</option>
+				))}
+			</select>
+		</WidgetState>
+	);
+}
+
 export function CheckboxGroupWidget(props: WidgetProps) {
 	const selected = selectedValues(props.value);
 	const toggle = (value: JsonValue) => {
@@ -258,6 +296,7 @@ export const customWidgetRegistrations = Object.freeze([
 	Object.freeze({ id: "demo16.color", component: ColorWidget }),
 	Object.freeze({ id: "demo16.checkbox-group", component: CheckboxGroupWidget }),
 	Object.freeze({ id: "demo16.rich-options", component: RichOptionsWidget }),
+	Object.freeze({ id: "demo16.rich-select", component: RichSelectWidget }),
 	Object.freeze({ id: "demo16.range", component: RangeWidget }),
 	Object.freeze({ id: "demo16.progress", component: ProgressWidget }),
 ]);
