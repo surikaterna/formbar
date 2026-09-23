@@ -1,5 +1,19 @@
 # @formbar/react-schema
 
+## 0.13.0
+
+### Minor Changes
+
+- bea9fd1: Add form-backed repeater projection, generated actions, constraint guards, scoped React rendering, and stable renderer-private row coordination. Preserve nested field metadata when moving array items.
+
+### Patch Changes
+
+- Updated dependencies [bea9fd1]
+  - @formbar/core@0.13.0
+  - @formbar/declarative@0.13.0
+  - @formbar/from-schema@0.13.0
+  - @formbar/react@0.13.0
+
 ## 0.12.0
 
 ### Minor Changes
