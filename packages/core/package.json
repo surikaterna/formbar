@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/core",
-	"version": "0.14.0",
+	"version": "0.14.2",
 	"type": "module",
 	"description": "Headless form state engine with validation, transforms, and middleware",
 	"license": "MIT",
@@ -42,6 +42,6 @@
 		"test": "vitest run --root ../.. packages/core/src/__tests__"
 	},
 	"dependencies": {
-		"@formbar/expressions": "^0.14.0"
+		"@formbar/expressions": "^0.14.2"
 	}
 }
