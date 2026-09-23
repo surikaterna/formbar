@@ -1,14 +1,36 @@
 // @vitest-environment jsdom
 import { createForm } from "@formbar/core";
+import type { FormApi } from "@formbar/core";
 import type { FormDefinition } from "@formbar/declarative";
 import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { act } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { FormRenderer } from "../index.js";
+import { FormRenderer, useSchemaForm } from "../index.js";
 import type { RendererContext, WidgetProps } from "../index.js";
-import { binding } from "./renderer-test-utils.js";
+import { binding, input } from "./renderer-test-utils.js";
+
+const hookSchema = { type: "object", properties: { name: { type: "string", title: "Name" } } };
+const hookDefinition: FormDefinition = {
+	version: 1,
+	id: "hook-ssr",
+	root: { type: "field", id: "name", binding: binding("name"), widget: "text", label: "Name" },
+};
+const hookProvider = jsonSchemaProvider();
+
+function SchemaHookRenderer(props: { readonly capture: (form: FormApi<{ name: string }, { panel: string }>) => void }) {
+	const prepared = useSchemaForm<{ name: string }, { panel: string }>(hookSchema, {
+		provider: hookProvider,
+		side: "input",
+		definition: hookDefinition,
+		initialData: { name: "Ada" },
+		initialUiState: { panel: "details" },
+		autoFocusOnError: false,
+	});
+	props.capture(prepared.form);
+	return <FormRenderer {...prepared} />;
+}
 
 function countFindPredicates(run: () => void): number {
 	let operations = 0;
@@ -30,6 +52,44 @@ function countFindPredicates(run: () => void): number {
 }
 
 describe("renderer SSR", () => {
+	it("renders, hydrates, and updates through public useSchemaForm", async () => {
+		const serverForms: FormApi<{ name: string }, { panel: string }>[] = [];
+		const html = renderToString(<SchemaHookRenderer capture={(form) => serverForms.push(form)} />);
+		expect(html).toContain("Ada");
+		expect(html).toContain('data-formbar-definition="hook-ssr"');
+		for (const form of serverForms) form.dispose();
+		const clientForms: FormApi<{ name: string }, { panel: string }>[] = [];
+		const capture = (form: FormApi<{ name: string }, { panel: string }>) => {
+			if (!clientForms.includes(form)) clientForms.push(form);
+		};
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		document.body.append(container);
+		const serverIds = [...container.querySelectorAll<HTMLElement>("[id]")].map((element) => element.id);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const recoverable: unknown[] = [];
+		let root: ReturnType<typeof hydrateRoot>;
+		await act(async () => {
+			root = hydrateRoot(container, <SchemaHookRenderer capture={capture} />, {
+				onRecoverableError: (diagnostic) => recoverable.push(diagnostic),
+			});
+			await Promise.resolve();
+		});
+		expect([...container.querySelectorAll<HTMLElement>("[id]")].map((element) => element.id)).toEqual(serverIds);
+		const control = container.querySelector("input") as HTMLInputElement;
+		expect(control.value).toBe("Ada");
+		input(control, "Grace");
+		expect(clientForms[0]?.getState().data.name).toBe("Grace");
+		expect(control.value).toBe("Grace");
+		expect(recoverable).toEqual([]);
+		expect(error).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(clientForms[0]?.isDisposed()).toBe(true);
+		error.mockRestore();
+		container.remove();
+	});
+
 	it("renders 100, 200, and 500 rows with bounded array-search operations", () => {
 		const prepared = createSchemaForm(
 			{
