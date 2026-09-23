@@ -150,7 +150,6 @@ describe("FormRenderer evidence and fallbacks", () => {
 			node.getAttribute("data-formbar-diagnostic"),
 		);
 		expect(codes).toEqual([
-			"unsupported-node",
 			"unknown-action",
 			"missing-extension",
 			"missing-extension",

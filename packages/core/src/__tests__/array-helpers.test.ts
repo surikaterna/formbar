@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { createForm } from "../create-form.js";
+import { moveFieldMeta, shiftFieldMeta } from "../field-meta-shift.js";
+import type { FieldMetaEntry } from "../state.js";
+
+const metadataPaths = [
+	{ name: "dot", base: "items", key: (index: number) => `items.${index}.name` },
+	{ name: "pointer with dotted segment", base: "/a.b/items", key: (index: number) => `/a.b/items/${index}/name` },
+	{ name: "UI namespace", base: "$ui.items", key: (index: number) => `$ui.items.${index}.name` },
+	{ name: "literal data $ui", base: "/$ui/items", key: (index: number) => `/$ui/items/${index}/name` },
+	{ name: "root dot", base: "", key: (index: number) => `${index}.name` },
+	{ name: "root pointer", base: "", key: (index: number) => `/${index}/name` },
+] as const;
+
+const metaEntry = (dirty: boolean): FieldMetaEntry => ({
+	touched: true,
+	dirty,
+	isValidating: false,
+	listenerTriggered: false,
+});
 
 describe("array field helpers", () => {
 	it("pushValue appends element to array", () => {
@@ -36,6 +54,44 @@ describe("array field helpers", () => {
 		expect(result.ok).toBe(true);
 		expect(form.getState().data.items).toEqual(["b", "c", "a"]);
 		form.dispose();
+	});
+
+	it("moveValue preserves nested metadata while reindexing in both directions", () => {
+		const form = createForm({ initialData: { items: [{ name: "a" }, { name: "b" }, { name: "c" }] } });
+		form.field("items.0.name").handleBlur();
+		form.setValue("items.1.name", "B");
+		form.setValue("items.2.name", "C");
+
+		form.field("items").moveValue(0, 2);
+		expect(form.getState().fieldMeta["items.2.name"]).toMatchObject({ touched: true, dirty: false });
+		expect(form.getState().fieldMeta["items.0.name"]).toMatchObject({ touched: true, dirty: true });
+		expect(form.getState().fieldMeta["items.1.name"]).toMatchObject({ touched: true, dirty: true });
+
+		form.field("items").moveValue(2, 0);
+		expect(form.getState().fieldMeta["items.0.name"]).toMatchObject({ touched: true, dirty: false });
+		expect(form.getState().fieldMeta["items.1.name"]).toMatchObject({ touched: true, dirty: true });
+		expect(form.getState().fieldMeta["items.2.name"]).toMatchObject({ touched: true, dirty: true });
+		form.dispose();
+	});
+
+	it.each(metadataPaths)("reindexes $name metadata without stale keys or collisions", ({ base, key }) => {
+		const first = metaEntry(false);
+		const second = metaEntry(true);
+		const third = { ...metaEntry(true), isValidating: true };
+		const outside = metaEntry(false);
+		const original = { [key(0)]: first, [key(1)]: second, [key(2)]: third, unrelated: outside };
+
+		const forward = moveFieldMeta(original, base, 0, 2);
+		expect(forward).toEqual({ [key(0)]: second, [key(1)]: third, [key(2)]: first, unrelated: outside });
+		expect(moveFieldMeta(forward, base, 2, 0)).toEqual(original);
+
+		const inserted = shiftFieldMeta(original, base, 1, 1);
+		expect(inserted).toEqual({ [key(0)]: first, [key(2)]: second, [key(3)]: third, unrelated: outside });
+		expect(inserted[key(1)]).toBeUndefined();
+
+		const removed = shiftFieldMeta(original, base, 1, -1);
+		expect(removed).toEqual({ [key(0)]: first, [key(1)]: third, unrelated: outside });
+		expect(Object.values(removed)).not.toContain(second);
 	});
 
 	it("swapValue swaps two elements", () => {

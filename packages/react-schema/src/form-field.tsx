@@ -1,6 +1,6 @@
 import { structuredEqual } from "@formbar/core";
 import type { ValidationIssue } from "@formbar/core";
-import type { FieldNode, ResolvedFieldState, ValidationNode } from "@formbar/declarative";
+import type { FieldNode, ResolvedFieldState, ResolvedValidationState, ValidationNode } from "@formbar/declarative";
 import { descriptionId, errorId, fieldId, useFormSelector } from "@formbar/react";
 import type { ReactElement } from "react";
 import { ExtensionField } from "./extension-field.js";
@@ -13,6 +13,7 @@ import {
 	descriptorEvidence,
 	domIdToken,
 	editablePath,
+	fieldDescriptorKey,
 	literalProp,
 	resolveFieldEvidence,
 } from "./renderer-evidence.js";
@@ -48,8 +49,8 @@ export function FormField({ node, state, environment, layout }: FieldProps): Rea
 	if (native && !native.ok)
 		return <DiagnosticFallback code={native.diagnostic} nodeId={node.id} widget={node.widget} layout={layout} />;
 	const visibleIssues = state.dirty || state.touched || environment.submitted ? state.issues : [];
-	const description = fieldDescription(node, environment);
-	const wiring = fieldWiring(node, visibleIssues, environment.prefix, description);
+	const description = fieldDescription(node, state, environment);
+	const wiring = fieldWiring(state.instance.instanceKey, visibleIssues, environment.prefix, description);
 	return (
 		<div
 			data-formbar-node={node.id}
@@ -64,9 +65,7 @@ export function FormField({ node, state, environment, layout }: FieldProps): Rea
 				</label>
 			)}
 			{fieldControl(node, state, environment, wiring, description, native)}
-			{wiring.description ? (
-				<div id={descriptionId(domIdToken(node.id), environment.prefix)}>{wiring.description}</div>
-			) : null}
+			{wiring.description ? <div id={wiring.descriptionId}>{wiring.description}</div> : null}
 			<IssueList issues={visibleIssues} id={wiring.issueId} />
 		</div>
 	);
@@ -86,7 +85,7 @@ function fieldControl(
 				node={node}
 				state={state}
 				environment={environment}
-				evidence={descriptorEvidence(environment.descriptors, node.binding)}
+				evidence={descriptorEvidence(environment.descriptors, state.binding, fieldDescriptorKey(node))}
 				{...(description === undefined ? {} : { description })}
 				wiring={wiring}
 			/>
@@ -96,12 +95,12 @@ function fieldControl(
 
 export function FormValidation(props: {
 	readonly node: ValidationNode;
+	readonly state: ResolvedValidationState;
 	readonly environment: RendererEnvironment;
-	readonly visible: boolean;
 	readonly layout: LayoutProps;
 }): ReactElement | null {
-	const path = editablePath(props.node.binding);
-	if (!props.visible) return null;
+	const path = editablePath(props.state.binding);
+	if (!props.state.visible) return null;
 	if (!path) return <DiagnosticFallback code="unsupported-binding" nodeId={props.node.id} layout={props.layout} />;
 	return <ValidationIssues {...props} path={path} />;
 }
@@ -129,12 +128,12 @@ function ValidationIssues(props: {
 }
 
 function fieldWiring(
-	node: FieldNode,
+	instanceKey: string,
 	issues: readonly ValidationIssue[],
 	prefix: string,
 	description: string | undefined,
 ): Wiring {
-	const token = domIdToken(node.id);
+	const token = domIdToken(instanceKey);
 	const hasErrors = issues.some((issue) => issue.severity === "error");
 	const issueId = errorId(token, prefix);
 	const descriptionToken = description ? descriptionId(token, prefix) : undefined;
@@ -150,9 +149,13 @@ function fieldWiring(
 	};
 }
 
-function fieldDescription(node: FieldNode, environment: RendererEnvironment): string | undefined {
+function fieldDescription(
+	node: FieldNode,
+	state: ResolvedFieldState,
+	environment: RendererEnvironment,
+): string | undefined {
 	const explicit = stringProp(node, "description");
-	return explicit ?? descriptorDescription(environment.descriptors, node.binding);
+	return explicit ?? descriptorDescription(environment.descriptors, state.binding, fieldDescriptorKey(node));
 }
 
 function IssueList(props: { readonly issues: readonly ValidationIssue[]; readonly id: string }) {

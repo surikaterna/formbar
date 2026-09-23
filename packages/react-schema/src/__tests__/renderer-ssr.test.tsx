@@ -10,7 +10,88 @@ import { FormRenderer } from "../index.js";
 import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
+function countFindPredicates(run: () => void): number {
+	let operations = 0;
+	const original = Array.prototype.find;
+	const find = vi.spyOn(Array.prototype, "find").mockImplementation(function (predicate, thisArg) {
+		return Reflect.apply(original, this, [
+			(value: unknown, index: number, values: unknown[]) => {
+				operations += 1;
+				return Reflect.apply(predicate, thisArg, [value, index, values]);
+			},
+		]);
+	});
+	try {
+		run();
+		return operations;
+	} finally {
+		find.mockRestore();
+	}
+}
+
 describe("renderer SSR", () => {
+	it("renders 100, 200, and 500 rows with bounded array-search operations", () => {
+		const prepared = createSchemaForm(
+			{
+				type: "object",
+				properties: {
+					rows: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: Object.fromEntries(
+								Array.from({ length: 5 }, (_, index) => [`value${index}`, { type: "string" }]),
+							),
+						},
+					},
+				},
+			},
+			{ provider: jsonSchemaProvider(), side: "input" },
+		);
+		const operations = [100, 200, 500].map((rowCount) => {
+			const rows = Array.from({ length: rowCount }, (_, row) =>
+				Object.fromEntries(Array.from({ length: 5 }, (_, field) => [`value${field}`, `${row}:${field}`])),
+			);
+			const form = createForm({ initialData: { rows }, initialUiState: {} });
+			const predicates = countFindPredicates(() => {
+				renderToString(<FormRenderer {...prepared} form={form} />);
+			});
+			form.dispose();
+			return { rowCount, predicates };
+		});
+
+		expect(operations).toEqual([
+			{ rowCount: 100, predicates: 0 },
+			{ rowCount: 200, predicates: 0 },
+			{ rowCount: 500, predicates: 0 },
+		]);
+	});
+
+	it("hydrates generated repeater rows with deterministic IDs and no mismatch", async () => {
+		const prepared = createSchemaForm(
+			{ type: "object", properties: { rows: { type: "array", title: "Rows", items: { type: "string" } } } },
+			{ provider: jsonSchemaProvider(), side: "input" },
+		);
+		const form = createForm({ initialData: { rows: ["one", "two"] }, initialUiState: {} });
+		const renderer = <FormRenderer {...prepared} form={form} />;
+		const container = document.createElement("div");
+		container.innerHTML = renderToString(renderer);
+		document.body.append(container);
+		const serverIds = [...container.querySelectorAll("[id]")].map((element) => element.id);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		let root: ReturnType<typeof hydrateRoot>;
+		await act(async () => {
+			root = hydrateRoot(container, renderer);
+			await Promise.resolve();
+		});
+		expect([...container.querySelectorAll("[id]")].map((element) => element.id)).toEqual(serverIds);
+		expect(error).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		error.mockRestore();
+		container.remove();
+		form.dispose();
+	});
+
 	it("renders and hydrates action controls without mismatches", async () => {
 		const definition: FormDefinition = {
 			version: 1,

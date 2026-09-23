@@ -1,6 +1,14 @@
 import { structuredEqual } from "@formbar/core";
 import type { FormState, ValidationIssue } from "@formbar/core";
-import type { ActionRegistration, FieldNode, FormNode, ResolvedFieldState } from "@formbar/declarative";
+import type {
+	ActionExecutor,
+	ActionRegistration,
+	FieldNode,
+	FormNode,
+	ResolvedFieldState,
+	RuntimePort,
+	RuntimeSnapshot,
+} from "@formbar/declarative";
 import type { DescriptorDocument } from "@formbar/from-schema";
 import { fieldId, useFormSelector } from "@formbar/react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -11,24 +19,23 @@ import { FormNodeView } from "./form-node.js";
 import { DiagnosticFallback } from "./renderer-elements.js";
 import { domIdToken, focusableField } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
+import { RepeaterCoordinator } from "./repeater-coordinator.js";
 import { useOwnedActionExecutor } from "./use-action-executor.js";
 import { useOwnedRuntime } from "./use-runtime-observation.js";
 import type { UseSchemaFormResult } from "./use-schema-form.js";
 
 export interface FormRendererProps<TData = unknown, TUi = unknown>
 	extends Pick<UseSchemaFormResult<TData, TUi>, "form" | "descriptors" | "definition" | "baseline"> {
+	readonly repeaterBaseline?: UseSchemaFormResult<TData, TUi>["repeaterBaseline"];
 	readonly extensions?: RendererExtensions;
 	readonly actions?: readonly ActionRegistration[];
 }
 
+const summaryFieldIndexes = new WeakMap<RuntimeSnapshot, ReadonlyMap<string, readonly ResolvedFieldState[]>>();
+
 export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): ReactElement {
 	const model = useRendererModel(props);
-	useFailedSubmitFocus(
-		model.root.status,
-		model.root.submitId,
-		model.summary.find((entry) => entry.target)?.target,
-		model.summaryId,
-	);
+	useFailedSubmitFocus(model.root.status, model.root.submitId, firstSummaryTarget(model.summary), model.summaryId);
 	return (
 		<form
 			noValidate
@@ -48,7 +55,12 @@ export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): 
 }
 
 function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
-	const runtime = useOwnedRuntime({ form: props.form, definition: props.definition, baseline: props.baseline });
+	const runtime = useOwnedRuntime({
+		form: props.form,
+		definition: props.definition,
+		baseline: props.baseline,
+		...(props.repeaterBaseline ? { repeaterBaseline: props.repeaterBaseline } : {}),
+	});
 	const actionExecutor = useOwnedActionExecutor(props.form as RendererEnvironment["form"], runtime, props.actions);
 	const rootId = useId();
 	const prefix = useMemo(
@@ -58,44 +70,92 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 	const root = useFormSelector(props.form, selectRootState, structuredEqual);
 	const fieldNodes = useMemo(() => renderedFieldNodes(props.definition.root), [props.definition.root]);
 	const extensions = useMemo(() => normalizeExtensions(props.extensions), [props.extensions]);
+	const repeaters = useMemo(
+		() => createRepeaterCoordinator(props.form, props.definition),
+		[props.form, props.definition],
+	);
+	useEffect(() => props.form.onReset(() => repeaters.reset()), [props.form, repeaters]);
+	const environmentState = useRendererEnvironment({
+		runtime,
+		actionExecutor,
+		props,
+		prefix,
+		root,
+		extensions,
+		repeaters,
+	});
+	return rendererSummary(runtime, root, prefix, fieldNodes, props.descriptors, extensions, environmentState);
+}
+
+interface EnvironmentOptions<TData, TUi> {
+	readonly runtime: RuntimePort;
+	readonly actionExecutor: ActionExecutor;
+	readonly props: FormRendererProps<TData, TUi>;
+	readonly prefix: string;
+	readonly root: RootState;
+	readonly extensions: ReturnType<typeof normalizeExtensions>;
+	readonly repeaters: RepeaterCoordinator;
+}
+
+function useRendererEnvironment<TData, TUi>(options: EnvironmentOptions<TData, TUi>) {
 	const failures = useExtensionFailures();
 	const { failedExtensions, extensionFailed, extensionRecovered } = failures;
 	const environment = useMemo<RendererEnvironment>(
 		() => ({
-			runtime,
-			form: props.form as RendererEnvironment["form"],
-			actions: actionExecutor,
-			descriptors: props.descriptors,
-			prefix,
-			submitted: root.submitted,
-			extensions,
+			runtime: options.runtime,
+			form: options.props.form as RendererEnvironment["form"],
+			actions: options.actionExecutor,
+			descriptors: options.props.descriptors,
+			prefix: options.prefix,
+			submitted: options.root.submitted,
+			extensions: options.extensions,
+			repeaters: options.repeaters,
 			extensionFailed,
 			extensionRecovered,
 		}),
 		[
-			runtime,
-			props.form,
-			actionExecutor,
-			props.descriptors,
-			prefix,
-			root.submitted,
-			extensions,
+			options.runtime,
+			options.props.form,
+			options.actionExecutor,
+			options.props.descriptors,
+			options.prefix,
+			options.root.submitted,
+			options.extensions,
+			options.repeaters,
 			extensionFailed,
 			extensionRecovered,
 		],
 	);
+	return { environment, failedExtensions };
+}
+
+function rendererSummary(
+	runtime: RuntimePort,
+	root: RootState,
+	prefix: string,
+	fieldNodes: ReadonlyMap<string, FieldNode>,
+	descriptors: DescriptorDocument,
+	extensions: ReturnType<typeof normalizeExtensions>,
+	environmentState: ReturnType<typeof useRendererEnvironment>,
+) {
 	const summary = summaryEntries(
-		runtime.getSnapshot().fields,
+		runtime.getSnapshot(),
 		root.issues,
 		prefix,
 		fieldNodes,
-		props.descriptors,
+		descriptors,
 		extensions,
-		failedExtensions,
+		environmentState.failedExtensions,
 	);
 	const summaryId = `${prefix}-error-summary`;
 	const hasErrors = root.issues.some(errorIssue);
-	return { root, environment, summary, summaryId, hasErrors };
+	return { root, environment: environmentState.environment, summary, summaryId, hasErrors };
+}
+
+function createRepeaterCoordinator(form: object, definition: object): RepeaterCoordinator {
+	void form;
+	void definition;
+	return new RepeaterCoordinator();
 }
 
 function ActionRegistryDiagnostics(props: { readonly executor: RendererEnvironment["actions"] }): ReactElement {
@@ -174,7 +234,7 @@ interface SummaryEntry {
 }
 
 function summaryEntries(
-	fields: readonly ResolvedFieldState[],
+	snapshot: RuntimeSnapshot,
 	issues: readonly ValidationIssue[],
 	prefix: string,
 	nodes: ReadonlyMap<string, FieldNode>,
@@ -182,21 +242,48 @@ function summaryEntries(
 	extensions: ReturnType<typeof normalizeExtensions>,
 	failedExtensions: ReadonlySet<string>,
 ): readonly SummaryEntry[] {
+	const fields = summaryFieldIndex(snapshot);
 	return issues.filter(errorIssue).map((issue) => {
-		const field = fields.find((candidate) => {
+		let field: ResolvedFieldState | undefined;
+		for (const candidate of fields.get(issuePathKey(issue)) ?? []) {
 			const node = nodes.get(candidate.instance.nodeId);
-			return Boolean(
-				node &&
-					!failedExtensions.has(node.id) &&
-					samePath(candidate, issue) &&
-					focusable(node, candidate, descriptors, extensions),
-			);
-		});
+			if (node && !failedExtensions.has(node.id) && focusable(node, candidate, descriptors, extensions)) {
+				field = candidate;
+				break;
+			}
+		}
 		return {
-			...(field ? { target: fieldId(domIdToken(field.instance.nodeId), prefix) } : {}),
+			...(field ? { target: fieldId(domIdToken(field.instance.instanceKey), prefix) } : {}),
 			message: issue.message,
 		};
 	});
+}
+
+function summaryFieldIndex(snapshot: RuntimeSnapshot): ReadonlyMap<string, readonly ResolvedFieldState[]> {
+	const cached = summaryFieldIndexes.get(snapshot);
+	if (cached) return cached;
+	const index = new Map<string, ResolvedFieldState[]>();
+	for (const field of snapshot.fields) {
+		const key = fieldPathKey(field.binding);
+		const bucket = index.get(key) ?? [];
+		bucket.push(field);
+		index.set(key, bucket);
+	}
+	summaryFieldIndexes.set(snapshot, index);
+	return index;
+}
+
+function fieldPathKey(path: { readonly namespace: string; readonly segments: readonly (string | number)[] }): string {
+	return JSON.stringify([path.namespace, path.segments]);
+}
+
+function issuePathKey(issue: ValidationIssue): string {
+	return fieldPathKey(issue.path);
+}
+
+function firstSummaryTarget(entries: readonly SummaryEntry[]): string | undefined {
+	for (const entry of entries) if (entry.target) return entry.target;
+	return undefined;
 }
 
 function focusable(
@@ -251,14 +338,6 @@ function statusText(status: RootState["status"], validating: boolean, hasErrors:
 
 function errorIssue(issue: ValidationIssue): boolean {
 	return issue.severity === "error";
-}
-
-function samePath(field: ResolvedFieldState, issue: ValidationIssue): boolean {
-	return (
-		field.binding.namespace === issue.path.namespace &&
-		field.binding.segments.length === issue.path.segments.length &&
-		field.binding.segments.every((segment, index) => segment === issue.path.segments[index])
-	);
 }
 
 function renderedFieldNodes(root: FormNode): ReadonlyMap<string, FieldNode> {

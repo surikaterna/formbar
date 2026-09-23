@@ -72,7 +72,7 @@ function actionTarget(
 		return null;
 	}
 	const target = binding(value, path, context.scopes, context);
-	if (target?.namespace === "data" && target.segments.length > 0) return target;
+	if (target?.namespace === "data") return target;
 	if (target) diagnostic(context, "invalid-action-target", path, "Array actions require a data target.");
 	return null;
 }

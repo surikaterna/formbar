@@ -1,6 +1,11 @@
 import type { StateRef } from "@formbar/expressions";
 import type { ActionNode } from "./nodes.js";
-import type { ResolvedActionState, ResolvedNodeState, RuntimeDiagnostic } from "./runtime-contracts.js";
+import type {
+	ResolvedActionState,
+	ResolvedArrayLimits,
+	ResolvedNodeState,
+	RuntimeDiagnostic,
+} from "./runtime-contracts.js";
 import { runtimeDiagnostic } from "./runtime-diagnostics.js";
 import { type RuntimeExpressionFrame, evaluateRuntimeExpression } from "./runtime-expressions.js";
 
@@ -8,6 +13,7 @@ export interface ResolveActionStateOptions {
 	readonly node: ActionNode;
 	readonly nodeState: ResolvedNodeState;
 	readonly target?: StateRef;
+	readonly arrayLimits?: ResolvedArrayLimits;
 	readonly frame: RuntimeExpressionFrame;
 	readonly diagnostics: RuntimeDiagnostic[];
 }
@@ -25,6 +31,7 @@ export function resolveActionState(options: ResolveActionStateOptions): Resolved
 		concurrency: options.node.concurrency ?? "drop",
 		payload,
 		...(target ? { target } : {}),
+		...(options.arrayLimits ? { arrayLimits: Object.freeze({ ...options.arrayLimits }) } : {}),
 	});
 }
 

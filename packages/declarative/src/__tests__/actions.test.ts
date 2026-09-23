@@ -324,8 +324,13 @@ describe("declarative actions", () => {
 			payload: literal("safe"),
 		};
 		const { form, runtime } = setup([node], { items: ["safe"] });
+		const hostileState = () => {
+			const state = runtime.getNode(key("append"));
+			return state?.type === "action" ? { ...state, payload: { status: "ready", value: hostilePayload } } : state;
+		};
 		const hostileRuntime = new Proxy(runtime, {
 			get(target, property, receiver) {
+				if (property === "getNode") return hostileState;
 				if (property !== "getSnapshot") return Reflect.get(target, property, receiver);
 				return () => {
 					const snapshot = runtime.getSnapshot();

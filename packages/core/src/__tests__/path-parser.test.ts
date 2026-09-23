@@ -35,6 +35,7 @@ describe("parsePath — $ui dot paths", () => {
 });
 
 describe("parsePath — JSON Pointer", () => {
+	test("empty pointer is the data root", () => expectPath("", "data", []));
 	test("simple pointer", () => expectPath("/customer", "data", ["customer"]));
 	test("nested pointer", () => expectPath("/customer/email", "data", ["customer", "email"]));
 	test("escape tilde ~0", () => expectPath("/a~0b", "data", ["a~b"]));
@@ -44,7 +45,6 @@ describe("parsePath — JSON Pointer", () => {
 });
 
 describe("parsePath — rejections", () => {
-	test("empty string", () => expectError("", "FORMBAR_PATH_EMPTY"));
 	test("mixed namespace $ui/", () => expectError("$ui/visible", "FORMBAR_PATH_MIXED_NAMESPACE"));
 	test("trailing dot", () => expectError("a.", "FORMBAR_PATH_INVALID_DOT"));
 	test("leading dot", () => expectError(".a", "FORMBAR_PATH_INVALID_DOT"));
@@ -54,6 +54,7 @@ describe("parsePath — rejections", () => {
 });
 
 describe("toPointer", () => {
+	test("formats the data root as the empty pointer", () => expect(toPointer(parsePath(""))).toBe(""));
 	test("simple data path", () => {
 		expect(toPointer(parsePath("customer.email"))).toBe("/customer/email");
 	});

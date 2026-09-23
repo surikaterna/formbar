@@ -1,5 +1,10 @@
 import type { FormApi, SchemaValidator } from "@formbar/core";
-import type { FormDefinition, RuntimeFieldBaseline, ValidatedFormDefinition } from "@formbar/declarative";
+import type {
+	FormDefinition,
+	RuntimeFieldBaseline,
+	RuntimeRepeaterBaseline,
+	ValidatedFormDefinition,
+} from "@formbar/declarative";
 import type {
 	CompileDefaultFormDefinitionOptions,
 	DescriptorDocument,
@@ -38,6 +43,7 @@ export interface UseSchemaFormResult<TData, TUi> {
 	readonly descriptors: DescriptorDocument;
 	readonly definition: ValidatedFormDefinition;
 	readonly baseline: readonly RuntimeFieldBaseline[];
+	readonly repeaterBaseline: readonly RuntimeRepeaterBaseline[];
 	readonly diagnostics: SchemaFormDiagnostics;
 	readonly warnings: readonly SchemaPreparationWarning[];
 }
@@ -58,6 +64,7 @@ export function useSchemaForm<TData, TUi>(
 		descriptors: prepared.descriptors,
 		definition: prepared.definition,
 		baseline: prepared.baseline,
+		repeaterBaseline: prepared.repeaterBaseline,
 		diagnostics: prepared.diagnostics,
 		warnings: warnings(prepared.diagnostics),
 	});

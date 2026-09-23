@@ -1,4 +1,10 @@
-import type { FormNode, RuntimeFieldBaseline, StateRef, ValidatedFormDefinition } from "@formbar/declarative";
+import type {
+	FormNode,
+	RuntimeFieldBaseline,
+	RuntimeRepeaterBaseline,
+	StateRef,
+	ValidatedFormDefinition,
+} from "@formbar/declarative";
 import type {
 	DescriptorDocument,
 	DescriptorNode,
@@ -13,12 +19,15 @@ interface FieldPattern {
 	readonly path: readonly OccurrencePathSegment[];
 }
 
+type RepeaterPattern = FieldPattern;
+
 interface PatternFrame {
 	readonly scopes: Readonly<Record<string, StateRef>>;
 }
 
 export interface RuntimeBaselineAdaptation {
 	readonly baseline: readonly RuntimeFieldBaseline[];
+	readonly repeaterBaseline: readonly RuntimeRepeaterBaseline[];
 	readonly diagnostics: readonly CompilationDiagnostic[];
 }
 
@@ -29,12 +38,20 @@ export function createRuntimeFieldBaseline(
 	return adaptRuntimeFieldBaseline(document, definition).baseline;
 }
 
+export function createRuntimeRepeaterBaseline(
+	document: DescriptorDocument,
+	definition: ValidatedFormDefinition,
+): readonly RuntimeRepeaterBaseline[] {
+	return adaptRuntimeFieldBaseline(document, definition).repeaterBaseline;
+}
+
 export function adaptRuntimeFieldBaseline(
 	document: DescriptorDocument,
 	definition: ValidatedFormDefinition,
 ): RuntimeBaselineAdaptation {
 	const diagnostics: CompilationDiagnostic[] = [];
-	const baseline = fieldPatterns(definition.root).flatMap((field) => {
+	const patterns = runtimePatterns(definition.root);
+	const baseline = patterns.fields.flatMap((field) => {
 		const matches = matchingOccurrences(document, field.path);
 		if (!matches.length) return [];
 		const labels = distinctLabels(document, matches);
@@ -47,41 +64,68 @@ export function adaptRuntimeFieldBaseline(
 			}),
 		];
 	});
-	return Object.freeze({ baseline: Object.freeze(baseline), diagnostics: sortCompilationDiagnostics(diagnostics) });
+	const repeaterBaseline = patterns.repeaters.flatMap((repeater) => {
+		const matches = matchingOccurrences(document, repeater.path);
+		if (!matches.length) return [];
+		const labels = distinctLabels(document, matches);
+		if (labels.length > 1) diagnostics.push(conflictingLabelDiagnostic(repeater.nodeId, matches[0]));
+		const evidence = matches.map((occurrence) => document.evidence[occurrence.nodeId]);
+		const minimums = evidence.flatMap((item) => (item?.minItems === undefined ? [] : [item.minItems]));
+		const maximums = evidence.flatMap((item) => (item?.maxItems === undefined ? [] : [item.maxItems]));
+		return [
+			Object.freeze({
+				nodeId: repeater.nodeId,
+				...(minimums.length ? { minItems: Math.max(...minimums) } : {}),
+				...(maximums.length ? { maxItems: Math.min(...maximums) } : {}),
+				...(labels.length === 1 ? { label: labels[0] } : {}),
+			}),
+		];
+	});
+	return Object.freeze({
+		baseline: Object.freeze(baseline),
+		repeaterBaseline: Object.freeze(repeaterBaseline),
+		diagnostics: sortCompilationDiagnostics(diagnostics),
+	});
 }
 
-function fieldPatterns(root: FormNode): readonly FieldPattern[] {
-	const output: FieldPattern[] = [];
-	visitNode(root, { scopes: Object.freeze({}) }, output);
-	return output;
+function runtimePatterns(root: FormNode): {
+	readonly fields: readonly FieldPattern[];
+	readonly repeaters: readonly RepeaterPattern[];
+} {
+	const fields: FieldPattern[] = [];
+	const repeaters: RepeaterPattern[] = [];
+	visitNode(root, { scopes: Object.freeze({}) }, fields, repeaters);
+	return { fields, repeaters };
 }
 
-function visitNode(node: FormNode, frame: PatternFrame, output: FieldPattern[]): void {
+function visitNode(node: FormNode, frame: PatternFrame, fields: FieldPattern[], repeaters: RepeaterPattern[]): void {
 	if (node.type === "field") {
 		const binding = safeResolve(node.binding, frame.scopes);
-		if (binding?.namespace === "data") output.push({ nodeId: node.id, path: binding.segments });
+		if (binding?.namespace === "data") fields.push({ nodeId: node.id, path: binding.segments });
 	}
 	if (node.type === "repeater") {
-		visitRepeater(node, frame, output);
+		visitRepeater(node, frame, fields, repeaters);
 		return;
 	}
 	if (node.type === "conditional") {
-		for (const child of [...node.then, ...(node.else ?? [])]) visitNode(child, frame, output);
+		for (const child of [...node.then, ...(node.else ?? [])]) visitNode(child, frame, fields, repeaters);
 		return;
 	}
-	for (const child of nodeChildren(node)) visitNode(child, frame, output);
+	for (const child of nodeChildren(node)) visitNode(child, frame, fields, repeaters);
 }
 
 function visitRepeater(
 	node: Extract<FormNode, { type: "repeater" }>,
 	frame: PatternFrame,
-	output: FieldPattern[],
+	fields: FieldPattern[],
+	repeaters: RepeaterPattern[],
 ): void {
 	const binding = safeResolve(node.binding, frame.scopes);
 	if (!binding) return;
+	if (binding.namespace === "data") repeaters.push({ nodeId: node.id, path: binding.segments });
 	const item = Object.freeze({ namespace: binding.namespace, segments: Object.freeze([...binding.segments, "*"]) });
 	const scopes = Object.freeze({ ...frame.scopes, [node.scope]: item });
-	for (const child of node.children) visitNode(child, { scopes }, output);
+	for (const child of node.children) visitNode(child, { scopes }, fields, repeaters);
 }
 
 function nodeChildren(node: FormNode): readonly FormNode[] {

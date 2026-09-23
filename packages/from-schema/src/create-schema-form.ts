@@ -3,6 +3,7 @@ import {
 	type DefinitionDiagnostic,
 	type FormDefinition,
 	type RuntimeFieldBaseline,
+	type RuntimeRepeaterBaseline,
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
@@ -31,6 +32,7 @@ export interface SchemaFormResult<TData = unknown, TUi = unknown> {
 	readonly descriptors: DescriptorDocument;
 	readonly definition: ValidatedFormDefinition;
 	readonly baseline: readonly RuntimeFieldBaseline[];
+	readonly repeaterBaseline: readonly RuntimeRepeaterBaseline[];
 	readonly sourceValidator?: StandardSchemaV1;
 	readonly validators: readonly SchemaValidator<TData, TUi>[];
 	readonly diagnostics: SchemaFormDiagnostics;
@@ -61,6 +63,7 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		descriptors: projected.descriptors,
 		definition: prepared.definition,
 		baseline: prepared.baseline,
+		repeaterBaseline: prepared.repeaterBaseline,
 		...(projected.validator ? { sourceValidator: projected.validator } : {}),
 		validators: Object.freeze([...(options.validators ?? [])]),
 		diagnostics: Object.freeze({
@@ -78,6 +81,7 @@ function validateAuthoredDefinition(definition: FormDefinition, document: Descri
 		return {
 			definition: undefined,
 			baseline: Object.freeze([]),
+			repeaterBaseline: Object.freeze([]),
 			diagnostics: Object.freeze([]),
 			definitionDiagnostics: validation.diagnostics,
 		};
@@ -85,6 +89,7 @@ function validateAuthoredDefinition(definition: FormDefinition, document: Descri
 	return {
 		definition: validation.value,
 		baseline: adapted.baseline,
+		repeaterBaseline: adapted.repeaterBaseline,
 		diagnostics: adapted.diagnostics,
 		definitionDiagnostics: Object.freeze([]),
 	};

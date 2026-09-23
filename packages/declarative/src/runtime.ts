@@ -1,5 +1,5 @@
-import { createCoreExpressionNamespaces, structuredEqual } from "@formbar/core";
-import type { FormApi } from "@formbar/core";
+import { createCoreExpressionNamespaces } from "@formbar/core";
+import type { FormApi, FormStateCapture } from "@formbar/core";
 import { CallbackBoundary, createExpressionService, failure } from "@formbar/expressions";
 import type { JsonValue, Observation, Segment, StateRef, WriteResult } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
@@ -7,6 +7,7 @@ import type {
 	RuntimeFieldBaseline,
 	RuntimeFormStatus,
 	RuntimePort,
+	RuntimeRepeaterBaseline,
 	RuntimeResolvedNodeState,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
@@ -17,6 +18,7 @@ export interface CreateFormRuntimeOptions<TData = unknown, TUi = unknown> {
 	readonly form: FormApi<TData, TUi>;
 	readonly definition: ValidatedFormDefinition;
 	readonly baseline?: readonly RuntimeFieldBaseline[];
+	readonly repeaterBaseline?: readonly RuntimeRepeaterBaseline[];
 }
 
 class DeclarativeRuntime implements RuntimePort {
@@ -28,6 +30,8 @@ class DeclarativeRuntime implements RuntimePort {
 	private readonly expressions;
 	private cleanup: (() => void) | undefined;
 	private snapshot: RuntimeSnapshot | undefined;
+	private sourceState: unknown;
+	private nodeIndex = new Map<string, RuntimeResolvedNodeState>();
 	private disposed = false;
 
 	constructor(private readonly options: CreateFormRuntimeOptions) {
@@ -36,13 +40,25 @@ class DeclarativeRuntime implements RuntimePort {
 	}
 
 	getSnapshot = (): RuntimeSnapshot => {
-		const next = projectRuntime({
+		const capture = this.options.form.captureState() as FormStateCapture<unknown, unknown>;
+		const sourceState = capture.state;
+		if (this.snapshot && this.sourceState === sourceState) return this.snapshot;
+		const snapshot = projectRuntime({
 			form: this.options.form,
 			definition: this.options.definition,
+			capture,
 			...(this.options.baseline ? { baseline: this.options.baseline } : {}),
+			...(this.options.repeaterBaseline ? { repeaterBaseline: this.options.repeaterBaseline } : {}),
 		});
-		if (!this.snapshot || !structuredEqual(this.snapshot, next)) this.snapshot = next;
-		return this.snapshot;
+		this.snapshot = snapshot;
+		this.sourceState = sourceState;
+		this.nodeIndex = new Map(snapshot.nodes.map((node) => [node.instance.instanceKey, node]));
+		return snapshot;
+	};
+
+	getNode = (instanceKey: string): RuntimeResolvedNodeState | undefined => {
+		this.getSnapshot();
+		return this.nodeIndex.get(instanceKey);
 	};
 
 	read = (reference: StateRef): JsonValue | undefined => {
@@ -73,7 +89,7 @@ class DeclarativeRuntime implements RuntimePort {
 	observeForm = (): Observation<RuntimeFormStatus> => this.observation(() => this.getSnapshot().form);
 
 	observeNode = (instanceKey: string): Observation<RuntimeResolvedNodeState | undefined> =>
-		this.observation(() => this.getSnapshot().nodes.find((node) => node.instance.instanceKey === instanceKey));
+		this.observation(() => this.getNode(instanceKey));
 
 	isDisposed = (): boolean => this.disposed;
 
@@ -111,6 +127,8 @@ class DeclarativeRuntime implements RuntimePort {
 
 	private notify = (): void => {
 		this.snapshot = undefined;
+		this.sourceState = undefined;
+		this.nodeIndex.clear();
 		this.lifecycle.runAll([...this.listeners]);
 	};
 
@@ -130,6 +148,7 @@ class DeclarativeRuntime implements RuntimePort {
 		this.observations.clear();
 		this.listeners.clear();
 		this.snapshot = undefined;
+		this.sourceState = undefined;
 		this.expressions.dispose();
 	};
 }

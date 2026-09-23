@@ -13,7 +13,7 @@ const KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	group: ["label", "children"],
 	section: ["title", "description", "children"],
 	field: ["binding", "widget", "label", "required", "props"],
-	repeater: ["binding", "scope", "children", "minItems", "maxItems"],
+	repeater: ["binding", "scope", "label", "children", "minItems", "maxItems"],
 	action: ["action", "label", "payload", "concurrency", "target", "props"],
 	output: ["value", "label", "format", "props"],
 	conditional: ["condition", "then", "else"],
@@ -139,6 +139,7 @@ function repeaterNode(
 ): FormNode | undefined {
 	const target = binding(source.binding, [...path, "binding"], context.scopes, context);
 	const scope = identifier(source.scope, [...path, "scope"], context);
+	const label = optionalString(source.label, [...path, "label"], context);
 	const minItems = optionalInteger(source.minItems, [...path, "minItems"], context);
 	const maxItems = optionalInteger(source.maxItems, [...path, "maxItems"], context);
 	if (minItems !== undefined && maxItems !== undefined && minItems > maxItems)
@@ -151,6 +152,7 @@ function repeaterNode(
 		type: "repeater",
 		binding: target,
 		scope,
+		...(label === undefined ? {} : { label }),
 		children,
 		...(minItems === undefined ? {} : { minItems }),
 		...(maxItems === undefined ? {} : { maxItems }),

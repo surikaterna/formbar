@@ -1,51 +1,40 @@
 import type { FormApi, FormState, FormStateCapture } from "@formbar/core";
-import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressions";
+import type { Expression, JsonValue, StateRef } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
-import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
+import { mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
 import type { FormNode } from "./nodes.js";
 import { resolveActionState } from "./runtime-action-state.js";
+import { normalizeBaselines } from "./runtime-baselines.js";
 import type {
 	ResolvedFieldState,
 	ResolvedNodeState,
 	ResolvedOutputState,
+	ResolvedRepeaterState,
+	ResolvedValidationState,
 	RuntimeDiagnostic,
 	RuntimeExpressionProperty,
 	RuntimeFieldBaseline,
 	RuntimeFormStatus,
-	RuntimeNodeInstance,
+	RuntimeRepeaterBaseline,
 	RuntimeResolvedNodeState,
-	RuntimeScopeInstance,
 	RuntimeSnapshot,
 } from "./runtime-contracts.js";
 import { runtimeDiagnostic, sortRuntimeDiagnostics } from "./runtime-diagnostics.js";
+import { type ConcreteNode, expandDefinition } from "./runtime-expansion.js";
 import { evaluateRuntimeExpression } from "./runtime-expressions.js";
-import { readBinding, resolveBinding } from "./runtime-references.js";
-import type { ConcreteFieldReference } from "./runtime-references.js";
-
-interface ConcreteNode {
-	readonly node: FormNode;
-	readonly instance: RuntimeNodeInstance;
-	readonly scopes: Scopes;
-	readonly parentKey?: string;
-	readonly requiredBranch?: "then" | "else";
-	readonly binding?: StateRef;
-	readonly target?: StateRef;
-}
-
-interface ExpandFrame {
-	readonly scopes: Scopes;
-	readonly scopeInstances: readonly RuntimeScopeInstance[];
-	readonly parentKey?: string;
-	readonly requiredBranch?: "then" | "else";
-}
+import type { ConcreteFieldReference, RuntimeReferenceIndex } from "./runtime-references.js";
+import { createRuntimeReferenceIndex } from "./runtime-references.js";
+import { resolveRepeaterState } from "./runtime-repeaters.js";
+import { resolveFormStatus } from "./runtime-status.js";
 
 interface ProjectionContext {
 	readonly capture: FormStateCapture<unknown, unknown>;
 	readonly state: FormState<unknown, unknown>;
 	readonly formStatus: RuntimeFormStatus;
 	readonly concrete: readonly ConcreteNode[];
-	readonly fields: readonly ConcreteFieldReference[];
-	readonly baselines: ReadonlyMap<string, RuntimeFieldBaseline>;
+	readonly references: RuntimeReferenceIndex;
+	readonly fieldBaselines: ReadonlyMap<string, RuntimeFieldBaseline>;
+	readonly repeaterBaselines: ReadonlyMap<string, RuntimeRepeaterBaseline>;
 	readonly diagnostics: RuntimeDiagnostic[];
 }
 
@@ -53,17 +42,34 @@ export interface ProjectRuntimeOptions {
 	readonly form: FormApi<unknown, unknown>;
 	readonly definition: ValidatedFormDefinition;
 	readonly baseline?: readonly RuntimeFieldBaseline[];
+	readonly repeaterBaseline?: readonly RuntimeRepeaterBaseline[];
+	readonly capture?: FormStateCapture<unknown, unknown>;
 }
 
 export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot {
-	const capture = options.form.captureState() as FormStateCapture<unknown, unknown>;
+	const capture = options.capture ?? (options.form.captureState() as FormStateCapture<unknown, unknown>);
 	const state = capture.state;
 	const concrete = expandDefinition(options.definition, state);
 	const diagnostics: RuntimeDiagnostic[] = [];
-	const baselines = normalizeBaselines(options.definition, options.baseline ?? [], diagnostics);
+	const baselines = normalizeBaselines(
+		options.definition,
+		options.baseline ?? [],
+		options.repeaterBaseline ?? [],
+		diagnostics,
+	);
 	const formStatus = resolveFormStatus(capture);
 	const fields = concreteFields(concrete);
-	const context = { capture, state, formStatus, concrete, fields, baselines, diagnostics };
+	const references = createRuntimeReferenceIndex(capture, fields);
+	const context = {
+		capture,
+		state,
+		formStatus,
+		concrete,
+		references,
+		fieldBaselines: baselines.fields,
+		repeaterBaselines: baselines.repeaters,
+		diagnostics,
+	};
 	const resolved = resolveNodes(context);
 	return Object.freeze({
 		data: state.data as JsonValue,
@@ -71,93 +77,9 @@ export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot 
 		form: formStatus,
 		nodes: Object.freeze(resolved.nodes),
 		fields: Object.freeze(resolved.fields),
+		repeaters: Object.freeze(resolved.repeaters),
 		diagnostics: sortRuntimeDiagnostics(diagnostics),
 	});
-}
-
-function expandDefinition(
-	definition: ValidatedFormDefinition,
-	state: FormState<unknown, unknown>,
-): readonly ConcreteNode[] {
-	const output: ConcreteNode[] = [];
-	expandNode(definition.root, { scopes: Object.freeze({}), scopeInstances: Object.freeze([]) }, state, output);
-	return Object.freeze(output);
-}
-
-function expandNode(
-	node: FormNode,
-	frame: ExpandFrame,
-	state: FormState<unknown, unknown>,
-	output: ConcreteNode[],
-): void {
-	const instance = createInstance(node.id, frame.scopeInstances);
-	const binding = "binding" in node ? safeBinding(node.binding, frame.scopes) : undefined;
-	const target = node.type === "action" && node.target ? safeBinding(node.target, frame.scopes) : undefined;
-	output.push({
-		node,
-		instance,
-		scopes: frame.scopes,
-		...(frame.parentKey ? { parentKey: frame.parentKey } : {}),
-		...(frame.requiredBranch ? { requiredBranch: frame.requiredBranch } : {}),
-		...(binding ? { binding } : {}),
-		...(target ? { target } : {}),
-	});
-	const childFrame = { scopes: frame.scopes, scopeInstances: frame.scopeInstances, parentKey: instance.instanceKey };
-	if (node.type === "repeater") expandRepeater(node, binding, childFrame, state, output);
-	else if (node.type === "conditional") expandConditional(node, childFrame, state, output);
-	else for (const child of nodeChildren(node)) expandNode(child, childFrame, state, output);
-}
-
-function expandRepeater(
-	node: Extract<FormNode, { type: "repeater" }>,
-	binding: StateRef | undefined,
-	frame: ExpandFrame,
-	state: FormState<unknown, unknown>,
-	output: ConcreteNode[],
-): void {
-	if (!binding) return;
-	const items = readBinding(state, binding);
-	if (!Array.isArray(items)) return;
-	for (let index = 0; index < items.length; index++) {
-		const scope = Object.freeze({
-			namespace: binding.namespace,
-			segments: Object.freeze([...binding.segments, index]),
-		});
-		const scopes = Object.freeze({ ...frame.scopes, [node.scope]: scope });
-		const scopeInstances = Object.freeze([...frame.scopeInstances, Object.freeze({ scope: node.scope, index })]);
-		for (const child of node.children) expandNode(child, { ...frame, scopes, scopeInstances }, state, output);
-	}
-}
-
-function expandConditional(
-	node: Extract<FormNode, { type: "conditional" }>,
-	frame: ExpandFrame,
-	state: FormState<unknown, unknown>,
-	output: ConcreteNode[],
-): void {
-	for (const child of node.then) expandNode(child, { ...frame, requiredBranch: "then" }, state, output);
-	for (const child of node.else ?? []) expandNode(child, { ...frame, requiredBranch: "else" }, state, output);
-}
-
-function nodeChildren(node: FormNode): readonly FormNode[] {
-	if (node.type === "group" || node.type === "section") return node.children;
-	if (node.type === "tabs") return node.tabs.flatMap((tab) => tab.children);
-	if (node.type === "accordion") return node.items.flatMap((item) => item.children);
-	if (node.type === "custom") return node.children ?? [];
-	return [];
-}
-
-function createInstance(nodeId: string, scopes: readonly RuntimeScopeInstance[]): RuntimeNodeInstance {
-	const frozenScopes = Object.freeze([...scopes]);
-	return Object.freeze({ nodeId, scopes: frozenScopes, instanceKey: JSON.stringify([nodeId, frozenScopes]) });
-}
-
-function safeBinding(binding: Parameters<typeof resolveBinding>[0], scopes: Scopes): StateRef | undefined {
-	try {
-		return resolveBinding(binding, scopes);
-	} catch {
-		return undefined;
-	}
 }
 
 function concreteFields(concrete: readonly ConcreteNode[]): readonly ConcreteFieldReference[] {
@@ -171,55 +93,64 @@ function concreteFields(concrete: readonly ConcreteNode[]): readonly ConcreteFie
 function resolveNodes(context: ProjectionContext): {
 	readonly nodes: RuntimeResolvedNodeState[];
 	readonly fields: ResolvedFieldState[];
+	readonly repeaters: ResolvedRepeaterState[];
 } {
 	const nodes: RuntimeResolvedNodeState[] = [];
 	const fields: ResolvedFieldState[] = [];
-	const byKey = new Map<string, RuntimeResolvedNodeState>();
+	const repeaters: ResolvedRepeaterState[] = [];
+	const index = preindexNodes(context);
 	for (const concrete of context.concrete) {
-		const resolved = resolveNode(context, concrete, byKey);
+		const resolved = resolveNode(context, concrete, index);
 		nodes.push(resolved.node);
-		byKey.set(concrete.instance.instanceKey, resolved.node);
 		if (resolved.field) fields.push(resolved.field);
+		if (resolved.node.type === "repeater") repeaters.push(resolved.node);
 	}
-	return { nodes, fields };
+	return { nodes, fields, repeaters };
+}
+
+interface ProjectionIndex {
+	readonly states: ReadonlyMap<string, ResolvedNodeState>;
+	readonly repeaters: ReadonlyMap<string, ResolvedRepeaterState>;
+}
+
+function preindexNodes(context: ProjectionContext): ProjectionIndex {
+	const states = new Map<string, ResolvedNodeState>();
+	const repeaters = new Map<string, ResolvedRepeaterState>();
+	for (const concrete of context.concrete) {
+		const parent = concrete.parentKey ? states.get(concrete.parentKey) : undefined;
+		let state = baseNodeState(context, concrete, parent);
+		if (concrete.node.type === "repeater") {
+			state = projectRepeater(context, { ...concrete, node: concrete.node }, state);
+			if (concrete.binding) repeaters.set(bindingKey(concrete.binding), state as ResolvedRepeaterState);
+		}
+		states.set(concrete.instance.instanceKey, state);
+	}
+	return { states, repeaters };
 }
 
 function resolveNode(
 	context: ProjectionContext,
 	concrete: ConcreteNode,
-	byKey: ReadonlyMap<string, RuntimeResolvedNodeState>,
+	index: ProjectionIndex,
 ): { readonly node: RuntimeResolvedNodeState; readonly field?: ResolvedFieldState } {
-	const parent = concrete.parentKey ? byKey.get(concrete.parentKey) : undefined;
-	const own = resolveOwnState(context, concrete);
-	const branchVisible = !concrete.requiredBranch || parent?.branch === concrete.requiredBranch;
-	let nodeState: ResolvedNodeState = Object.freeze({
-		instance: concrete.instance,
-		type: concrete.node.type,
-		visible: (parent?.visible ?? true) && branchVisible && own.visible,
-		disabled: (parent?.disabled ?? false) || own.disabled,
-		readOnly: (parent?.readOnly ?? false) || own.readOnly,
-		...(own.branch ? { branch: own.branch } : {}),
-	});
+	let nodeState = index.states.get(concrete.instance.instanceKey) as ResolvedNodeState;
 	if (concrete.node.type === "output")
 		return { node: resolveOutput(context, concrete, nodeState, concrete.node.value) };
 	if (concrete.node.type === "action")
 		return {
-			node: resolveActionState({
-				node: concrete.node,
-				nodeState,
-				...(concrete.target ? { target: concrete.target } : {}),
-				frame: expressionFrame(context, concrete),
-				diagnostics: context.diagnostics,
-			}),
+			node: resolveScopedAction(context, { ...concrete, node: concrete.node }, nodeState, index.repeaters),
 		};
+	if (concrete.node.type === "repeater") return { node: nodeState as ResolvedRepeaterState };
+	if (concrete.node.type === "validation" && concrete.binding)
+		return { node: projectValidation(nodeState, concrete.binding) };
 	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState as RuntimeResolvedNodeState };
-	nodeState = mergeFieldRestrictions(nodeState, fieldContributions(context.state, concrete.binding));
+	nodeState = mergeFieldRestrictions(nodeState, context.references.policies(concrete.binding));
 	const conditionalRequired =
 		evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
-	const baseline = context.baselines.get(concrete.node.id);
+	const baseline = context.fieldBaselines.get(concrete.node.id);
 	const field = resolveFieldState({
 		capture: context.capture,
-		state: context.state,
+		references: context.references,
 		node: concrete.node,
 		instance: concrete.instance,
 		binding: concrete.binding,
@@ -228,6 +159,87 @@ function resolveNode(
 		conditionalRequired,
 	});
 	return { node: field, field };
+}
+
+function baseNodeState(
+	context: ProjectionContext,
+	concrete: ConcreteNode,
+	parent: ResolvedNodeState | undefined,
+): ResolvedNodeState {
+	const own = resolveOwnState(context, concrete);
+	const branchVisible = !concrete.requiredBranch || parent?.branch === concrete.requiredBranch;
+	return Object.freeze({
+		instance: concrete.instance,
+		type: concrete.node.type,
+		visible: (parent?.visible ?? true) && branchVisible && own.visible,
+		disabled: (parent?.disabled ?? false) || own.disabled,
+		readOnly: (parent?.readOnly ?? false) || own.readOnly,
+		...(own.branch ? { branch: own.branch } : {}),
+	});
+}
+
+function projectRepeater(
+	context: ProjectionContext,
+	concrete: ConcreteNode & { readonly node: Extract<FormNode, { type: "repeater" }> },
+	nodeState: ResolvedNodeState,
+): ResolvedRepeaterState {
+	const restricted = concrete.binding
+		? mergeFieldRestrictions(nodeState, context.references.policies(concrete.binding))
+		: nodeState;
+	const baseline = context.repeaterBaselines.get(concrete.node.id);
+	return resolveRepeaterState({
+		node: concrete.node,
+		nodeState: restricted,
+		...(concrete.binding ? { binding: concrete.binding } : {}),
+		state: context.state,
+		...(baseline ? { baseline } : {}),
+		diagnostics: context.diagnostics,
+	});
+}
+
+function projectValidation(nodeState: ResolvedNodeState, binding: StateRef): ResolvedValidationState {
+	return Object.freeze({
+		...nodeState,
+		type: "validation",
+		binding: Object.freeze({ namespace: binding.namespace, segments: Object.freeze([...binding.segments]) }),
+	});
+}
+
+function resolveScopedAction(
+	context: ProjectionContext,
+	concrete: ConcreteNode & { readonly node: Extract<FormNode, { type: "action" }> },
+	nodeState: ResolvedNodeState,
+	repeaters: ReadonlyMap<string, ResolvedRepeaterState>,
+) {
+	const repeater = concrete.node.action.startsWith("array.") ? repeaters.get(bindingKey(concrete.target)) : undefined;
+	const effectiveState = repeater
+		? Object.freeze({
+				...nodeState,
+				visible: nodeState.visible && repeater.visible,
+				disabled: nodeState.disabled || repeater.disabled || repeater.status !== "ready" || repeater.limitsConflict,
+				readOnly: nodeState.readOnly || repeater.readOnly,
+			})
+		: nodeState;
+	return resolveActionState({
+		node: concrete.node,
+		nodeState: effectiveState,
+		...(concrete.target ? { target: concrete.target } : {}),
+		...(repeater
+			? {
+					arrayLimits: {
+						minItems: repeater.minItems,
+						...(repeater.maxItems === undefined ? {} : { maxItems: repeater.maxItems }),
+						conflict: repeater.limitsConflict,
+					},
+				}
+			: {}),
+		frame: expressionFrame(context, concrete),
+		diagnostics: context.diagnostics,
+	});
+}
+
+function bindingKey(binding: StateRef | undefined): string {
+	return binding ? JSON.stringify([binding.namespace, binding.segments]) : "";
 }
 
 function resolveOutput(
@@ -299,70 +311,10 @@ function expressionFailure(
 
 function expressionFrame(context: ProjectionContext, concrete: ConcreteNode) {
 	return {
-		capture: context.capture,
 		state: context.state,
 		formStatus: context.formStatus,
-		fields: context.fields,
+		references: context.references,
 		instance: concrete.instance,
 		scopes: concrete.scopes,
 	};
-}
-
-function resolveFormStatus(capture: FormStateCapture<unknown, unknown>): RuntimeFormStatus {
-	const state = capture.state;
-	return Object.freeze({
-		valid: !state.issues.some((issue) => issue.severity === "error"),
-		validating: state.meta.validation.validating === true,
-		submitting: state.meta.submission?.status === "running",
-		dirty: capture.isFormDirty(),
-		touched: Object.values(state.fieldMeta).some((entry) => entry.touched),
-		submitted: state.meta.submitted === true,
-	});
-}
-
-function normalizeBaselines(
-	definition: ValidatedFormDefinition,
-	input: readonly RuntimeFieldBaseline[],
-	diagnostics: RuntimeDiagnostic[],
-): ReadonlyMap<string, RuntimeFieldBaseline> {
-	const fieldIds = new Set(fieldNodes(definition.root).map((node) => node.id));
-	const grouped = new Map<string, RuntimeFieldBaseline[]>();
-	input.forEach((entry, index) => {
-		if (!validBaseline(entry) || !fieldIds.has(entry.nodeId)) {
-			diagnostics.push(runtimeDiagnostic("invalid-baseline", baselineInstance(entry, index), "baseline"));
-			return;
-		}
-		grouped.set(entry.nodeId, [...(grouped.get(entry.nodeId) ?? []), entry]);
-	});
-	const normalized = new Map<string, RuntimeFieldBaseline>();
-	for (const [nodeId, entries] of grouped) {
-		if (entries.length > 1)
-			diagnostics.push(runtimeDiagnostic("duplicate-baseline", baselineInstance(entries[0], 0), "baseline"));
-		else normalized.set(nodeId, Object.freeze({ ...entries[0] }));
-	}
-	return normalized;
-}
-
-function validBaseline(value: RuntimeFieldBaseline): boolean {
-	if (!value || typeof value !== "object" || typeof value.nodeId !== "string") return false;
-	if (value.required !== undefined && typeof value.required !== "boolean") return false;
-	if (value.label !== undefined && typeof value.label !== "string") return false;
-	return Object.keys(value).every((key) => ["nodeId", "required", "label"].includes(key));
-}
-
-function baselineInstance(value: RuntimeFieldBaseline, index: number): RuntimeNodeInstance {
-	const nodeId = value && typeof value.nodeId === "string" ? value.nodeId : "";
-	return Object.freeze({ nodeId, instanceKey: `baseline:${nodeId}:${index}`, scopes: Object.freeze([]) });
-}
-
-function fieldNodes(root: FormNode): readonly Extract<FormNode, { type: "field" }>[] {
-	const fields: Extract<FormNode, { type: "field" }>[] = [];
-	const visit = (node: FormNode): void => {
-		if (node.type === "field") fields.push(node);
-		for (const child of nodeChildren(node)) visit(child);
-		if (node.type === "repeater") for (const child of node.children) visit(child);
-		if (node.type === "conditional") for (const child of [...node.then, ...(node.else ?? [])]) visit(child);
-	};
-	visit(root);
-	return fields;
 }

@@ -23,7 +23,8 @@ function evidence(schema: unknown, provider: Parameters<typeof projectSchema>[1]
 
 function compiledRoot(schema: unknown, provider: Parameters<typeof projectSchema>[1]["provider"]) {
 	const descriptors = projectSchema(schema, { provider, side: "input" }).descriptors;
-	return compileDefaultFormDefinition(descriptors).definition?.root;
+	const root = compileDefaultFormDefinition(descriptors).definition?.root;
+	return root?.type === "group" ? root.children[0] : root;
 }
 
 describe("provider-neutral normalized evidence", () => {

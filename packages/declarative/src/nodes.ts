@@ -38,6 +38,7 @@ export interface RepeaterNode extends BaseNode {
 	readonly type: "repeater";
 	readonly binding: Binding;
 	readonly scope: string;
+	readonly label?: string;
 	readonly children: readonly FormNode[];
 	readonly minItems?: number;
 	readonly maxItems?: number;

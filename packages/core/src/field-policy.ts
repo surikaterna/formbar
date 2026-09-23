@@ -42,12 +42,12 @@ function normalizeSegment(segment: CanonicalSegment): CanonicalSegment {
 }
 
 export function normalizeDataPath(input: DataPathInput): AbsoluteDataPath {
+	if (input === "") throw new Error("Field policy paths must not be empty");
 	let parsed: { readonly namespace: "data" | "ui"; readonly segments: readonly CanonicalSegment[] };
 	if (typeof input === "string") parsed = parsePath(input);
 	else if (Array.isArray(input)) parsed = { namespace: "data", segments: input };
 	else parsed = input as AbsoluteDataPath;
 	if (parsed.namespace !== "data") throw new Error("Field policy paths must use the data namespace");
-	if (parsed.segments.length === 0) throw new Error("Field policy paths must not be empty");
 	const segments = Object.freeze(parsed.segments.map(normalizeSegment));
 	return Object.freeze({ namespace: "data", segments });
 }

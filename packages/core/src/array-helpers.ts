@@ -1,5 +1,6 @@
+import { inspectDataContainer } from "@formbar/expressions";
 import type { FormDispatchResult } from "./contracts.js";
-import { clearChildFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
+import { moveFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
 import type { FieldMetaEntry } from "./state.js";
 
 export interface ArrayHelperDeps {
@@ -10,8 +11,22 @@ export interface ArrayHelperDeps {
 }
 
 function assertArray(val: unknown, pathKey: string): unknown[] {
-	if (!Array.isArray(val)) throw new Error(`Expected array at "${pathKey}", got ${typeof val}`);
-	return val;
+	let array: boolean;
+	try {
+		array = Array.isArray(val);
+	} catch {
+		throw new Error(`Invalid array at "${pathKey}"`);
+	}
+	if (!array) throw new Error(`Expected array at "${pathKey}", got ${typeof val}`);
+	const value = val as unknown[];
+	try {
+		const length = value.length;
+		const entries = inspectDataContainer(value);
+		if (length !== entries.length) throw new Error(`Invalid array at "${pathKey}"`);
+		return entries.map((entry) => entry[1]);
+	} catch {
+		throw new Error(`Invalid array at "${pathKey}"`);
+	}
 }
 
 export function createArrayHelpers(deps: ArrayHelperDeps) {
@@ -46,7 +61,7 @@ export function createArrayHelpers(deps: ArrayHelperDeps) {
 			next.splice(toIndex, 0, moved);
 			const result = deps.set(next);
 			if (result.ok) {
-				deps.updateFieldMeta((meta) => clearChildFieldMeta(meta, deps.pathKey));
+				deps.updateFieldMeta((meta) => moveFieldMeta(meta, deps.pathKey, fromIndex, toIndex));
 			}
 			return result;
 		},

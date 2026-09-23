@@ -31,7 +31,8 @@ export interface ParsePathOptions {
  * @param input - A dot-path, JSON Pointer, or namespaced path string.
  * @param options - Optional parser configuration (custom namespace prefixes).
  * @returns A canonical path with namespace, segments, and format metadata.
- * @throws {@link FormbarError} with code `FORMBAR_PATH_EMPTY` or `FORMBAR_PATH_INVALID_*`.
+ * The empty RFC 6901 pointer resolves to the data root.
+ * @throws {@link FormbarError} with code `FORMBAR_PATH_INVALID_*` for malformed paths.
  *
  * @example
  * ```typescript
@@ -47,7 +48,9 @@ export function parsePath(input: string, options?: ParsePathOptions): CanonicalP
 	if (cached) return cached;
 
 	if (input === "") {
-		throw new FormbarError("FORMBAR_PATH_EMPTY", "Path must not be empty");
+		const root = Object.freeze({ namespace: "data" as const, segments: Object.freeze([]) });
+		pathCache.set(input, root);
+		return root;
 	}
 
 	const namespaces = options?.namespaces ?? DEFAULT_NAMESPACES;
@@ -91,7 +94,7 @@ export function toPointer(path: CanonicalPath): string {
 	if (path.namespace === "ui") {
 		throw new FormbarError("FORMBAR_PATH_MIXED_NAMESPACE", "Cannot convert ui-namespace path to JSON Pointer");
 	}
-	return `/${path.segments.map(encodePointerSegment).join("/")}`;
+	return path.segments.length === 0 ? "" : `/${path.segments.map(encodePointerSegment).join("/")}`;
 }
 
 function encodePointerSegment(seg: CanonicalSegment): string {

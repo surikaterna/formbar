@@ -1,5 +1,10 @@
 import { createFormRuntime } from "@formbar/declarative";
-import type { CreateFormRuntimeOptions, RuntimePort, RuntimeResolvedNodeState } from "@formbar/declarative";
+import type {
+	CreateFormRuntimeOptions,
+	RuntimePort,
+	RuntimeResolvedNodeState,
+	RuntimeScopeInstance,
+} from "@formbar/declarative";
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 interface RuntimeLease {
@@ -8,10 +13,18 @@ interface RuntimeLease {
 }
 
 export function useOwnedRuntime<TData, TUi>(options: CreateFormRuntimeOptions<TData, TUi>): RuntimePort {
-	const { form, definition, baseline } = options;
+	const { form, definition, baseline, repeaterBaseline } = options;
 	const lease = useMemo<RuntimeLease>(
-		() => ({ runtime: createFormRuntime({ form, definition, ...(baseline ? { baseline } : {}) }), mounts: 0 }),
-		[form, definition, baseline],
+		() => ({
+			runtime: createFormRuntime({
+				form,
+				definition,
+				...(baseline ? { baseline } : {}),
+				...(repeaterBaseline ? { repeaterBaseline } : {}),
+			}),
+			mounts: 0,
+		}),
+		[form, definition, baseline, repeaterBaseline],
 	);
 	useEffect(() => {
 		lease.mounts += 1;
@@ -27,10 +40,7 @@ export function useOwnedRuntime<TData, TUi>(options: CreateFormRuntimeOptions<TD
 
 export function useNodeObservation(runtime: RuntimePort, instanceKey: string): RuntimeResolvedNodeState | undefined {
 	const observation = useRef<ReturnType<RuntimePort["observeNode"]> | undefined>(undefined);
-	const readDirect = useCallback(
-		() => runtime.getSnapshot().nodes.find((item) => item.instance.instanceKey === instanceKey),
-		[runtime, instanceKey],
-	);
+	const readDirect = useCallback(() => runtime.getNode(instanceKey), [runtime, instanceKey]);
 	const getSnapshot = useCallback(() => observation.current?.getSnapshot() ?? readDirect(), [readDirect]);
 	const subscribe = useCallback(
 		(listener: () => void) => {
@@ -49,5 +59,9 @@ export function useNodeObservation(runtime: RuntimePort, instanceKey: string): R
 }
 
 export function rootInstanceKey(nodeId: string): string {
-	return JSON.stringify([nodeId, []]);
+	return runtimeInstanceKey(nodeId, []);
+}
+
+export function runtimeInstanceKey(nodeId: string, scopes: readonly RuntimeScopeInstance[]): string {
+	return JSON.stringify([nodeId, scopes]);
 }

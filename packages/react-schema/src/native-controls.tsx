@@ -1,8 +1,7 @@
 import type { FieldNode, ResolvedFieldState } from "@formbar/declarative";
 import type { NormalizedEvidence } from "@formbar/from-schema";
-import { fieldId } from "@formbar/react";
 import type { ChangeEvent, ReactElement } from "react";
-import { domIdToken, literalProp } from "./renderer-evidence.js";
+import { literalProp } from "./renderer-evidence.js";
 import type { FieldRenderEvidence, ScalarOption } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
 
@@ -128,7 +127,7 @@ function radioControl(
 		>
 			<legend id={`${wiring.controlId}-legend`}>{state.label}</legend>
 			{options.map((option, index) => {
-				const id = index ? fieldId(`${domIdToken(node.id)}-option-${index}`, environment.prefix) : wiring.controlId;
+				const id = index ? `${wiring.controlId}-option-${index}` : wiring.controlId;
 				return (
 					<div key={optionKey(option, index)}>
 						<input

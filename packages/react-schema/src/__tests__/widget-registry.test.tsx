@@ -206,6 +206,50 @@ describe("trusted widget registry", () => {
 		view.unmount();
 	});
 
+	it("passes wildcard-matched evidence to scoped extension fields", () => {
+		const received: WidgetProps[] = [];
+		const view = mountForm({
+			schema: {
+				type: "object",
+				properties: {
+					rows: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: {
+								score: {
+									type: "integer",
+									minimum: 1,
+									maximum: 5,
+									description: "Scoped score",
+									"x-formbar": { widget: "demo.rating" },
+								},
+							},
+						},
+					},
+				},
+			},
+			data: { rows: [{ score: 3 }] },
+			extensions: {
+				widgets: [
+					{
+						id: "demo.rating",
+						component: (props) => {
+							received.push(props);
+							return <ReferenceWidget {...props} />;
+						},
+					},
+				],
+			},
+		});
+		expect(received.at(-1)).toMatchObject({
+			binding: { namespace: "data", segments: ["rows", 0, "score"], path: "/rows/0/score" },
+			constraints: { primitive: "integer", minimum: 1, maximum: 5 },
+			metadata: { description: "Scoped score" },
+		});
+		view.unmount();
+	});
+
 	it("blocks policy writes and marks only the field touched on blur", async () => {
 		let received: WidgetProps | undefined;
 		const definition: FormDefinition = {

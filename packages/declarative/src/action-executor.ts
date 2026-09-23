@@ -10,7 +10,7 @@ import type {
 	ActionHandler,
 	CreateActionExecutorOptions,
 } from "./actions.js";
-import type { ResolvedActionState, RuntimePort, RuntimeSnapshot } from "./runtime-contracts.js";
+import type { ResolvedActionState, RuntimePort, RuntimeResolvedNodeState } from "./runtime-contracts.js";
 import { RuntimeObservation } from "./runtime-observation.js";
 
 interface Intent {
@@ -118,8 +118,7 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	}
 
 	private async invoke(instanceKey: string, token: RunToken): Promise<ActionDiagnosticCode | undefined> {
-		const snapshot = this.runtime.getSnapshot();
-		const state = this.actionFromSnapshot(snapshot, instanceKey);
+		const state = actionState(this.runtime.getNode(instanceKey));
 		const diagnostic = preflightAction(this.form, state, state ? this.registry.handlers.has(state.action) : false);
 		if (diagnostic || !state) return diagnostic ?? "action-unavailable";
 		if (BUILT_IN_ACTIONS.has(state.action)) {
@@ -131,6 +130,7 @@ class DeclarativeActionExecutor implements ActionExecutor {
 			});
 		}
 		const handler = this.registry.handlers.get(state.action) as ActionHandler;
+		const snapshot = this.runtime.getSnapshot();
 		const request = Object.freeze({
 			action: state.action,
 			nodeId: state.instance.nodeId,
@@ -203,12 +203,7 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	}
 
 	private resolvedState(instanceKey: string): ResolvedActionState | undefined {
-		return this.actionFromSnapshot(this.runtime.getSnapshot(), instanceKey);
-	}
-
-	private actionFromSnapshot(snapshot: RuntimeSnapshot, instanceKey: string): ResolvedActionState | undefined {
-		const state = snapshot.nodes.find((node) => node.instance.instanceKey === instanceKey);
-		return state?.type === "action" && "action" in state && "payload" in state ? state : undefined;
+		return actionState(this.runtime.getNode(instanceKey));
 	}
 
 	private readState(instanceKey: string): ActionExecutionState {
@@ -299,6 +294,10 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		this.listeners.clear();
 		this.states.clear();
 	};
+}
+
+function actionState(state: RuntimeResolvedNodeState | undefined): ResolvedActionState | undefined {
+	return state?.type === "action" && "action" in state && "payload" in state ? state : undefined;
 }
 
 export function createActionExecutor<TData, TUi>(options: CreateActionExecutorOptions<TData, TUi>): ActionExecutor {
