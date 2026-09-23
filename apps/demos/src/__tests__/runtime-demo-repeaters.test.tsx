@@ -22,6 +22,17 @@ function inputs(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTM
 		.filter((candidate): candidate is HTMLInputElement => candidate instanceof HTMLInputElement);
 }
 
+function choices(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTMLInputElement[] {
+	return [...view.container.querySelectorAll("label")]
+		.filter((candidate) => candidate.textContent?.trim() === label)
+		.map((candidate) => document.getElementById(candidate.htmlFor))
+		.filter((candidate): candidate is HTMLInputElement => candidate instanceof HTMLInputElement);
+}
+
+function choiceLabels(control: Element): string[] {
+	return [...control.querySelectorAll("label")].map((label) => label.textContent?.trim() ?? "");
+}
+
 function selects(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTMLSelectElement[] {
 	return [...view.container.querySelectorAll("label")]
 		.filter((candidate) => candidate.textContent?.trim() === label)
@@ -44,19 +55,33 @@ describe("array demo repeaters", () => {
 		setInput(labelled(view, "Project Name") as HTMLInputElement, "Runtime migration");
 		await click(button(view, "Add Tags"));
 		await click(button(view, "Add Tags"));
-		expect(selects(view, "Tag")).toHaveLength(2);
-		expect(document.activeElement).toBe(selects(view, "Tag")[1]);
+		const tagControls = [...view.container.querySelectorAll('[data-formbar-node="f-tag"] [data-widget]')];
+		expect(tagControls).toHaveLength(2);
+		for (const control of tagControls) expect(choiceLabels(control)).toEqual(["Front end", "Back end"]);
+		expect(choices(view, "Front end")).toHaveLength(2);
+		expect(choices(view, "Back end")).toHaveLength(2);
+		expect(choices(view, "Back end").every((choice) => choice.disabled)).toBe(true);
+		expect(document.activeElement).toBe(choices(view, "Front end")[1]);
 		expect(button(view, "Add Tags").disabled).toBe(true);
-		setSelect(selects(view, "Tag")[0], "option-1");
-		setSelect(selects(view, "Tag")[1], "option-1");
+		await click(choices(view, "Back end")[0]);
+		expect(choices(view, "Back end")[0].checked).toBe(false);
+		await click(choices(view, "Front end")[0]);
+		await click(choices(view, "Front end")[1]);
 		await click(button(view, "Submit"));
 		expect(submitted).not.toHaveBeenCalled();
 		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain("uniqueItems");
-		setSelect(selects(view, "Tag")[1], "option-2");
+		await click(repeaterButton(view, "tags", "Remove, item 2"));
 		await click(button(view, "Add Team Members"));
 		await click(button(view, "Add Team Members"));
 		expect(document.activeElement).toBe(inputs(view, "Name")[1]);
 		for (const [index, name] of ["Ada", "Grace"].entries()) setInput(inputs(view, "Name")[index], name);
+		const roleControls = [...view.container.querySelectorAll('[data-formbar-node="f-member-role"] [data-widget]')];
+		expect(roleControls).toHaveLength(2);
+		for (const control of roleControls) {
+			expect(choiceLabels(control)).toEqual(["Team lead", "Developer", "Designer", "Quality assurance"]);
+		}
+		await click(choices(view, "Developer")[0]);
+		await click(choices(view, "Quality assurance")[1]);
 		await click(repeaterButton(view, "team-members", "Move up, item 2"));
 		expect(inputs(view, "Name").map((control) => control.value)).toEqual(["Grace", "Ada"]);
 		await click(repeaterButton(view, "team-members", "Remove, item 2"));
@@ -65,8 +90,8 @@ describe("array demo repeaters", () => {
 		expect(submitted).toHaveBeenCalledOnce();
 		expect(JSON.parse(resultJson(view) ?? "")).toMatchObject({
 			projectName: "Runtime migration",
-			tags: ["frontend", "backend"],
-			teamMembers: [{ name: "Grace" }],
+			tags: ["frontend"],
+			teamMembers: [{ name: "Grace", role: "qa" }],
 		});
 	});
 });

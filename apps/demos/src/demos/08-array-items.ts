@@ -1,18 +1,34 @@
 import type { Binding, FormDefinition, FormNode, JsonValue } from "@formbar/declarative";
+import { customWidgetProfile } from "../extensions/custom-widget-profile";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+
+const tagOptions = Object.freeze([
+	Object.freeze({ value: "frontend", title: "Front end" }),
+	Object.freeze({ value: "backend", title: "Back end", disabled: true }),
+]);
+const roleOptions = Object.freeze([
+	Object.freeze({ value: "lead", title: "Team lead" }),
+	Object.freeze({ value: "developer", title: "Developer" }),
+	Object.freeze({ value: "designer", title: "Designer" }),
+	Object.freeze({ value: "qa", title: "Quality assurance" }),
+]);
 
 const binding = (path: string): Binding => ({ namespace: "data", segments: [path] });
 const scoped = (scope: string, ...segments: string[]): Binding => ({ namespace: "data", segments, scope });
 const literal = (value: JsonValue) => ({ kind: "literal" as const, value });
 
-function field(id: string, target: Binding, widget: string, label: string, options?: readonly JsonValue[]): FormNode {
+function field(id: string, target: Binding, widget: string, label: string): FormNode {
+	return { type: "field", id, binding: target, widget, label };
+}
+
+function richOptionsField(id: string, target: Binding, label: string, options: JsonValue): FormNode {
 	return {
 		type: "field",
 		id,
 		binding: target,
-		widget,
+		widget: "demo16.rich-options",
 		label,
-		...(options ? { props: { options: { mode: "literal", value: options } } } : {}),
+		props: { richOptions: { mode: "literal", value: options } },
 	};
 }
 
@@ -67,7 +83,8 @@ export const arrayItemsSchema = {
 			maxItems: 2,
 			items: {
 				type: "string",
-				"x-formbar": { options: ["frontend", { value: "backend", title: "Back end", disabled: true }] },
+				enum: ["frontend", "backend"],
+				"x-formbar": { options: tagOptions },
 			},
 		},
 		teamMembers: {
@@ -81,14 +98,7 @@ export const arrayItemsSchema = {
 						type: "string",
 						title: "Role",
 						enum: ["lead", "developer", "designer", "qa"],
-						"x-formbar": {
-							options: [
-								{ value: "lead", title: "Team lead" },
-								{ value: "developer", title: "Developer" },
-								{ value: "designer", title: "Designer" },
-								{ value: "qa", title: "Quality assurance" },
-							],
-						},
+						"x-formbar": { options: roleOptions },
 					},
 					email: { type: "string", title: "Email" },
 				},
@@ -145,7 +155,7 @@ export const arrayItemsDefinition = {
 				"tags",
 				"tags",
 				"Tags",
-				[field("f-tag", scoped("tags"), "select", "Tag", ["", "frontend", "backend"]), ...rowActions("tag", tags)],
+				[richOptionsField("f-tag", scoped("tags"), "Tag", tagOptions), ...rowActions("tag", tags)],
 				"",
 				{ maxItems: 2 },
 			),
@@ -155,7 +165,7 @@ export const arrayItemsDefinition = {
 				"Team Members",
 				[
 					field("f-member-name", scoped("team-members", "name"), "text", "Name"),
-					field("f-member-role", scoped("team-members", "role"), "select", "Role"),
+					richOptionsField("f-member-role", scoped("team-members", "role"), "Role", roleOptions),
 					field("f-member-email", scoped("team-members", "email"), "email", "Email"),
 					...rowActions("member", team),
 				],
@@ -205,6 +215,7 @@ export const arrayItemsDemo = {
 	copy: "Shows how formbar handles array fields in JSON Schema. Simple arrays, object arrays, and nested structures are all supported. Array items render with schema-aware controls including enums, booleans, and text inputs.",
 	category: "sources",
 	actionControls: "definition",
+	runtimeProfile: customWidgetProfile,
 	sources: [
 		{
 			key: "default",

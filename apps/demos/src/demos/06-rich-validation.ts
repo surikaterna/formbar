@@ -1,10 +1,22 @@
 import type { FormDefinition, FormNode } from "@formbar/declarative";
+import { customWidgetProfile } from "../extensions/custom-widget-profile";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
 const binding = (path: string) => ({ namespace: "data" as const, segments: [path] });
 
 function field(id: string, path: string, widget: string, label: string): FormNode {
 	return { type: "field", id, binding: binding(path), widget, label };
+}
+
+function rangeField(id: string, path: string, label: string): FormNode {
+	return {
+		type: "field",
+		id,
+		binding: binding(path),
+		widget: "demo16.range",
+		label,
+		props: { liveLabel: { mode: "literal", value: true } },
+	};
 }
 
 export const richValidationSchema = {
@@ -31,6 +43,7 @@ export const richValidationSchema = {
 			title: "Age",
 			minimum: 13,
 			maximum: 150,
+			multipleOf: 1,
 			description: "Must be at least 13 years old",
 		},
 		website: { type: "string", title: "Website", format: "uri", description: "Your personal website URL" },
@@ -39,6 +52,7 @@ export const richValidationSchema = {
 			title: "Satisfaction Score",
 			minimum: 0,
 			maximum: 10,
+			multipleOf: 1,
 			description: "Rate your experience from 0 to 10",
 		},
 	},
@@ -54,9 +68,9 @@ export const richValidationDefinition = {
 			field("f-username", "username", "text", "Username"),
 			field("f-email", "email", "email", "Email Address"),
 			field("f-password", "password", "password", "Password"),
-			field("f-age", "age", "number", "Age"),
+			rangeField("f-age", "age", "Age"),
 			field("f-website", "website", "url", "Website"),
-			field("f-score", "score", "number", "Satisfaction Score"),
+			rangeField("f-score", "score", "Satisfaction Score"),
 			{ type: "action", id: "validate", action: "validate", label: "Validate" },
 			{ type: "action", id: "submit", action: "submit", label: "Submit" },
 			{ type: "action", id: "reset", action: "reset", label: "Reset" },
@@ -71,6 +85,7 @@ export const richValidationDemo = {
 	copy: "Demonstrates various JSON Schema validation constraints including min/max length, patterns, format validation, and number ranges.",
 	category: "baseline",
 	actionControls: "definition",
+	runtimeProfile: customWidgetProfile,
 	sources: [
 		{
 			key: "default",

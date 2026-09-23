@@ -78,6 +78,8 @@ describe("runtime demo architecture", () => {
 		expect(fixture("search-filters").runtimeProfile?.actions?.map((action) => action.id)).toEqual([
 			"demo11.apply-filters",
 		]);
+		expect(fixture("rich-validation").runtimeProfile?.id).toBe("demo16.trusted-widgets.v1");
+		expect(fixture("array-items").runtimeProfile?.id).toBe("demo16.trusted-widgets.v1");
 		expect(fixture("arbiter-calculated").sources[0].arbiterRules).toBeDefined();
 		expect(fixture("arbiter-validation-gating").sources[0].arbiterRules).toBeDefined();
 	});
@@ -101,9 +103,9 @@ describe("runtime demo architecture", () => {
 		expect(Object.keys(validation.properties)).toEqual(["username", "email", "password", "age", "website", "score"]);
 		expect(validation.required).toEqual(["username", "email", "password", "age", "website"]);
 		expect(validation.properties.username).toMatchObject({ minLength: 3, maxLength: 20, pattern: "^[a-zA-Z0-9_]+$" });
-		expect(validation.properties.age).toMatchObject({ type: "integer", minimum: 13, maximum: 150 });
+		expect(validation.properties.age).toMatchObject({ type: "integer", minimum: 13, maximum: 150, multipleOf: 1 });
 		expect(validation.properties.website.format).toBe("uri");
-		expect(validation.properties.score).toMatchObject({ minimum: 0, maximum: 10 });
+		expect(validation.properties.score).toMatchObject({ minimum: 0, maximum: 10, multipleOf: 1 });
 
 		expect(Object.keys(arrayItemsSchema.properties)).toEqual([
 			"projectName",
@@ -116,11 +118,17 @@ describe("runtime demo architecture", () => {
 			"isPublic",
 		]);
 		expect(arrayItemsSchema.properties.tags).toMatchObject({ uniqueItems: true, maxItems: 2 });
-		expect(arrayItemsSchema.properties.tags.items["x-formbar"].options[1]).toEqual({
-			value: "backend",
-			title: "Back end",
-			disabled: true,
-		});
+		expect(arrayItemsSchema.properties.tags.items.enum).toEqual(["frontend", "backend"]);
+		expect(arrayItemsSchema.properties.tags.items["x-formbar"].options).toEqual([
+			{ value: "frontend", title: "Front end" },
+			{ value: "backend", title: "Back end", disabled: true },
+		]);
+		expect(arrayItemsSchema.properties.teamMembers.items.properties.role["x-formbar"].options).toEqual([
+			{ value: "lead", title: "Team lead" },
+			{ value: "developer", title: "Developer" },
+			{ value: "designer", title: "Designer" },
+			{ value: "qa", title: "Quality assurance" },
+		]);
 		expect(Object.keys(arrayItemsSchema.properties.addresses.items.properties)).toEqual([
 			"label",
 			"street",
@@ -193,6 +201,17 @@ describe("runtime demo architecture", () => {
 		).toEqual(["validate", "submit", "reset"]);
 		expect(nodes(definition("array-items").root).filter((node) => node.type === "repeater")).toHaveLength(4);
 		expect(
+			nodes(definition("rich-validation").root)
+				.filter((node) => node.type === "field")
+				.map((node) => node.widget),
+		).toEqual(["text", "email", "password", "demo16.range", "url", "demo16.range"]);
+		expect(
+			nodes(definition("array-items").root)
+				.filter((node) => node.type === "field")
+				.filter((node) => ["f-tag", "f-member-role"].includes(node.id))
+				.map((node) => node.widget),
+		).toEqual(["demo16.rich-options", "demo16.rich-options"]);
+		expect(
 			nodes(definition("order-entry").root)
 				.filter((node) => node.type === "output")
 				.map((node) => node.label),
@@ -225,6 +244,7 @@ describe("runtime demo architecture", () => {
 				createElement(FormRenderer<Record<string, unknown>, Record<string, unknown>>, {
 					...prepared,
 					form,
+					extensions: demo.runtimeProfile?.extensions,
 					actions: demo.runtimeProfile?.actions,
 				}),
 			);

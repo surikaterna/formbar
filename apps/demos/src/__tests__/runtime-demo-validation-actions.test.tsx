@@ -34,6 +34,12 @@ describe("rich validation runtime", () => {
 	it("executes validate, rejects invalid action/direct submits, preserves results, and resets", async () => {
 		const submitted = vi.fn();
 		const view = await mountDemo(richValidationDemo, submitted, true);
+		const age = labelled(view, "Age") as HTMLInputElement;
+		const score = labelled(view, "Satisfaction Score") as HTMLInputElement;
+		expect([age.type, age.min, age.max, age.step]).toEqual(["range", "13", "150", "1"]);
+		expect([score.type, score.min, score.max, score.step]).toEqual(["range", "0", "10", "1"]);
+		expect(age.parentElement?.querySelector("output")?.textContent).toBe("Age: 13");
+		expect(score.parentElement?.querySelector("output")?.textContent).toBe("Satisfaction Score: 0");
 		input(view, "Username", "x!");
 		input(view, "Email Address", "invalid");
 		input(view, "Password", "short");
@@ -53,6 +59,8 @@ describe("rich validation runtime", () => {
 		input(view, "Age", "30");
 		input(view, "Website", "https://example.com");
 		input(view, "Satisfaction Score", "8");
+		expect(age.parentElement?.querySelector("output")?.textContent).toBe("Age: 30");
+		expect(score.parentElement?.querySelector("output")?.textContent).toBe("Satisfaction Score: 8");
 		await nativeSubmit(view);
 		expect(submitted).toHaveBeenCalledOnce();
 		const successful = resultJson(view);

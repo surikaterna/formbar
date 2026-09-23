@@ -119,6 +119,51 @@ function selectedValues(value: WidgetProps["value"]): readonly JsonValue[] {
 	return Array.isArray(value) ? value : [];
 }
 
+type RichOption = Readonly<{ value: string | number | boolean | null; title: string; disabled?: boolean }>;
+
+function richOptions(props: WidgetProps): readonly RichOption[] {
+	const configured = props.props.richOptions;
+	if (!Array.isArray(configured)) return props.options.map(({ value, label }) => ({ value, title: label }));
+	return configured.flatMap((candidate) => {
+		if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+		const { value, title, disabled } = candidate;
+		const scalar = value === null || ["string", "number", "boolean"].includes(typeof value);
+		if (!scalar || typeof title !== "string" || (disabled !== undefined && typeof disabled !== "boolean")) return [];
+		return [{ value: value as RichOption["value"], title, ...(disabled === undefined ? {} : { disabled }) }];
+	});
+}
+
+export function RichOptionsWidget(props: WidgetProps) {
+	const options = richOptions(props);
+	return (
+		<WidgetState props={props}>
+			<div className="flex flex-col gap-2" role="radiogroup" {...stateAttributes(props)}>
+				{options.map((option, index) => {
+					const id = index === 0 ? props.a11y.controlId : `${props.a11y.controlId}-${index}`;
+					return (
+						<label
+							key={`${typeof option.value}:${String(option.value)}:${index}`}
+							htmlFor={id}
+							className="flex items-center gap-2"
+						>
+							<input
+								id={id}
+								type="radio"
+								name={`${props.a11y.controlId}-options`}
+								checked={Object.is(props.value, option.value)}
+								disabled={props.policy.disabled || option.disabled}
+								onChange={() => !props.policy.readOnly && props.onChange(option.value)}
+								onBlur={props.onBlur}
+							/>
+							<span>{option.title}</span>
+						</label>
+					);
+				})}
+			</div>
+		</WidgetState>
+	);
+}
+
 export function CheckboxGroupWidget(props: WidgetProps) {
 	const selected = selectedValues(props.value);
 	const toggle = (value: JsonValue) => {
@@ -159,6 +204,7 @@ function RangeControl({ props, suffix = "" }: { readonly props: WidgetProps; rea
 	const minimum = props.constraints.minimum;
 	const maximum = props.constraints.maximum;
 	const value = numericValue(props.value, minimum ?? 0);
+	const liveLabel = props.props.liveLabel === true;
 	return (
 		<div className="flex items-center gap-2">
 			<input
@@ -173,7 +219,12 @@ function RangeControl({ props, suffix = "" }: { readonly props: WidgetProps; rea
 				onChange={(event) => !props.policy.readOnly && props.onChange(event.currentTarget.valueAsNumber)}
 				onBlur={props.onBlur}
 			/>
-			<output className="w-12 text-right text-sm text-muted-foreground">
+			<output
+				htmlFor={props.a11y.controlId}
+				{...(liveLabel ? { "aria-live": "polite" as const } : {})}
+				className="text-right text-sm text-muted-foreground"
+			>
+				{liveLabel ? `${props.metadata.label}: ` : ""}
 				{value}
 				{suffix}
 			</output>
@@ -206,6 +257,7 @@ const widgets = Object.freeze([
 	Object.freeze({ id: "demo16.rating", component: RatingWidget }),
 	Object.freeze({ id: "demo16.color", component: ColorWidget }),
 	Object.freeze({ id: "demo16.checkbox-group", component: CheckboxGroupWidget }),
+	Object.freeze({ id: "demo16.rich-options", component: RichOptionsWidget }),
 	Object.freeze({ id: "demo16.range", component: RangeWidget }),
 	Object.freeze({ id: "demo16.progress", component: ProgressWidget }),
 ]);

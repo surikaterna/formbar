@@ -145,6 +145,7 @@ describe("extension demo architecture", () => {
 			"demo16.rating",
 			"demo16.color",
 			"demo16.checkbox-group",
+			"demo16.rich-options",
 			"demo16.range",
 			"demo16.progress",
 		]);
