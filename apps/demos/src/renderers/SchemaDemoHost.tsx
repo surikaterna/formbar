@@ -2,6 +2,7 @@ import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { useState } from "react";
 import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
 import type { PlaygroundDocument } from "../playground/contracts";
+import { runtimeProfileIdsFor } from "../runtime/runtime-profile-selection";
 import { CodeBlock } from "./CodeBlock";
 import { SchemaFormRuntime } from "./SchemaFormRuntime";
 
@@ -9,7 +10,6 @@ const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 
 interface SchemaDemoHostProps {
 	readonly fixture: SchemaDemoFixture;
-	readonly number?: number;
 	readonly onSubmit?: (payload: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -69,7 +69,7 @@ function PreparedDemo(props: {
 			{variants ? <DefinitionChooser variants={variants} value={variant?.key ?? ""} onChange={setVariantKey} /> : null}
 			<SchemaFormRuntime
 				document={document}
-				profileIds={profilesFor(props.fixture, props.source)}
+				profileIds={runtimeProfileIdsFor(props.fixture, props.source)}
 				initialUiState={props.source.initialUiState}
 				arbiterRules={props.source.arbiterRules}
 				actionControls={props.fixture.actionControls}
@@ -101,14 +101,6 @@ function DefinitionChooser(props: {
 			</select>
 		</label>
 	);
-}
-
-function profilesFor(fixture: SchemaDemoFixture, source: SchemaDemoSource) {
-	return [
-		"formbar.standard.v1" as const,
-		...(source.arbiterRules ? (["formbar.arbiter.v1"] as const) : []),
-		...(fixture.runtimeProfileIds ?? []),
-	];
 }
 
 function generatedDefinition(source: SchemaDemoSource) {

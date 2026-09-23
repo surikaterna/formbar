@@ -13,7 +13,7 @@ interface CatalogEntry {
 }
 
 export interface RuntimeProfileDiagnostic {
-	readonly code: "unknown-profile" | "duplicate-profile" | "conflicting-registration";
+	readonly code: "unknown-profile" | "duplicate-profile" | "conflicting-registration" | "invalid-capabilities";
 	readonly profileId: string;
 	readonly registrationId?: string;
 }
@@ -60,7 +60,12 @@ export const trustedRuntimeProfileIds = Object.freeze(Object.keys(catalog) as Tr
 export function resolveTrustedRuntimeProfiles(profileIds: readonly string[]): ResolvedRuntimeProfiles {
 	const diagnostics = profileDiagnostics(profileIds);
 	if (diagnostics.length) return rejected(diagnostics);
-	const entries = profileIds.map((id) => catalog[id as TrustedRuntimeProfileId]);
+	const selected = profileIds.map((profileId) => ({ profileId, entry: catalogEntry(profileId) }));
+	const invalid = selected.flatMap(({ profileId, entry }) =>
+		entry && validCapabilities(entry.capabilities) ? [] : [{ code: "invalid-capabilities" as const, profileId }],
+	);
+	if (invalid.length) return rejected(invalid);
+	const entries = selected.flatMap(({ entry }) => (entry ? [entry] : []));
 	const conflicts = registrationConflicts(profileIds, entries);
 	if (conflicts.length) return rejected(conflicts);
 	const widgets = entries.flatMap((entry) => entry.extensions?.widgets ?? []);
@@ -75,15 +80,49 @@ export function resolveTrustedRuntimeProfiles(profileIds: readonly string[]): Re
 	});
 }
 
-function profileDiagnostics(profileIds: readonly string[]): RuntimeProfileDiagnostic[] {
+function profileDiagnostics(profileIds: readonly unknown[]): RuntimeProfileDiagnostic[] {
 	const diagnostics: RuntimeProfileDiagnostic[] = [];
 	const seen = new Set<string>();
-	for (const profileId of profileIds) {
-		if (!(profileId in catalog)) diagnostics.push({ code: "unknown-profile", profileId });
+	for (const value of profileIds) {
+		const profileId = diagnosticProfileId(value);
+		if (!catalogEntry(value)) diagnostics.push({ code: "unknown-profile", profileId });
 		else if (seen.has(profileId)) diagnostics.push({ code: "duplicate-profile", profileId });
 		seen.add(profileId);
 	}
 	return diagnostics;
+}
+
+function catalogEntry(profileId: unknown): CatalogEntry | undefined {
+	if (typeof profileId !== "string" || !Object.hasOwn(catalog, profileId)) return undefined;
+	return catalog[profileId as TrustedRuntimeProfileId];
+}
+
+function diagnosticProfileId(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (typeof value === "symbol") return `Symbol(${value.description ?? ""})`;
+	return `<${value === null ? "null" : typeof value}>`;
+}
+
+function validCapabilities(capabilities: readonly RuntimeCapabilityDeclaration[]): boolean {
+	return Array.isArray(capabilities) && capabilities.every(validCapability);
+}
+
+function validCapability(capability: RuntimeCapabilityDeclaration): boolean {
+	if (!capability || typeof capability !== "object") return false;
+	const kind = ownString(capability, "kind");
+	const id = ownString(capability, "id");
+	if (!kind || !id) return false;
+	if (kind === "validator") return id === "draft-2020-12";
+	if (kind === "arbiter") return id === "formbar.arbiter";
+	if (kind === "repeater") return id === "formbar.repeater";
+	if (kind === "output") return id === "formbar.output";
+	if (kind === "action-controls") return id === "host" || id === "definition";
+	return kind === "action" || kind === "widget" || kind === "custom-node";
+}
+
+function ownString(value: object, key: string): string | undefined {
+	const descriptor = Object.getOwnPropertyDescriptor(value, key);
+	return descriptor && "value" in descriptor && typeof descriptor.value === "string" ? descriptor.value : undefined;
 }
 
 function registrationConflicts(profileIds: readonly string[], entries: readonly CatalogEntry[]) {

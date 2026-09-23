@@ -32,4 +32,14 @@ describe("playground document v2", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.errors.schema).toContain("exceeds");
 	});
+
+	it.each([
+		["negative keyword bound", { type: "object", minProperties: -1 }],
+		["malformed keyword shape", { type: "object", required: "name" }],
+		["unresolved local reference", { $ref: "#/$defs/missing", $defs: {} }],
+	] as const)("rejects a Draft 2020-12 schema with %s", (_case, schema) => {
+		const result = parseDocument({ ...validSources(), schema: JSON.stringify(schema) });
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.errors.schema).toContain("Schema is not valid Draft 2020-12");
+	});
 });

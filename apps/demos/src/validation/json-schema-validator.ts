@@ -7,7 +7,10 @@ type DemoValidator = ValidatorFn<Record<string, unknown>, Record<string, unknown
 interface CacheEntry {
 	readonly validator: DemoValidator;
 	readonly list: readonly DemoValidator[];
+	readonly preflightError?: string;
 }
+
+export type JsonSchemaPreflightResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
 
 const adapterId = "json-schema-adapter";
 const validatorId = "json-schema-draft-2020-12";
@@ -30,6 +33,11 @@ export function createJsonSchemaValidators(schema: Readonly<Record<string, unkno
 	return cachedEntry(schema).list;
 }
 
+export function preflightJsonSchema(schema: Readonly<Record<string, unknown>>): JsonSchemaPreflightResult {
+	const error = cachedEntry(schema).preflightError;
+	return error ? { ok: false, error } : { ok: true };
+}
+
 function cachedEntry(schema: Readonly<Record<string, unknown>>): CacheEntry {
 	const cached = cache.get(schema);
 	if (cached) return cached;
@@ -40,13 +48,18 @@ function cachedEntry(schema: Readonly<Record<string, unknown>>): CacheEntry {
 
 function compileEntry(schema: Readonly<Record<string, unknown>>): CacheEntry {
 	try {
-		if (declaresAsync(schema)) return fixedEntry(unsupportedAsyncIssues);
+		if (declaresAsync(schema)) return fixedEntry(unsupportedAsyncIssues, unsupportedAsyncIssues[0].message);
 		const validate = createEngine().compile<Record<string, unknown>>(schema);
-		if (compiledAsAsync(validate)) return fixedEntry(unsupportedAsyncIssues);
+		if (compiledAsAsync(validate)) return fixedEntry(unsupportedAsyncIssues, unsupportedAsyncIssues[0].message);
 		return validatorEntry(({ data }) => execute(validate, data));
-	} catch {
-		return fixedEntry(compileFailureIssues);
+	} catch (error) {
+		return fixedEntry(compileFailureIssues, schemaCompilationMessage(error));
 	}
+}
+
+function schemaCompilationMessage(error: unknown): string {
+	const detail = error instanceof Error ? error.message : String(error);
+	return `Schema is not valid Draft 2020-12: ${detail}`;
 }
 
 function createEngine(): Ajv2020 {
@@ -201,12 +214,12 @@ function issueSource(): ValidationIssue["source"] {
 	return Object.freeze({ origin: "json-schema-adapter", validatorId, adapterId });
 }
 
-function fixedEntry(issues: readonly ValidationIssue[]): CacheEntry {
-	return validatorEntry(() => issues);
+function fixedEntry(issues: readonly ValidationIssue[], preflightError?: string): CacheEntry {
+	return validatorEntry(() => issues, preflightError);
 }
 
-function validatorEntry(validator: DemoValidator): CacheEntry {
-	return Object.freeze({ validator, list: Object.freeze([validator]) });
+function validatorEntry(validator: DemoValidator, preflightError?: string): CacheEntry {
+	return Object.freeze({ validator, list: Object.freeze([validator]), ...(preflightError ? { preflightError } : {}) });
 }
 
 function quoted(value: unknown): string {

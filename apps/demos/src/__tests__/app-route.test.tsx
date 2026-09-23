@@ -34,6 +34,31 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
 	return match;
 }
 
+function setInput(view: HTMLElement, labelText: string, value: string): void {
+	const label = [...view.querySelectorAll("label")].find((candidate) => candidate.textContent === labelText);
+	const input = label?.htmlFor ? document.getElementById(label.htmlFor) : undefined;
+	if (!(input instanceof HTMLInputElement)) throw new Error(`Missing input ${labelText}`);
+	act(() => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+}
+
+function setEditor(view: HTMLElement, value: string): void {
+	const editor = view.querySelector("#source-schema");
+	if (!(editor instanceof HTMLTextAreaElement)) throw new Error("Missing schema editor");
+	act(() => {
+		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(editor, value);
+		editor.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+}
+
+function panel(view: HTMLElement, heading: string): HTMLElement {
+	const title = [...view.querySelectorAll("h2")].find((candidate) => candidate.textContent === heading);
+	if (!(title?.parentElement instanceof HTMLElement)) throw new Error(`Missing panel ${heading}`);
+	return title.parentElement;
+}
+
 async function traverseHistory(move: () => void): Promise<void> {
 	await act(async () => {
 		const popped = new Promise<void>((resolve) => window.addEventListener("popstate", () => resolve(), { once: true }));
@@ -95,5 +120,37 @@ describe("App registry-derived routes", () => {
 		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
 		await traverseHistory(() => window.history.forward());
 		expect(window.location.search).toBe("?mode=playground&demo=basic-contact");
+	});
+
+	it("retains the exact live form, data, and successful result across invalid schema apply, then recovers", async () => {
+		const view = mount("/?mode=playground&demo=basic-contact");
+		const form = view.querySelector("form");
+		const editor = view.querySelector("#source-schema");
+		if (!(form instanceof HTMLFormElement) || !(editor instanceof HTMLTextAreaElement)) {
+			throw new Error("Missing playground runtime");
+		}
+		const validSchema = editor.value;
+		setInput(view, "Full Name", "Last Valid");
+		setInput(view, "Email", "last-valid@example.com");
+		await act(async () => {
+			button(view, "Submit").click();
+			await Promise.resolve();
+		});
+		const successful = panel(view, "Last successful submission").querySelector("pre")?.textContent;
+		expect(successful).toContain('"name": "Last Valid"');
+
+		setEditor(view, '{"type":"object","minProperties":-1}');
+		act(() => button(view, "Apply").click());
+		expect(view.querySelector('[role="alert"]')?.textContent).toContain("Schema is not valid Draft 2020-12");
+		expect(view.textContent).toContain("Apply failed; review source errors.");
+		expect(view.querySelector("form")).toBe(form);
+		expect(panel(view, "Current form data").textContent).toContain('"name": "Last Valid"');
+		expect(panel(view, "Last successful submission").querySelector("pre")?.textContent).toBe(successful);
+
+		setEditor(view, validSchema);
+		act(() => button(view, "Apply").click());
+		expect(view.querySelector('[role="alert"]')).toBeNull();
+		expect(view.textContent).toContain("Document applied.");
+		expect(view.querySelector("form")).not.toBe(form);
 	});
 });

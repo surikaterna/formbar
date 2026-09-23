@@ -1,5 +1,6 @@
 import { validateFormDefinition } from "@formbar/declarative";
 import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
+import { preflightJsonSchema } from "../validation/json-schema-validator";
 import {
 	PLAYGROUND_DOCUMENT_VERSION,
 	type PlaygroundDocument,
@@ -51,8 +52,14 @@ function validateShapes(values: Record<SourceKey, unknown>, errors: SourceErrors
 
 function preflight(values: Record<SourceKey, unknown>, errors: SourceErrors): void {
 	if (Object.keys(errors).length > 0) return;
+	const schema = values.schema as PlaygroundDocument["schema"];
+	const schemaResult = preflightJsonSchema(schema);
+	if (!schemaResult.ok) {
+		errors.schema = schemaResult.error;
+		return;
+	}
 	try {
-		createSchemaForm(values.schema, {
+		createSchemaForm(schema, {
 			provider: jsonSchemaProvider({ dialect: "draft-2020-12" }),
 			side: "input",
 			definition: values.definition as PlaygroundDocument["definition"],

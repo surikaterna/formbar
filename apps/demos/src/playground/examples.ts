@@ -1,7 +1,8 @@
 import type { FormNode } from "@formbar/declarative";
 import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
-import type { SchemaDemoSource, TrustedRuntimeProfileId } from "../demos/baseline-contracts";
+import type { SchemaDemoSource } from "../demos/baseline-contracts";
 import { type DemoRegistration, demos } from "../demos/registry";
+import { runtimeProfileIdsFor } from "../runtime/runtime-profile-selection";
 import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
 import {
 	type DemoCompatibility,
@@ -69,7 +70,7 @@ function createExample(
 	definitionKey?: string,
 	definitionLabel?: string,
 ): PlaygroundExample {
-	const profileIds = profilesFor(registration, source);
+	const profileIds = runtimeProfileIdsFor(registration.fixture, source);
 	const resolved = resolveTrustedRuntimeProfiles(profileIds);
 	if (!resolved.ok) throw new Error(`Invalid runtime profiles for ${registration.id}`);
 	const actionControls = registration.fixture.actionControls ?? "host";
@@ -110,14 +111,6 @@ function createExample(
 			],
 		},
 	};
-}
-
-function profilesFor(registration: DemoRegistration, source: SchemaDemoSource): readonly TrustedRuntimeProfileId[] {
-	return [
-		"formbar.standard.v1",
-		...(source.arbiterRules ? (["formbar.arbiter.v1"] as const) : []),
-		...(registration.fixture.runtimeProfileIds ?? []),
-	];
 }
 
 function actionCapabilities(

@@ -24,6 +24,20 @@ describe("playground session", () => {
 		expect(result.errors.definition).toBeTruthy();
 	});
 
+	it("keeps the exact applied session and revision when schema preflight fails, then recovers", () => {
+		const original = createPlaygroundSession(presetDocument());
+		const invalid = updateSource(original, "schema", '{"type":"object","minProperties":-1}');
+		const rejected = applySources(invalid);
+		expect(rejected.applied).toBe(original.applied);
+		expect(rejected.revision).toBe(original.revision);
+		expect(rejected.errors.schema).toContain("Schema is not valid Draft 2020-12");
+
+		const recovered = applySources(updateSource(rejected, "schema", original.sources.schema));
+		expect(recovered.applied).not.toBe(original.applied);
+		expect(recovered.revision).toBe(original.revision + 1);
+		expect(recovered.errors).toEqual({});
+	});
+
 	it("applies v2 sources atomically", () => {
 		const original = createPlaygroundSession(presetDocument());
 		const applied = applySources(updateSource(original, "initialData", '{"name":"Ada"}'));

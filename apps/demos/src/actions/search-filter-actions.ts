@@ -21,5 +21,3 @@ export const searchFilterActions: readonly ActionRegistration[] = Object.freeze(
 		},
 	}),
 ]);
-
-export const searchFilterActionIds = Object.freeze(searchFilterActions.map(({ id }) => id));

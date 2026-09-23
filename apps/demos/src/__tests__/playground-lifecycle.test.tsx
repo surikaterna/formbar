@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlaygroundRunner } from "../playground/PlaygroundRunner";
 import { getPlaygroundExample } from "../playground/examples";
+import { applySources, createPlaygroundSession, updateSource } from "../playground/session";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -62,6 +63,37 @@ describe("playground runtime lifecycle", () => {
 		act(() => root.unmount());
 		await act(async () => Promise.resolve());
 		expect(stats).toMatchObject({ created: 3, disposed: 3, active: 0, maxActive: 1 });
+	});
+
+	it("does not replace the live Arbiter session after rejected schema preflight", () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		const original = createPlaygroundSession(arbiter.document);
+		act(() =>
+			root.render(<PlaygroundRunner key={original.revision} document={original.applied} runtime={arbiter.runtime} />),
+		);
+		const form = container.querySelector("form");
+		expect(form).not.toBeNull();
+		expect(stats).toMatchObject({ created: 1, disposed: 0, active: 1, maxActive: 1 });
+
+		const edited = updateSource(original, "schema", '{"type":"object","minProperties":-1}');
+		const rejected = applySources(edited);
+		act(() =>
+			root.render(<PlaygroundRunner key={rejected.revision} document={rejected.applied} runtime={arbiter.runtime} />),
+		);
+		expect(rejected.applied).toBe(original.applied);
+		expect(container.querySelector("form")).toBe(form);
+		expect(stats).toMatchObject({ created: 1, disposed: 0, active: 1, maxActive: 1 });
+
+		const recovered = applySources(updateSource(rejected, "schema", original.sources.schema));
+		act(() =>
+			root.render(<PlaygroundRunner key={recovered.revision} document={recovered.applied} runtime={arbiter.runtime} />),
+		);
+		expect(container.querySelector("form")).not.toBe(form);
+		expect(stats).toMatchObject({ created: 2, disposed: 1, active: 1, maxActive: 1 });
+		act(() => root.unmount());
+		expect(stats).toMatchObject({ created: 2, disposed: 2, active: 0, maxActive: 1 });
 	});
 
 	it("server-renders and hydrates a plain shared runtime form", async () => {

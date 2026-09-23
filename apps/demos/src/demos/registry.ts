@@ -71,7 +71,7 @@ function registerFixture(fixture: SchemaDemoFixture, number: number): DemoRegist
 		title: fixture.title,
 		subtitle: fixture.subtitle,
 		category: fixture.category,
-		component: () => createElement(SchemaDemoHost, { fixture, number }),
+		component: () => createElement(SchemaDemoHost, { fixture }),
 		fixture,
 		playground: Object.freeze({ support: "full" }),
 	};

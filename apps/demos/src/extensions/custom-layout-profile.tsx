@@ -36,5 +36,3 @@ export const customLayoutRegistrations = Object.freeze([
 	Object.freeze({ id: "demo17.inspection-panel", component: InspectionPanel }),
 	Object.freeze({ id: "demo17.field-grid", component: FieldGrid }),
 ]);
-
-export const customLayoutIds = Object.freeze(customLayoutRegistrations.map(({ id }) => id));

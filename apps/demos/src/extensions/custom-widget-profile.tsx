@@ -261,5 +261,3 @@ export const customWidgetRegistrations = Object.freeze([
 	Object.freeze({ id: "demo16.range", component: RangeWidget }),
 	Object.freeze({ id: "demo16.progress", component: ProgressWidget }),
 ]);
-
-export const customWidgetIds = Object.freeze(customWidgetRegistrations.map(({ id }) => id));
