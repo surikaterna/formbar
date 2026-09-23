@@ -20,6 +20,9 @@ export type ActionDiagnosticCode =
 	| "action-unavailable"
 	| "invalid-action-payload"
 	| "invalid-action-target"
+	| "array-min-items"
+	| "array-max-items"
+	| "array-boundary"
 	| "action-failed"
 	| "action-aborted";
 

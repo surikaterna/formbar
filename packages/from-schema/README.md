@@ -20,11 +20,14 @@ const prepared = createSchemaForm(
 console.log(prepared.descriptors);
 console.log(prepared.definition); // already passed validateFormDefinition
 console.log(prepared.baseline); // schema-neutral required/label evidence by field node ID
+console.log(prepared.repeaterBaseline); // array limits/labels by repeater node ID
 ```
 
 `projectSchema` performs ingestion plus projection. `projectSchemaDocument` projects an existing Scheman v2 document. `compileDefaultFormDefinition` compiles descriptors without choosing union/intersection branches. `createSchemaForm` combines those steps and accepts either an authored `definition` or `generation` options, never both.
 
-`createRuntimeFieldBaseline(descriptors, definition)` is the narrow descriptor adapter for declarative runtime state. It matches authored or generated field bindings against occurrence paths, normalizes nested array scopes, preserves shared occurrences, ORs required property evidence, and retains a provider-owned title only when matching titles agree. No descriptor pointer, provider metadata, constraint, default, or validator handle crosses into the baseline.
+`createRuntimeFieldBaseline` and `createRuntimeRepeaterBaseline` are narrow descriptor adapters for declarative runtime state. They match authored or generated bindings against occurrence paths, normalize nested array scopes, and retain agreed labels; repeater baselines also carry restrictive array limits.
+
+Generated arrays compile to a group containing a repeater with explicit move/remove actions and an append sibling. Append uses a JSON schema default first, then a safe neutral item seed. Unsupported item shapes omit append with a diagnostic. Generation never populates `minItems` and runtime never coerces a missing or malformed value to an array.
 
 ## Descriptor graph
 

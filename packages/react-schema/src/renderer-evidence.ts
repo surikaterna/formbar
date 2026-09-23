@@ -143,10 +143,10 @@ export function resolveFieldEvidence(
 	state: ResolvedFieldState,
 	document: DescriptorDocument,
 ): FieldRenderEvidence {
-	const path = editablePath(node.binding);
+	const path = editablePath(state.binding);
 	if (!path) return { ok: false, diagnostic: "unsupported-binding" };
 	if (!NATIVE_WIDGET_IDS.has(node.widget)) return { ok: false, diagnostic: "unsupported-widget" };
-	const evidence = descriptorEvidence(document, node.binding);
+	const evidence = descriptorEvidence(document, state.binding);
 	if (node.widget === "select" || node.widget === "radio") {
 		const options = optionEvidence(node, evidence);
 		if (!options.ok || !conformingValue(node.widget, state.value, options.values))

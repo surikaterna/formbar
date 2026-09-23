@@ -70,6 +70,45 @@ describe("default FormDefinition compilation", () => {
 		if (nested?.type === "repeater") expect(nested.scope).not.toBe(nested.binding.scope);
 	});
 
+	it("compiles labeled constrained arrays with explicit seeded structural actions", () => {
+		const result = compile({
+			type: "object",
+			properties: {
+				rows: {
+					type: "array",
+					title: "People",
+					minItems: 1,
+					maxItems: 3,
+					items: { type: "object", default: { name: "New" }, properties: { name: { type: "string" } } },
+				},
+			},
+		});
+		const all = nodes(result.definition?.root as FormNode);
+		const repeater = all.find((node) => node.type === "repeater");
+		expect(repeater).toMatchObject({ label: "People", minItems: 1, maxItems: 3 });
+		expect(repeater && "children" in repeater ? repeater.children.slice(-3) : []).toMatchObject([
+			{ type: "action", action: "array.move", label: "Move up", payload: { kind: "literal", value: { offset: -1 } } },
+			{ type: "action", action: "array.move", label: "Move down", payload: { kind: "literal", value: { offset: 1 } } },
+			{ type: "action", action: "array.remove", label: "Remove" },
+		]);
+		expect(all.find((node) => node.type === "action" && node.action === "array.append")).toMatchObject({
+			label: "Add item",
+			payload: { kind: "literal", value: { name: "New" } },
+		});
+		expect(result.repeaterBaseline).toEqual([
+			expect.objectContaining({ nodeId: repeater?.id, label: "People", minItems: 1, maxItems: 3 }),
+		]);
+	});
+
+	it("omits append when no safe item seed exists and never materializes minItems", () => {
+		const result = compile({ type: "array", minItems: 2, items: {} });
+		const all = nodes(result.definition?.root as FormNode);
+		expect(all.some((node) => node.type === "action" && node.action === "array.append")).toBe(false);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "unsupported-schema", message: expect.stringContaining("safe append seed") }),
+		);
+	});
+
 	it("retains composed alternatives as evidence and diagnostics without branch selection", () => {
 		const result = compile({ oneOf: [{ type: "string" }, { type: "number" }] });
 		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });

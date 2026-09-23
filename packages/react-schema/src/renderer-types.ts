@@ -3,6 +3,7 @@ import type { ActionExecutor, RuntimePort } from "@formbar/declarative";
 import type { DescriptorDocument } from "@formbar/from-schema";
 import type { ExtensionRegistry } from "./extension-registry.js";
 import type { RendererDiagnostic } from "./renderer-evidence.js";
+import type { RepeaterCoordinator } from "./repeater-coordinator.js";
 
 export interface RendererEnvironment {
 	readonly runtime: RuntimePort;
@@ -12,6 +13,7 @@ export interface RendererEnvironment {
 	readonly prefix: string;
 	readonly submitted: boolean;
 	readonly extensions: ExtensionRegistry;
+	readonly repeaters: RepeaterCoordinator;
 	readonly extensionFailureCode?: RendererDiagnostic;
 	readonly extensionFailed: (nodeId: string) => void;
 	readonly extensionRecovered: (nodeId: string) => void;

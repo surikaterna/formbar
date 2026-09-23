@@ -25,6 +25,7 @@ describe("useSchemaForm preparation-only API", () => {
 			"descriptors",
 			"diagnostics",
 			"form",
+			"repeaterBaseline",
 			"warnings",
 		]);
 		expect(result.definition.version).toBe(1);

@@ -65,7 +65,7 @@ export { FormbarError, type FormbarErrorCode } from "./errors.js";
 export { applyRuleWrites } from "./expression-integration.js";
 export { type CreateFieldApiParams, createFieldApi, mergeFieldConfig } from "./field-api.js";
 // Field meta shifting
-export { clearChildFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
+export { clearChildFieldMeta, moveFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
 // Listener registry
 export { createListenerRegistry, type ListenerEntry } from "./listener-registry.js";
 // Middleware runner (SE6.2)

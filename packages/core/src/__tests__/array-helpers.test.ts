@@ -38,6 +38,24 @@ describe("array field helpers", () => {
 		form.dispose();
 	});
 
+	it("moveValue preserves nested metadata while reindexing in both directions", () => {
+		const form = createForm({ initialData: { items: [{ name: "a" }, { name: "b" }, { name: "c" }] } });
+		form.field("items.0.name").handleBlur();
+		form.setValue("items.1.name", "B");
+		form.setValue("items.2.name", "C");
+
+		form.field("items").moveValue(0, 2);
+		expect(form.getState().fieldMeta["items.2.name"]).toMatchObject({ touched: true, dirty: false });
+		expect(form.getState().fieldMeta["items.0.name"]).toMatchObject({ touched: true, dirty: true });
+		expect(form.getState().fieldMeta["items.1.name"]).toMatchObject({ touched: true, dirty: true });
+
+		form.field("items").moveValue(2, 0);
+		expect(form.getState().fieldMeta["items.0.name"]).toMatchObject({ touched: true, dirty: false });
+		expect(form.getState().fieldMeta["items.1.name"]).toMatchObject({ touched: true, dirty: true });
+		expect(form.getState().fieldMeta["items.2.name"]).toMatchObject({ touched: true, dirty: true });
+		form.dispose();
+	});
+
 	it("swapValue swaps two elements", () => {
 		const form = createForm({ initialData: { items: ["a", "b", "c"] } });
 		const field = form.field("items");

@@ -38,17 +38,49 @@ export function shiftFieldMeta(
 	return result;
 }
 
+/** Move one complete array-item metadata subtree and reindex intervening items. */
+export function moveFieldMeta(
+	fieldMeta: Readonly<Record<string, FieldMetaEntry>>,
+	basePath: string,
+	fromIndex: number,
+	toIndex: number,
+): Record<string, FieldMetaEntry> {
+	const prefix = `${basePath}.`;
+	const result: Record<string, FieldMetaEntry> = {};
+	for (const [key, entry] of Object.entries(fieldMeta)) {
+		if (!key.startsWith(prefix)) {
+			result[key] = entry;
+			continue;
+		}
+		const suffix = key.slice(prefix.length);
+		const dotIndex = suffix.indexOf(".");
+		const indexText = dotIndex === -1 ? suffix : suffix.slice(0, dotIndex);
+		const index = Number(indexText);
+		if (!Number.isSafeInteger(index)) {
+			result[key] = entry;
+			continue;
+		}
+		const nextIndex = movedIndex(index, fromIndex, toIndex);
+		const rest = dotIndex === -1 ? "" : suffix.slice(dotIndex);
+		result[`${basePath}.${nextIndex}${rest}`] = entry;
+	}
+	return result;
+}
+
+function movedIndex(index: number, fromIndex: number, toIndex: number): number {
+	if (index === fromIndex) return toIndex;
+	if (fromIndex < toIndex && index > fromIndex && index <= toIndex) return index - 1;
+	if (fromIndex > toIndex && index >= toIndex && index < fromIndex) return index + 1;
+	return index;
+}
+
 /** Remove all fieldMeta entries that are children of basePath. */
 export function clearChildFieldMeta(
 	fieldMeta: Readonly<Record<string, FieldMetaEntry>>,
 	basePath: string,
 ): Record<string, FieldMetaEntry> {
 	const prefix = `${basePath}.`;
-	const result: Record<string, FieldMetaEntry> = {};
-	for (const [key, entry] of Object.entries(fieldMeta)) {
-		if (!key.startsWith(prefix)) result[key] = entry;
-	}
-	return result;
+	return Object.fromEntries(Object.entries(fieldMeta).filter(([key]) => !key.startsWith(prefix)));
 }
 
 /** Swap fieldMeta entries for two array indices under basePath. */

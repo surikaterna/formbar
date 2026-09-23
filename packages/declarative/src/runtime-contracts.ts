@@ -70,13 +70,46 @@ export interface ResolvedActionState extends ResolvedNodeState {
 	readonly concurrency: "drop" | "replace" | "queue";
 	readonly payload: ResolvedActionPayload;
 	readonly target?: AbsoluteBinding;
+	readonly arrayLimits?: ResolvedArrayLimits;
+}
+
+export interface ResolvedArrayLimits {
+	readonly minItems: number;
+	readonly maxItems?: number;
+	readonly conflict: boolean;
+}
+
+export interface ResolvedRepeaterItem {
+	readonly index: number;
+	readonly scopes: readonly RuntimeScopeInstance[];
+}
+
+export interface ResolvedRepeaterState extends ResolvedNodeState {
+	readonly type: "repeater";
+	readonly binding?: AbsoluteBinding;
+	readonly status: "ready" | "malformed";
+	readonly minItems: number;
+	readonly maxItems?: number;
+	readonly limitsConflict: boolean;
+	readonly length: number;
+	readonly label: string;
+	readonly items: readonly ResolvedRepeaterItem[];
+}
+
+export interface ResolvedValidationState extends ResolvedNodeState {
+	readonly type: "validation";
+	readonly binding: AbsoluteBinding;
 }
 
 export type RuntimeResolvedNodeState =
 	| ResolvedFieldState
 	| ResolvedOutputState
 	| ResolvedActionState
-	| (ResolvedNodeState & { readonly type: Exclude<FormNode["type"], "action" | "field" | "output"> });
+	| ResolvedRepeaterState
+	| ResolvedValidationState
+	| (ResolvedNodeState & {
+			readonly type: Exclude<FormNode["type"], "action" | "field" | "output" | "repeater" | "validation">;
+	  });
 
 export interface RuntimeFieldBaseline {
 	readonly nodeId: string;
@@ -84,7 +117,20 @@ export interface RuntimeFieldBaseline {
 	readonly label?: string;
 }
 
-export type RuntimeDiagnosticCode = "duplicate-baseline" | "expression" | "invalid-baseline" | "non-boolean";
+export interface RuntimeRepeaterBaseline {
+	readonly nodeId: string;
+	readonly minItems?: number;
+	readonly maxItems?: number;
+	readonly label?: string;
+}
+
+export type RuntimeDiagnosticCode =
+	| "conflicting-repeater-limits"
+	| "duplicate-baseline"
+	| "expression"
+	| "invalid-baseline"
+	| "malformed-repeater"
+	| "non-boolean";
 export type RuntimeExpressionProperty =
 	| "condition"
 	| "disabled"
@@ -98,7 +144,7 @@ export interface RuntimeDiagnostic {
 	readonly code: RuntimeDiagnosticCode;
 	readonly nodeId: string;
 	readonly instanceKey: string;
-	readonly property: RuntimeExpressionProperty | "baseline";
+	readonly property: RuntimeExpressionProperty | "baseline" | "binding" | "limits";
 	readonly expressionCode?: DiagnosticCode;
 }
 
@@ -106,6 +152,7 @@ export interface RuntimeSnapshot extends RuntimeFormState<JsonValue, JsonValue> 
 	readonly form: RuntimeFormStatus;
 	readonly nodes: readonly RuntimeResolvedNodeState[];
 	readonly fields: readonly ResolvedFieldState[];
+	readonly repeaters: readonly ResolvedRepeaterState[];
 	readonly diagnostics: readonly RuntimeDiagnostic[];
 	readonly namespaces?: Readonly<Record<string, JsonValue>>;
 }
@@ -113,6 +160,7 @@ export interface RuntimeSnapshot extends RuntimeFormState<JsonValue, JsonValue> 
 export interface RuntimePort {
 	isDisposed(): boolean;
 	getSnapshot(): RuntimeSnapshot;
+	getNode(instanceKey: string): RuntimeResolvedNodeState | undefined;
 	read(reference: StateRef): JsonValue | undefined;
 	write(namespace: string, segments: readonly Segment[], value: JsonValue): WriteResult;
 	subscribe(listener: () => void): () => void;

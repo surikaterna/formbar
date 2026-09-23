@@ -11,6 +11,31 @@ import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
 describe("renderer SSR", () => {
+	it("hydrates generated repeater rows with deterministic IDs and no mismatch", async () => {
+		const prepared = createSchemaForm(
+			{ type: "object", properties: { rows: { type: "array", title: "Rows", items: { type: "string" } } } },
+			{ provider: jsonSchemaProvider(), side: "input" },
+		);
+		const form = createForm({ initialData: { rows: ["one", "two"] }, initialUiState: {} });
+		const renderer = <FormRenderer {...prepared} form={form} />;
+		const container = document.createElement("div");
+		container.innerHTML = renderToString(renderer);
+		document.body.append(container);
+		const serverIds = [...container.querySelectorAll("[id]")].map((element) => element.id);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		let root: ReturnType<typeof hydrateRoot>;
+		await act(async () => {
+			root = hydrateRoot(container, renderer);
+			await Promise.resolve();
+		});
+		expect([...container.querySelectorAll("[id]")].map((element) => element.id)).toEqual(serverIds);
+		expect(error).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		error.mockRestore();
+		container.remove();
+		form.dispose();
+	});
+
 	it("renders and hydrates action controls without mismatches", async () => {
 		const definition: FormDefinition = {
 			version: 1,

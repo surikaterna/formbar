@@ -120,13 +120,16 @@ function prepareArray(form: FormApi<unknown, unknown>, state: ResolvedActionStat
 	}
 	try {
 		const plan = arrayPlan(state, length);
-		return plan ? { plan, target: state.target.segments } : { diagnostic: "invalid-action-payload" };
+		if (!plan) return { diagnostic: "invalid-action-payload" };
+		if (typeof plan === "string") return { diagnostic: plan };
+		const limit = limitDiagnostic(state, plan, length);
+		return limit ? { diagnostic: limit } : { plan, target: state.target.segments };
 	} catch {
 		return { diagnostic: "invalid-action-payload" };
 	}
 }
 
-function arrayPlan(state: ResolvedActionState, length: number): ArrayPlan | undefined {
+function arrayPlan(state: ResolvedActionState, length: number): ArrayPlan | ActionDiagnosticCode | undefined {
 	const payloadValue = state.payload.status === "ready" ? copyActionPayload(state.payload.value) : undefined;
 	if (payloadValue && !payloadValue.ok) return undefined;
 	const payload = payloadValue?.value;
@@ -164,11 +167,36 @@ function reorderPlan(
 	payload: JsonValue | undefined,
 	fallback: number | undefined,
 	length: number,
-): ArrayPlan | undefined {
-	if (!isRecord(payload) || !exactKeys(payload, ["from", "to"]) || !Object.hasOwn(payload, "to")) return undefined;
+): ArrayPlan | ActionDiagnosticCode | undefined {
+	if (!isRecord(payload)) return undefined;
+	if (exactKeys(payload, ["offset"]) && Object.hasOwn(payload, "offset")) {
+		if (payload.offset !== -1 && payload.offset !== 1) return undefined;
+		if (!Number.isSafeInteger(fallback)) return undefined;
+		const to = (fallback as number) + payload.offset;
+		if (!validIndex(to, length, false)) return "array-boundary";
+		return { operation, from: fallback as number, to };
+	}
+	if (!exactKeys(payload, ["from", "to"]) || !Object.hasOwn(payload, "to")) return undefined;
 	const from = payload.from === undefined ? fallback : payload.from;
-	if (!validIndex(from, length, false) || !validIndex(payload.to, length, false)) return undefined;
+	if (!Number.isSafeInteger(from) || !Number.isSafeInteger(payload.to)) return undefined;
+	if (!validIndex(from, length, false) || !validIndex(payload.to, length, false) || from === payload.to)
+		return "array-boundary";
 	return { operation, from, to: payload.to };
+}
+
+function limitDiagnostic(
+	state: ResolvedActionState,
+	plan: ArrayPlan,
+	length: number,
+): ActionDiagnosticCode | undefined {
+	const limits = state.arrayLimits;
+	if (!limits) return undefined;
+	if (limits.conflict) return "action-unavailable";
+	if ((plan.operation === "append" || plan.operation === "insert") && limits.maxItems !== undefined) {
+		if (length >= limits.maxItems) return "array-max-items";
+	}
+	if (plan.operation === "remove" && length <= limits.minItems) return "array-min-items";
+	return undefined;
 }
 
 function validIndex(value: unknown, length: number, endpoint: boolean): value is number {

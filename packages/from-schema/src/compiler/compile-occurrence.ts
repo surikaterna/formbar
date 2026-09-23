@@ -3,6 +3,7 @@ import type { DescriptorDocument, DescriptorNode, DescriptorOccurrence } from ".
 import type { CompilationDiagnostic } from "../diagnostics.js";
 import { type BindingContext, binding, childBinding, repeaterItemBinding } from "./bindings.js";
 import { nodeId, scopeId } from "./ids.js";
+import { itemSeed } from "./item-seed.js";
 import { containerPresentationFor, presentationFor } from "./presentation.js";
 
 export interface CompilationContext {
@@ -150,15 +151,53 @@ function compileArray(
 				"Array item occurrence is missing.",
 			);
 	const evidence = context.document.evidence[occurrence.nodeId];
-	return Object.freeze({
+	const presentation = containerPresentationFor(node, context.document.source.provider);
+	const target = binding(bindingContext);
+	const rowActions: FormNode[] = [
+		action(nodeId(occurrence.id, "move-up"), "array.move", "Move up", target, { offset: -1 }),
+		action(nodeId(occurrence.id, "move-down"), "array.move", "Move down", target, { offset: 1 }),
+		action(nodeId(occurrence.id, "remove"), "array.remove", "Remove", target),
+	];
+	const repeater: FormNode = Object.freeze({
 		id: nodeId(occurrence.id, "repeater"),
 		type: "repeater",
-		binding: binding(bindingContext),
+		binding: target,
 		scope,
-		children: Object.freeze([child]),
+		...(presentation.title === undefined ? {} : { label: presentation.title }),
+		children: Object.freeze([child, ...rowActions]),
 		...(evidence?.minItems === undefined ? {} : { minItems: evidence.minItems }),
 		...(evidence?.maxItems === undefined ? {} : { maxItems: evidence.maxItems }),
 	});
+	const seed = item ? itemSeed(context.document, item.nodeId) : undefined;
+	if (seed === undefined) {
+		addDiagnostic(context, occurrence, "unsupported-schema", "Array item schema has no safe append seed.");
+	}
+	const children = [
+		repeater,
+		...(seed === undefined ? [] : [action(nodeId(occurrence.id, "append"), "array.append", "Add item", target, seed)]),
+	];
+	return Object.freeze({ id: nodeId(occurrence.id, "array-group"), type: "group", children: Object.freeze(children) });
+}
+
+function action(
+	id: string,
+	actionId: "array.append" | "array.move" | "array.remove",
+	label: string,
+	target: ReturnType<typeof binding>,
+	payload?: Parameters<typeof literalExpression>[0],
+): FormNode {
+	return Object.freeze({
+		id,
+		type: "action",
+		action: actionId,
+		label,
+		target,
+		...(payload === undefined ? {} : { payload: literalExpression(payload) }),
+	});
+}
+
+function literalExpression(value: import("@formbar/declarative").JsonValue) {
+	return Object.freeze({ kind: "literal" as const, value });
 }
 
 function compileTuple(

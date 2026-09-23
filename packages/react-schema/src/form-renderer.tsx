@@ -11,12 +11,14 @@ import { FormNodeView } from "./form-node.js";
 import { DiagnosticFallback } from "./renderer-elements.js";
 import { domIdToken, focusableField } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
+import { RepeaterCoordinator } from "./repeater-coordinator.js";
 import { useOwnedActionExecutor } from "./use-action-executor.js";
 import { useOwnedRuntime } from "./use-runtime-observation.js";
 import type { UseSchemaFormResult } from "./use-schema-form.js";
 
 export interface FormRendererProps<TData = unknown, TUi = unknown>
 	extends Pick<UseSchemaFormResult<TData, TUi>, "form" | "descriptors" | "definition" | "baseline"> {
+	readonly repeaterBaseline?: UseSchemaFormResult<TData, TUi>["repeaterBaseline"];
 	readonly extensions?: RendererExtensions;
 	readonly actions?: readonly ActionRegistration[];
 }
@@ -48,7 +50,12 @@ export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): 
 }
 
 function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
-	const runtime = useOwnedRuntime({ form: props.form, definition: props.definition, baseline: props.baseline });
+	const runtime = useOwnedRuntime({
+		form: props.form,
+		definition: props.definition,
+		baseline: props.baseline,
+		...(props.repeaterBaseline ? { repeaterBaseline: props.repeaterBaseline } : {}),
+	});
 	const actionExecutor = useOwnedActionExecutor(props.form as RendererEnvironment["form"], runtime, props.actions);
 	const rootId = useId();
 	const prefix = useMemo(
@@ -58,6 +65,11 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 	const root = useFormSelector(props.form, selectRootState, structuredEqual);
 	const fieldNodes = useMemo(() => renderedFieldNodes(props.definition.root), [props.definition.root]);
 	const extensions = useMemo(() => normalizeExtensions(props.extensions), [props.extensions]);
+	const repeaters = useMemo(
+		() => createRepeaterCoordinator(props.form, props.definition),
+		[props.form, props.definition],
+	);
+	useEffect(() => props.form.onReset(() => repeaters.reset()), [props.form, repeaters]);
 	const failures = useExtensionFailures();
 	const { failedExtensions, extensionFailed, extensionRecovered } = failures;
 	const environment = useMemo<RendererEnvironment>(
@@ -69,6 +81,7 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 			prefix,
 			submitted: root.submitted,
 			extensions,
+			repeaters,
 			extensionFailed,
 			extensionRecovered,
 		}),
@@ -80,6 +93,7 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 			prefix,
 			root.submitted,
 			extensions,
+			repeaters,
 			extensionFailed,
 			extensionRecovered,
 		],
@@ -96,6 +110,12 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 	const summaryId = `${prefix}-error-summary`;
 	const hasErrors = root.issues.some(errorIssue);
 	return { root, environment, summary, summaryId, hasErrors };
+}
+
+function createRepeaterCoordinator(form: object, definition: object): RepeaterCoordinator {
+	void form;
+	void definition;
+	return new RepeaterCoordinator();
 }
 
 function ActionRegistryDiagnostics(props: { readonly executor: RendererEnvironment["actions"] }): ReactElement {
@@ -193,7 +213,7 @@ function summaryEntries(
 			);
 		});
 		return {
-			...(field ? { target: fieldId(domIdToken(field.instance.nodeId), prefix) } : {}),
+			...(field ? { target: fieldId(domIdToken(field.instance.instanceKey), prefix) } : {}),
 			message: issue.message,
 		};
 	});

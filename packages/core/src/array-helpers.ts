@@ -1,5 +1,5 @@
 import type { FormDispatchResult } from "./contracts.js";
-import { clearChildFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
+import { moveFieldMeta, shiftFieldMeta, swapFieldMeta } from "./field-meta-shift.js";
 import type { FieldMetaEntry } from "./state.js";
 
 export interface ArrayHelperDeps {
@@ -46,7 +46,7 @@ export function createArrayHelpers(deps: ArrayHelperDeps) {
 			next.splice(toIndex, 0, moved);
 			const result = deps.set(next);
 			if (result.ok) {
-				deps.updateFieldMeta((meta) => clearChildFieldMeta(meta, deps.pathKey));
+				deps.updateFieldMeta((meta) => moveFieldMeta(meta, deps.pathKey, fromIndex, toIndex));
 			}
 			return result;
 		},

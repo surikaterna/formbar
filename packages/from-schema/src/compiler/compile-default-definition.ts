@@ -2,6 +2,7 @@ import {
 	type DefinitionDiagnostic,
 	type FormDefinition,
 	type RuntimeFieldBaseline,
+	type RuntimeRepeaterBaseline,
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
@@ -19,6 +20,7 @@ export interface CompileDefaultFormDefinitionOptions {
 export interface CompileDefaultFormDefinitionResult {
 	readonly definition?: ValidatedFormDefinition;
 	readonly baseline: readonly RuntimeFieldBaseline[];
+	readonly repeaterBaseline: readonly RuntimeRepeaterBaseline[];
 	readonly diagnostics: readonly CompilationDiagnostic[];
 	readonly definitionDiagnostics: readonly DefinitionDiagnostic[];
 }
@@ -38,6 +40,7 @@ export function compileDefaultFormDefinition(
 	if (!validation.ok)
 		return Object.freeze({
 			baseline: Object.freeze([]),
+			repeaterBaseline: Object.freeze([]),
 			diagnostics: sortCompilationDiagnostics(diagnostics),
 			definitionDiagnostics: validation.diagnostics,
 		});
@@ -45,6 +48,7 @@ export function compileDefaultFormDefinition(
 	return Object.freeze({
 		definition: validation.value,
 		baseline: adapted.baseline,
+		repeaterBaseline: adapted.repeaterBaseline,
 		diagnostics: sortCompilationDiagnostics([...diagnostics, ...adapted.diagnostics]),
 		definitionDiagnostics: Object.freeze([]),
 	});

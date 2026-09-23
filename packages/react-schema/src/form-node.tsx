@@ -3,7 +3,10 @@ import type {
 	ResolvedActionState,
 	ResolvedFieldState,
 	ResolvedOutputState,
+	ResolvedRepeaterState,
+	ResolvedValidationState,
 	RuntimeResolvedNodeState,
+	RuntimeScopeInstance,
 } from "@formbar/declarative";
 import { fieldId } from "@formbar/react";
 import { memo } from "react";
@@ -16,33 +19,56 @@ import { OutputNodeView } from "./output-node.js";
 import { DiagnosticFallback, layoutProps } from "./renderer-elements.js";
 import { domIdToken, spanOutput } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
-import { rootInstanceKey, useNodeObservation } from "./use-runtime-observation.js";
+import { RepeaterNodeView } from "./repeater-node.js";
+import { runtimeInstanceKey, useNodeObservation } from "./use-runtime-observation.js";
 
 interface FormNodeProps {
 	readonly node: FormNode;
 	readonly environment: RendererEnvironment;
+	readonly scopes?: readonly RuntimeScopeInstance[];
 }
 
-export const FormNodeView = memo(function FormNodeView({ node, environment }: FormNodeProps): ReactElement | null {
-	const state = useNodeObservation(environment.runtime, rootInstanceKey(node.id));
+export const FormNodeView = memo(function FormNodeView({
+	node,
+	environment,
+	scopes = [],
+}: FormNodeProps): ReactElement | null {
+	const state = useNodeObservation(environment.runtime, runtimeInstanceKey(node.id, scopes));
 	const layout = layoutProps(spanOutput(node.presentation?.span));
 	if (!state) return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 	if (!state.visible) return null;
 	if (node.type === "field") return renderField(node, state, environment, layout);
 	if (node.type === "output") return renderOutput(node, state, environment, layout);
 	if (node.type === "action") return renderAction(node, state, environment, layout);
+	if (node.type === "repeater") {
+		if (!isResolvedRepeaterState(state))
+			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+		return (
+			<RepeaterNodeView
+				node={node}
+				state={state}
+				environment={environment}
+				layout={layout}
+				renderChildren={(children, itemScopes) => renderChildren(children, environment, itemScopes)}
+			/>
+		);
+	}
 	if (node.type === "validation")
-		return <FormValidation node={node} environment={environment} visible={state.visible} layout={layout} />;
-	if (node.type === "group") return renderGroup(node, environment, layout);
-	if (node.type === "section") return renderSection(node, environment, layout);
-	if (node.type === "conditional") return renderConditional(node, state.branch, environment, layout);
+		return isResolvedValidationState(state) ? (
+			<FormValidation node={node} state={state} environment={environment} layout={layout} />
+		) : (
+			<DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />
+		);
+	if (node.type === "group") return renderGroup(node, state, environment, scopes, layout);
+	if (node.type === "section") return renderSection(node, state, environment, scopes, layout);
+	if (node.type === "conditional") return renderConditional(node, state.branch, environment, scopes, layout);
 	if (node.type === "tabs")
 		return (
 			<TabsView
 				node={node}
 				environment={environment}
 				layout={layout}
-				renderChildren={(children) => renderChildren(children, environment)}
+				renderChildren={(children) => renderChildren(children, environment, scopes)}
 			/>
 		);
 	if (node.type === "accordion")
@@ -51,7 +77,7 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 				node={node}
 				environment={environment}
 				layout={layout}
-				renderChildren={(children) => renderChildren(children, environment)}
+				renderChildren={(children) => renderChildren(children, environment, scopes)}
 			/>
 		);
 	if (node.type === "custom")
@@ -62,11 +88,15 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 				environment={environment}
 				layout={layout}
 				renderChild={(child) => (
-					<FormNodeView node={child} environment={{ ...environment, extensionFailureCode: "extension-child-failed" }} />
+					<FormNodeView
+						node={child}
+						scopes={scopes}
+						environment={{ ...environment, extensionFailureCode: "extension-child-failed" }}
+					/>
 				)}
 			/>
 		);
-	return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+	return <DiagnosticFallback code="unsupported-node" nodeId={state.instance.nodeId} layout={layout} />;
 });
 
 function renderField(
@@ -104,10 +134,14 @@ function renderOutput(
 
 function renderGroup(
 	node: Extract<FormNode, { type: "group" }>,
+	state: RuntimeResolvedNodeState,
 	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
 	layout: ReturnType<typeof layoutProps>,
 ): ReactElement {
-	const legend = node.label ? fieldId(`${domIdToken(node.id)}-legend`, environment.prefix) : undefined;
+	const legend = node.label
+		? fieldId(`${domIdToken(state.instance.instanceKey)}-legend`, environment.prefix)
+		: undefined;
 	return (
 		<fieldset
 			data-formbar-node={node.id}
@@ -116,17 +150,19 @@ function renderGroup(
 			style={layout.style}
 		>
 			{node.label ? <legend id={legend}>{node.label}</legend> : null}
-			<NodeChildren nodes={node.children} environment={environment} />
+			<NodeChildren nodes={node.children} environment={environment} scopes={scopes} />
 		</fieldset>
 	);
 }
 
 function renderSection(
 	node: Extract<FormNode, { type: "section" }>,
+	state: RuntimeResolvedNodeState,
 	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
 	layout: ReturnType<typeof layoutProps>,
 ): ReactElement {
-	const token = domIdToken(node.id);
+	const token = domIdToken(state.instance.instanceKey);
 	const heading = fieldId(`${token}-heading`, environment.prefix);
 	const description = node.description ? fieldId(`${token}-description`, environment.prefix) : undefined;
 	return (
@@ -139,7 +175,7 @@ function renderSection(
 		>
 			{node.title ? <h2 id={heading}>{node.title}</h2> : null}
 			{node.description ? <p id={description}>{node.description}</p> : null}
-			<NodeChildren nodes={node.children} environment={environment} />
+			<NodeChildren nodes={node.children} environment={environment} scopes={scopes} />
 		</section>
 	);
 }
@@ -148,26 +184,37 @@ function renderConditional(
 	node: Extract<FormNode, { type: "conditional" }>,
 	branch: "then" | "else" | "none" | undefined,
 	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
 	layout: ReturnType<typeof layoutProps>,
 ): ReactElement {
 	if (branch === "none") return <DiagnosticFallback code="conditional-unresolved" nodeId={node.id} layout={layout} />;
 	const children = branch === "then" ? node.then : (node.else ?? []);
 	return (
 		<div data-formbar-node={node.id} {...layout.attributes} style={layout.style}>
-			<NodeChildren nodes={children} environment={environment} />
+			<NodeChildren nodes={children} environment={environment} scopes={scopes} />
 		</div>
 	);
 }
 
-function NodeChildren(props: { readonly nodes: readonly FormNode[]; readonly environment: RendererEnvironment }) {
-	return props.nodes.map((node) => <FormNodeView key={node.id} node={node} environment={props.environment} />);
+function NodeChildren(props: {
+	readonly nodes: readonly FormNode[];
+	readonly environment: RendererEnvironment;
+	readonly scopes: readonly RuntimeScopeInstance[];
+}) {
+	return props.nodes.map((node) => (
+		<FormNodeView key={node.id} node={node} environment={props.environment} scopes={props.scopes} />
+	));
 }
 
-function renderChildren(nodes: readonly FormNode[], environment: RendererEnvironment): ReactElement {
+function renderChildren(
+	nodes: readonly FormNode[],
+	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
+): ReactElement {
 	return (
 		<>
 			{nodes.map((node) => (
-				<FormNodeView key={node.id} node={node} environment={environment} />
+				<FormNodeView key={node.id} node={node} environment={environment} scopes={scopes} />
 			))}
 		</>
 	);
@@ -183,4 +230,12 @@ function isResolvedOutputState(state: RuntimeResolvedNodeState): state is Resolv
 
 function isResolvedActionState(state: RuntimeResolvedNodeState): state is ResolvedActionState {
 	return state.type === "action" && "action" in state && "payload" in state;
+}
+
+function isResolvedRepeaterState(state: RuntimeResolvedNodeState): state is ResolvedRepeaterState {
+	return state.type === "repeater" && "status" in state && "items" in state;
+}
+
+function isResolvedValidationState(state: RuntimeResolvedNodeState): state is ResolvedValidationState {
+	return state.type === "validation" && "binding" in state;
 }
