@@ -87,6 +87,9 @@ jobs:
           rm -rf packages/*/dist
           bun run build
 
+      - name: Check package artifacts
+        run: bun run check:package-artifacts
+
       - name: Typecheck demos
         run: bun run --filter @formbar/demos typecheck
 
