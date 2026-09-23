@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/from-schema",
-	"version": "0.14.2",
+	"version": "0.14.3",
 	"type": "module",
 	"description": "Schema document projection and declarative form compilation",
 	"license": "MIT",
@@ -14,8 +14,14 @@
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": {
-			"import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-			"require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
 		}
 	},
 	"files": ["dist"],
@@ -26,9 +32,9 @@
 		"test": "vitest run --root ../.. packages/from-schema/src/__tests__"
 	},
 	"dependencies": {
-		"@formbar/core": "^0.14.2",
-		"@formbar/declarative": "^0.14.2",
-		"@formbar/expressions": "^0.14.2",
+		"@formbar/core": "^0.14.3",
+		"@formbar/declarative": "^0.14.3",
+		"@formbar/expressions": "^0.14.3",
 		"@scheman/core": "^2.0.0"
 	},
 	"peerDependencies": {
