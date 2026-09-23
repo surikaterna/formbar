@@ -1,5 +1,19 @@
 # @formbar/react-schema
 
+## 0.12.0
+
+### Minor Changes
+
+- ce05dcf: Add serialized declarative actions with core-authoritative built-ins, abort-safe instance concurrency, trusted host handlers, and accessible React action controls.
+
+### Patch Changes
+
+- Updated dependencies [ce05dcf]
+  - @formbar/core@0.12.0
+  - @formbar/declarative@0.12.0
+  - @formbar/from-schema@0.12.0
+  - @formbar/react@0.12.0
+
 ## 0.11.0
 
 ### Minor Changes
