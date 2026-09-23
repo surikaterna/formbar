@@ -1,7 +1,7 @@
 import type { FormApi, FormState, FormStateCapture } from "@formbar/core";
 import type { Expression, JsonValue, StateRef } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
-import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
+import { mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
 import type { FormNode } from "./nodes.js";
 import { resolveActionState } from "./runtime-action-state.js";
 import { normalizeBaselines } from "./runtime-baselines.js";
@@ -22,7 +22,8 @@ import type {
 import { runtimeDiagnostic, sortRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import { type ConcreteNode, expandDefinition } from "./runtime-expansion.js";
 import { evaluateRuntimeExpression } from "./runtime-expressions.js";
-import type { ConcreteFieldReference } from "./runtime-references.js";
+import type { ConcreteFieldReference, RuntimeReferenceIndex } from "./runtime-references.js";
+import { createRuntimeReferenceIndex } from "./runtime-references.js";
 import { resolveRepeaterState } from "./runtime-repeaters.js";
 import { resolveFormStatus } from "./runtime-status.js";
 
@@ -31,7 +32,7 @@ interface ProjectionContext {
 	readonly state: FormState<unknown, unknown>;
 	readonly formStatus: RuntimeFormStatus;
 	readonly concrete: readonly ConcreteNode[];
-	readonly fields: readonly ConcreteFieldReference[];
+	readonly references: RuntimeReferenceIndex;
 	readonly fieldBaselines: ReadonlyMap<string, RuntimeFieldBaseline>;
 	readonly repeaterBaselines: ReadonlyMap<string, RuntimeRepeaterBaseline>;
 	readonly diagnostics: RuntimeDiagnostic[];
@@ -42,10 +43,11 @@ export interface ProjectRuntimeOptions {
 	readonly definition: ValidatedFormDefinition;
 	readonly baseline?: readonly RuntimeFieldBaseline[];
 	readonly repeaterBaseline?: readonly RuntimeRepeaterBaseline[];
+	readonly capture?: FormStateCapture<unknown, unknown>;
 }
 
 export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot {
-	const capture = options.form.captureState() as FormStateCapture<unknown, unknown>;
+	const capture = options.capture ?? (options.form.captureState() as FormStateCapture<unknown, unknown>);
 	const state = capture.state;
 	const concrete = expandDefinition(options.definition, state);
 	const diagnostics: RuntimeDiagnostic[] = [];
@@ -57,12 +59,13 @@ export function projectRuntime(options: ProjectRuntimeOptions): RuntimeSnapshot 
 	);
 	const formStatus = resolveFormStatus(capture);
 	const fields = concreteFields(concrete);
+	const references = createRuntimeReferenceIndex(capture, fields);
 	const context = {
 		capture,
 		state,
 		formStatus,
 		concrete,
-		fields,
+		references,
 		fieldBaselines: baselines.fields,
 		repeaterBaselines: baselines.repeaters,
 		diagnostics,
@@ -141,13 +144,13 @@ function resolveNode(
 	if (concrete.node.type === "validation" && concrete.binding)
 		return { node: projectValidation(nodeState, concrete.binding) };
 	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState as RuntimeResolvedNodeState };
-	nodeState = mergeFieldRestrictions(nodeState, fieldContributions(context.state, concrete.binding));
+	nodeState = mergeFieldRestrictions(nodeState, context.references.policies(concrete.binding));
 	const conditionalRequired =
 		evaluateBoolean(context, concrete, concrete.node.required, "required", false, true) ?? true;
 	const baseline = context.fieldBaselines.get(concrete.node.id);
 	const field = resolveFieldState({
 		capture: context.capture,
-		state: context.state,
+		references: context.references,
 		node: concrete.node,
 		instance: concrete.instance,
 		binding: concrete.binding,
@@ -181,7 +184,7 @@ function projectRepeater(
 	nodeState: ResolvedNodeState,
 ): ResolvedRepeaterState {
 	const restricted = concrete.binding
-		? mergeFieldRestrictions(nodeState, fieldContributions(context.state, concrete.binding))
+		? mergeFieldRestrictions(nodeState, context.references.policies(concrete.binding))
 		: nodeState;
 	const baseline = context.repeaterBaselines.get(concrete.node.id);
 	return resolveRepeaterState({
@@ -308,10 +311,9 @@ function expressionFailure(
 
 function expressionFrame(context: ProjectionContext, concrete: ConcreteNode) {
 	return {
-		capture: context.capture,
 		state: context.state,
 		formStatus: context.formStatus,
-		fields: context.fields,
+		references: context.references,
 		instance: concrete.instance,
 		scopes: concrete.scopes,
 	};

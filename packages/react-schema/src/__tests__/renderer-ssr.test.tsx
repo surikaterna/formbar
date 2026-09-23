@@ -10,7 +10,63 @@ import { FormRenderer } from "../index.js";
 import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
+function countFindPredicates(run: () => void): number {
+	let operations = 0;
+	const original = Array.prototype.find;
+	const find = vi.spyOn(Array.prototype, "find").mockImplementation(function (predicate, thisArg) {
+		return Reflect.apply(original, this, [
+			(value: unknown, index: number, values: unknown[]) => {
+				operations += 1;
+				return Reflect.apply(predicate, thisArg, [value, index, values]);
+			},
+		]);
+	});
+	try {
+		run();
+		return operations;
+	} finally {
+		find.mockRestore();
+	}
+}
+
 describe("renderer SSR", () => {
+	it("renders 100, 200, and 500 rows with bounded array-search operations", () => {
+		const prepared = createSchemaForm(
+			{
+				type: "object",
+				properties: {
+					rows: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: Object.fromEntries(
+								Array.from({ length: 5 }, (_, index) => [`value${index}`, { type: "string" }]),
+							),
+						},
+					},
+				},
+			},
+			{ provider: jsonSchemaProvider(), side: "input" },
+		);
+		const operations = [100, 200, 500].map((rowCount) => {
+			const rows = Array.from({ length: rowCount }, (_, row) =>
+				Object.fromEntries(Array.from({ length: 5 }, (_, field) => [`value${field}`, `${row}:${field}`])),
+			);
+			const form = createForm({ initialData: { rows }, initialUiState: {} });
+			const predicates = countFindPredicates(() => {
+				renderToString(<FormRenderer {...prepared} form={form} />);
+			});
+			form.dispose();
+			return { rowCount, predicates };
+		});
+
+		expect(operations).toEqual([
+			{ rowCount: 100, predicates: 0 },
+			{ rowCount: 200, predicates: 0 },
+			{ rowCount: 500, predicates: 0 },
+		]);
+	});
+
 	it("hydrates generated repeater rows with deterministic IDs and no mismatch", async () => {
 		const prepared = createSchemaForm(
 			{ type: "object", properties: { rows: { type: "array", title: "Rows", items: { type: "string" } } } },

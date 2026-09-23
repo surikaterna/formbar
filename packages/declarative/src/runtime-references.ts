@@ -1,9 +1,11 @@
 import { toDot } from "@formbar/core";
-import type { FormState, FormStateCapture, ValidationIssue } from "@formbar/core";
+import type { FieldPolicyContribution, FormState, FormStateCapture, ValidationIssue } from "@formbar/core";
 import type { JsonValue, NamespaceProvider, Scopes, StateRef } from "@formbar/expressions";
 import { readOwn, resolveRef } from "@formbar/expressions";
 import type { Binding } from "./bindings.js";
 import type { RuntimeFormStatus, RuntimeNodeInstance } from "./runtime-contracts.js";
+
+const emptyReferences = Object.freeze([]);
 
 export interface ConcreteFieldReference {
 	readonly instance: RuntimeNodeInstance;
@@ -15,6 +17,18 @@ export interface DirectFieldLifecycle {
 	readonly validating: boolean;
 	readonly dirty: boolean;
 	readonly touched: boolean;
+}
+
+interface ScopeIndexNode {
+	readonly children: Map<string, ScopeIndexNode>;
+	readonly fields: ConcreteFieldReference[];
+}
+
+export interface RuntimeReferenceIndex {
+	issues(binding: StateRef): readonly ValidationIssue[];
+	policies(binding: StateRef): readonly FieldPolicyContribution[];
+	lifecycle(binding: StateRef): DirectFieldLifecycle;
+	contextual(instance: RuntimeNodeInstance): Readonly<Record<string, DirectFieldLifecycle>>;
 }
 
 export function resolveBinding(binding: Binding, scopes: Scopes): StateRef {
@@ -31,32 +45,45 @@ export function readBinding(state: FormState<unknown, unknown>, binding: StateRe
 	}
 }
 
-export function exactIssues(state: FormState<unknown, unknown>, binding: StateRef): readonly ValidationIssue[] {
-	return Object.freeze(
-		state.issues.filter(
-			(issue) =>
-				issue.path.namespace === binding.namespace &&
-				issue.path.segments.length === binding.segments.length &&
-				issue.path.segments.every((segment, index) => segment === binding.segments[index]),
-		),
-	);
+export function createRuntimeReferenceIndex(
+	capture: FormStateCapture<unknown, unknown>,
+	fields: readonly ConcreteFieldReference[],
+): RuntimeReferenceIndex {
+	const state = capture.state;
+	const issues = groupByReference(state.issues, (issue) => issue.path);
+	const policies = groupByReference(state.fieldPolicy, (policy) => policy.path);
+	const scopes = createScopeIndex(fields);
+	const lifecycle = new Map<string, DirectFieldLifecycle>();
+	const contextual = new Map<string, Readonly<Record<string, DirectFieldLifecycle>>>();
+	const readLifecycle = (binding: StateRef) => {
+		const key = referenceKey(binding);
+		const cached = lifecycle.get(key);
+		if (cached) return cached;
+		const value = fieldLifecycle(capture, binding, issues.get(key) ?? []);
+		lifecycle.set(key, value);
+		return value;
+	};
+	const index: RuntimeReferenceIndex = {
+		issues: (binding) => issues.get(referenceKey(binding)) ?? emptyReferences,
+		policies: (binding) => policies.get(referenceKey(binding)) ?? emptyReferences,
+		lifecycle: readLifecycle,
+		contextual: (instance) => cachedContextualSnapshot(instance, scopes, readLifecycle, contextual),
+	};
+	return Object.freeze(index);
 }
 
-export function directFieldLifecycle(
-	capture: FormStateCapture<unknown, unknown>,
-	binding: StateRef,
-): DirectFieldLifecycle {
-	const state = capture.state;
-	const issues = exactIssues(state, binding);
-	const valid = !issues.some((issue) => issue.severity === "error");
-	const metadataKey = fieldMetadataKey(binding);
-	const metadata = metadataKey === undefined ? undefined : state.fieldMeta[metadataKey];
-	return Object.freeze({
-		valid,
-		validating: metadata?.isValidating ?? false,
-		dirty: bindingDirty(capture, binding),
-		touched: metadata?.touched ?? false,
-	});
+function cachedContextualSnapshot(
+	instance: RuntimeNodeInstance,
+	scopes: ScopeIndexNode,
+	readLifecycle: (binding: StateRef) => DirectFieldLifecycle,
+	cache: Map<string, Readonly<Record<string, DirectFieldLifecycle>>>,
+): Readonly<Record<string, DirectFieldLifecycle>> {
+	const key = JSON.stringify(instance.scopes);
+	const cached = cache.get(key);
+	if (cached) return cached;
+	const snapshot = contextualFieldSnapshot(instance, scopes, readLifecycle);
+	cache.set(key, snapshot);
+	return snapshot;
 }
 
 export function createSnapshotProviders(
@@ -73,31 +100,85 @@ export function createSnapshotProviders(
 	});
 }
 
-export function contextualFieldSnapshot(
+function contextualFieldSnapshot(
 	current: RuntimeNodeInstance,
-	fields: readonly ConcreteFieldReference[],
+	root: ScopeIndexNode,
 	readLifecycle: (binding: StateRef) => DirectFieldLifecycle,
 ): Readonly<Record<string, DirectFieldLifecycle>> {
-	const snapshot: Record<string, DirectFieldLifecycle> = Object.create(null);
-	for (const field of fields) {
-		if (!scopePrefix(field.instance, current)) continue;
-		const existing = fields.find(
-			(candidate) =>
-				candidate.instance.nodeId === field.instance.nodeId &&
-				scopePrefix(candidate.instance, current) &&
-				candidate.instance.scopes.length > field.instance.scopes.length,
-		);
-		if (!existing) snapshot[field.instance.nodeId] = readLifecycle(field.binding);
+	const selected = new Map<string, ConcreteFieldReference>();
+	let scope: ScopeIndexNode | undefined = root;
+	selectFields(scope, selected);
+	for (const instance of current.scopes) {
+		scope = scope?.children.get(scopeKey(instance));
+		if (!scope) break;
+		selectFields(scope, selected);
 	}
+	const snapshot: Record<string, DirectFieldLifecycle> = Object.create(null);
+	for (const field of selected.values()) snapshot[field.instance.nodeId] = readLifecycle(field.binding);
 	return Object.freeze(snapshot);
 }
 
-function scopePrefix(candidate: RuntimeNodeInstance, current: RuntimeNodeInstance): boolean {
-	if (candidate.scopes.length > current.scopes.length) return false;
-	return candidate.scopes.every((scope, index) => {
-		const active = current.scopes[index];
-		return active?.scope === scope.scope && active.index === scope.index;
+function createScopeIndex(fields: readonly ConcreteFieldReference[]): ScopeIndexNode {
+	const root = scopeNode();
+	for (const field of fields) {
+		let current = root;
+		for (const scope of field.instance.scopes) {
+			const key = scopeKey(scope);
+			let child = current.children.get(key);
+			if (!child) {
+				child = scopeNode();
+				current.children.set(key, child);
+			}
+			current = child;
+		}
+		current.fields.push(field);
+	}
+	return root;
+}
+
+function scopeNode(): ScopeIndexNode {
+	return { children: new Map(), fields: [] };
+}
+
+function scopeKey(scope: { readonly scope: string; readonly index: number }): string {
+	return JSON.stringify([scope.scope, scope.index]);
+}
+
+function selectFields(scope: ScopeIndexNode, selected: Map<string, ConcreteFieldReference>): void {
+	for (const field of scope.fields) selected.set(field.instance.nodeId, field);
+}
+
+function groupByReference<T>(
+	values: readonly T[],
+	reference: (value: T) => { readonly namespace: string; readonly segments: readonly (string | number)[] },
+): ReadonlyMap<string, readonly T[]> {
+	const grouped = new Map<string, T[]>();
+	for (const value of values) {
+		const key = referenceKey(reference(value));
+		const bucket = grouped.get(key) ?? [];
+		bucket.push(value);
+		grouped.set(key, bucket);
+	}
+	return new Map([...grouped].map(([key, bucket]) => [key, Object.freeze(bucket)]));
+}
+
+function fieldLifecycle(
+	capture: FormStateCapture<unknown, unknown>,
+	binding: StateRef,
+	issues: readonly ValidationIssue[],
+): DirectFieldLifecycle {
+	const metadataKey = fieldMetadataKey(binding);
+	const metadata = metadataKey === undefined ? undefined : capture.state.fieldMeta[metadataKey];
+	return Object.freeze({
+		valid: !issues.some((issue) => issue.severity === "error"),
+		validating: metadata?.isValidating ?? false,
+		dirty: bindingDirty(capture, binding),
+		touched: metadata?.touched ?? false,
 	});
+}
+
+function referenceKey(reference: { readonly namespace: string; readonly segments: readonly (string | number)[] }) {
+	return JSON.stringify([reference.namespace, reference.segments]);
 }
 
 function fieldMetadataKey(binding: StateRef): string | undefined {

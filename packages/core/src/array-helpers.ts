@@ -11,11 +11,22 @@ export interface ArrayHelperDeps {
 }
 
 function assertArray(val: unknown, pathKey: string): unknown[] {
-	if (!Array.isArray(val)) throw new Error(`Expected array at "${pathKey}", got ${typeof val}`);
-	const length = val.length;
-	const entries = inspectDataContainer(val);
-	if (length !== entries.length) throw new Error(`Invalid array at "${pathKey}"`);
-	return entries.map((entry) => entry[1]);
+	let array: boolean;
+	try {
+		array = Array.isArray(val);
+	} catch {
+		throw new Error(`Invalid array at "${pathKey}"`);
+	}
+	if (!array) throw new Error(`Expected array at "${pathKey}", got ${typeof val}`);
+	const value = val as unknown[];
+	try {
+		const length = value.length;
+		const entries = inspectDataContainer(value);
+		if (length !== entries.length) throw new Error(`Invalid array at "${pathKey}"`);
+		return entries.map((entry) => entry[1]);
+	} catch {
+		throw new Error(`Invalid array at "${pathKey}"`);
+	}
 }
 
 export function createArrayHelpers(deps: ArrayHelperDeps) {

@@ -13,6 +13,7 @@ import {
 	descriptorEvidence,
 	domIdToken,
 	editablePath,
+	fieldDescriptorKey,
 	literalProp,
 	resolveFieldEvidence,
 } from "./renderer-evidence.js";
@@ -84,7 +85,7 @@ function fieldControl(
 				node={node}
 				state={state}
 				environment={environment}
-				evidence={descriptorEvidence(environment.descriptors, state.binding)}
+				evidence={descriptorEvidence(environment.descriptors, state.binding, fieldDescriptorKey(node))}
 				{...(description === undefined ? {} : { description })}
 				wiring={wiring}
 			/>
@@ -154,7 +155,7 @@ function fieldDescription(
 	environment: RendererEnvironment,
 ): string | undefined {
 	const explicit = stringProp(node, "description");
-	return explicit ?? descriptorDescription(environment.descriptors, state.binding);
+	return explicit ?? descriptorDescription(environment.descriptors, state.binding, fieldDescriptorKey(node));
 }
 
 function IssueList(props: { readonly issues: readonly ValidationIssue[]; readonly id: string }) {

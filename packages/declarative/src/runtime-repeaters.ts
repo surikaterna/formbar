@@ -71,8 +71,8 @@ export function sameBinding(left: StateRef | undefined, right: StateRef | undefi
 }
 
 export function inspectArrayLength(value: unknown): number | undefined {
-	if (!Array.isArray(value)) return undefined;
 	try {
+		if (!Array.isArray(value)) return undefined;
 		const length = value.length;
 		return inspectDataContainer(value).length === length ? length : undefined;
 	} catch {

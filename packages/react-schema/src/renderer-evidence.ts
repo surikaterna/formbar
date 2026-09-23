@@ -60,7 +60,23 @@ const NUMERIC_SEGMENT = /^(?:0|[1-9]\d*)$/;
 const BREAKPOINTS = ["base", "sm", "md", "lg", "xl"] as const;
 const STRING_FORMATS = new Set(["email", "url", "tel", "date", "time"]);
 const MAX_NATIVE_DATE = { year: "275760", monthDay: "09-13" } as const;
-const occurrenceParentCache = new WeakMap<DescriptorDocument, ReadonlyMap<string, DescriptorOccurrence>>();
+const descriptorIndexes = new WeakMap<DescriptorDocument, DescriptorIndex>();
+
+interface DescriptorTrieNode {
+	readonly exact: Map<string, DescriptorTrieNode>;
+	readonly occurrences: DescriptorOccurrence[];
+	wildcard?: DescriptorTrieNode;
+}
+
+interface DescriptorProjection {
+	readonly evidence: NormalizedEvidence;
+	readonly description?: string;
+}
+
+interface DescriptorIndex {
+	readonly root: DescriptorTrieNode;
+	readonly fields: Map<string, DescriptorProjection>;
+}
 export const NATIVE_WIDGET_IDS = new Set([
 	"text",
 	"textarea",
@@ -84,25 +100,22 @@ export function editablePath(binding: Binding): string | undefined {
 	return toDot({ namespace: "ui", segments: binding.segments });
 }
 
-export function descriptorEvidence(document: DescriptorDocument, binding: Binding): NormalizedEvidence {
+export function descriptorEvidence(
+	document: DescriptorDocument,
+	binding: Binding,
+	fieldKey?: string,
+): NormalizedEvidence {
 	if (binding.namespace !== "data") return Object.freeze({});
-	const matches = Object.values(document.occurrences)
-		.filter((occurrence) => occurrenceMatches(document, occurrence, binding.segments))
-		.sort((left, right) => left.id.localeCompare(right.id));
-	const merged: NormalizedEvidence = {};
-	for (const occurrence of matches) Object.assign(merged, document.evidence[occurrence.nodeId]);
-	return Object.freeze(merged);
+	return descriptorProjection(document, binding, fieldKey).evidence;
 }
 
-export function descriptorDescription(document: DescriptorDocument, binding: Binding): string | undefined {
+export function descriptorDescription(
+	document: DescriptorDocument,
+	binding: Binding,
+	fieldKey?: string,
+): string | undefined {
 	if (binding.namespace !== "data") return undefined;
-	const occurrence = Object.values(document.occurrences)
-		.filter((candidate) => occurrenceMatches(document, candidate, binding.segments))
-		.sort((left, right) => left.id.localeCompare(right.id))[0];
-	if (!occurrence) return undefined;
-	const metadata = record(document.nodes[occurrence.nodeId]?.metadata);
-	const annotations = record(metadata?.annotations) ?? metadata;
-	return typeof annotations?.description === "string" ? annotations.description : undefined;
+	return descriptorProjection(document, binding, fieldKey).description;
 }
 
 export function literalProp(field: Pick<FieldNode, "props">, key: string): JsonValue | undefined {
@@ -147,7 +160,7 @@ export function resolveFieldEvidence(
 	const path = editablePath(state.binding);
 	if (!path) return { ok: false, diagnostic: "unsupported-binding" };
 	if (!NATIVE_WIDGET_IDS.has(node.widget)) return { ok: false, diagnostic: "unsupported-widget" };
-	const evidence = descriptorEvidence(document, state.binding);
+	const evidence = descriptorEvidence(document, state.binding, fieldDescriptorKey(node));
 	if (node.widget === "select" || node.widget === "radio") {
 		const options = optionEvidence(node, evidence);
 		if (!options.ok || !conformingValue(node.widget, state.value, options.values))
@@ -212,33 +225,27 @@ function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
 		: undefined;
 }
 
-function occurrenceMatches(
-	document: DescriptorDocument,
-	occurrence: DescriptorOccurrence,
-	concrete: readonly (string | number)[],
-): boolean {
-	if (occurrence.path.length !== concrete.length) return false;
-	const wildcards = wildcardIndexes(document, occurrence);
-	return occurrence.path.every((segment, index) =>
-		wildcards.has(index) ? typeof concrete[index] === "number" : segment === concrete[index],
+export function fieldDescriptorKey(node: Pick<FieldNode, "id" | "binding">): string {
+	return JSON.stringify([node.id, node.binding]);
+}
+
+function descriptorProjection(document: DescriptorDocument, binding: Binding, fieldKey?: string): DescriptorProjection {
+	const index = descriptorIndex(document);
+	const cached = fieldKey ? index.fields.get(fieldKey) : undefined;
+	if (cached) return cached;
+	const occurrences = lookupOccurrences(index.root, binding.segments).sort((left, right) =>
+		left.id.localeCompare(right.id),
 	);
+	const evidence: NormalizedEvidence = {};
+	for (const occurrence of occurrences) Object.assign(evidence, document.evidence[occurrence.nodeId]);
+	const description = occurrenceDescription(document, occurrences[0]);
+	const projection = Object.freeze({ evidence: Object.freeze(evidence), ...(description ? { description } : {}) });
+	if (fieldKey) index.fields.set(fieldKey, projection);
+	return projection;
 }
 
-function wildcardIndexes(document: DescriptorDocument, occurrence: DescriptorOccurrence): ReadonlySet<number> {
-	const parents = occurrenceParents(document);
-	const indexes = new Set<number>();
-	let current: DescriptorOccurrence | undefined = occurrence;
-	while (current) {
-		if ((current.relation === "items" || current.relation === "tuple-rest") && current.path.at(-1) === "*") {
-			indexes.add(current.path.length - 1);
-		}
-		current = parents.get(current.id);
-	}
-	return indexes;
-}
-
-function occurrenceParents(document: DescriptorDocument): ReadonlyMap<string, DescriptorOccurrence> {
-	const cached = occurrenceParentCache.get(document);
+function descriptorIndex(document: DescriptorDocument): DescriptorIndex {
+	const cached = descriptorIndexes.get(document);
 	if (cached) return cached;
 	const parents = new Map<string, DescriptorOccurrence>();
 	for (const candidate of Object.values(document.occurrences)) {
@@ -247,8 +254,76 @@ function occurrenceParents(document: DescriptorDocument): ReadonlyMap<string, De
 			if (childOccurrence) parents.set(child, candidate);
 		}
 	}
-	occurrenceParentCache.set(document, parents);
-	return parents;
+	const index = { root: trieNode(), fields: new Map<string, DescriptorProjection>() };
+	for (const occurrence of Object.values(document.occurrences)) insertOccurrence(index.root, occurrence, parents);
+	descriptorIndexes.set(document, index);
+	return index;
+}
+
+function insertOccurrence(
+	root: DescriptorTrieNode,
+	occurrence: DescriptorOccurrence,
+	parents: ReadonlyMap<string, DescriptorOccurrence>,
+): void {
+	const wildcards = wildcardIndexes(occurrence, parents);
+	let node = root;
+	for (let index = 0; index < occurrence.path.length; index++) {
+		if (wildcards.has(index)) {
+			node.wildcard ??= trieNode();
+			node = node.wildcard;
+			continue;
+		}
+		const key = segmentKey(occurrence.path[index] as string | number);
+		let child = node.exact.get(key);
+		if (!child) {
+			child = trieNode();
+			node.exact.set(key, child);
+		}
+		node = child;
+	}
+	node.occurrences.push(occurrence);
+}
+
+function lookupOccurrences(root: DescriptorTrieNode, segments: readonly (string | number)[]): DescriptorOccurrence[] {
+	let active = [root];
+	for (const segment of segments) {
+		const next: DescriptorTrieNode[] = [];
+		for (const node of active) {
+			const exact = node.exact.get(segmentKey(segment));
+			if (exact) next.push(exact);
+			if (typeof segment === "number" && node.wildcard) next.push(node.wildcard);
+		}
+		active = next;
+	}
+	return active.flatMap((node) => node.occurrences);
+}
+
+function wildcardIndexes(
+	occurrence: DescriptorOccurrence,
+	parents: ReadonlyMap<string, DescriptorOccurrence>,
+): ReadonlySet<number> {
+	const indexes = new Set<number>();
+	let current: DescriptorOccurrence | undefined = occurrence;
+	while (current) {
+		if ((current.relation === "items" || current.relation === "tuple-rest") && current.path.at(-1) === "*")
+			indexes.add(current.path.length - 1);
+		current = parents.get(current.id);
+	}
+	return indexes;
+}
+
+function occurrenceDescription(document: DescriptorDocument, occurrence: DescriptorOccurrence | undefined) {
+	const metadata = occurrence ? record(document.nodes[occurrence.nodeId]?.metadata) : undefined;
+	const annotations = record(metadata?.annotations) ?? metadata;
+	return typeof annotations?.description === "string" ? annotations.description : undefined;
+}
+
+function trieNode(): DescriptorTrieNode {
+	return { exact: new Map(), occurrences: [] };
+}
+
+function segmentKey(segment: string | number): string {
+	return `${typeof segment === "number" ? "n" : "s"}:${segment}`;
 }
 
 function dotSafe(segment: string | number): boolean {

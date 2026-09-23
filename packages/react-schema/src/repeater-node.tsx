@@ -41,7 +41,9 @@ export function RepeaterNodeView(props: RepeaterProps): ReactElement {
 			),
 		[environment.repeaters, state.binding],
 	);
-	useIsomorphicLayoutEffect(() => restoreFocus(focus, rows.current, rowElements.current, container.current));
+	useIsomorphicLayoutEffect(() =>
+		restoreFocus(focus, rows.current, rowElements.current, container.current, environment.repeaters.appendTarget),
+	);
 	const legendId = fieldId(`${domIdToken(state.instance.instanceKey)}-legend`, environment.prefix);
 	return (
 		<RepeaterMarkup
@@ -171,6 +173,7 @@ function restoreFocus(
 	rows: RowKeyState,
 	elements: ReadonlyMap<string, HTMLFieldSetElement>,
 	container: HTMLFieldSetElement | null,
+	appendTarget: (key: string) => HTMLButtonElement | undefined,
 ): void {
 	const intent = focus.current;
 	if (!intent) return;
@@ -189,9 +192,7 @@ function restoreFocus(
 		operation.type === "move" || operation.type === "swap"
 			? `[data-formbar-action-node="${intent.actionNodeId}"]`
 			: "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)";
-	const append = [
-		...(container?.closest("form")?.querySelectorAll<HTMLButtonElement>("button[data-formbar-array-target]") ?? []),
-	].find((button) => button.dataset.formbarArrayTarget === intent.key && !button.disabled);
+	const append = appendTarget(intent.key);
 	const target = row?.querySelector<HTMLElement>(selector) ?? row ?? append ?? container;
 	target?.focus();
 }

@@ -1,5 +1,5 @@
 import { createForm } from "@formbar/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FormNode, ResolvedRepeaterState } from "../index.js";
 import { createActionExecutor, createFormRuntime } from "../index.js";
 import { binding, definition } from "./runtime-fixtures.js";
@@ -20,6 +20,25 @@ function repeater(children: readonly FormNode[], limits: { minItems?: number; ma
 		children,
 		...limits,
 	};
+}
+
+function countFindPredicates(run: () => void): number {
+	let operations = 0;
+	const original = Array.prototype.find;
+	const find = vi.spyOn(Array.prototype, "find").mockImplementation(function (predicate, thisArg) {
+		return Reflect.apply(original, this, [
+			(value: unknown, index: number, values: unknown[]) => {
+				operations += 1;
+				return Reflect.apply(predicate, thisArg, [value, index, values]);
+			},
+		]);
+	});
+	try {
+		run();
+		return operations;
+	} finally {
+		find.mockRestore();
+	}
 }
 
 describe("repeater runtime", () => {
@@ -57,6 +76,35 @@ describe("repeater runtime", () => {
 		);
 		form.setValue("rows", []);
 		expect(runtime.getSnapshot().repeaters[0]).toMatchObject({ status: "ready", length: 0 });
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("keeps unchanged snapshots stable and contains revoked repeater arrays", async () => {
+		const revocable = Proxy.revocable(["private"], {});
+		const remove: FormNode = {
+			id: "remove",
+			type: "action",
+			action: "array.remove",
+			target: binding(["rows"]),
+			payload: { kind: "literal", value: 0 },
+		};
+		const form = createForm({ initialData: { rows: ["initial"] } });
+		form.setValue("rows", revocable.proxy);
+		const runtime = createFormRuntime({ form, definition: definition([repeater([remove])]) });
+		revocable.revoke();
+
+		const snapshot = runtime.getSnapshot();
+		expect(snapshot.repeaters[0]).toMatchObject({ status: "malformed", length: 0, items: [] });
+		expect(runtime.getSnapshot()).toBe(snapshot);
+		const removeKey = snapshot.nodes.find((node) => node.instance.nodeId === "remove")?.instance.instanceKey;
+		const executor = createActionExecutor({ form, runtime });
+		expect(await executor.execute(removeKey as string)).toEqual({
+			status: "failed",
+			diagnostic: "action-unavailable",
+		});
+		expect(form.getState().data.rows).toBe(revocable.proxy);
+		executor.dispose();
 		runtime.dispose();
 		form.dispose();
 	});
@@ -135,6 +183,37 @@ describe("repeater runtime", () => {
 		executor.dispose();
 		runtime.dispose();
 		form.dispose();
+	});
+
+	it("projects 100, 200, and 500 rows without linear array-search scans", () => {
+		const fields = Array.from(
+			{ length: 5 },
+			(_, index): FormNode => ({
+				id: `field-${index}`,
+				type: "field",
+				binding: scoped("row", [`value${index}`]),
+				widget: "text",
+			}),
+		);
+		const operations = [100, 200, 500].map((rowCount) => {
+			const rows = Array.from({ length: rowCount }, () =>
+				Object.fromEntries(fields.map((_, index) => [`value${index}`, `${rowCount}:${index}`])),
+			);
+			const form = createForm({ initialData: { rows } });
+			const runtime = createFormRuntime({ form, definition: definition([repeater(fields)]) });
+			const predicates = countFindPredicates(() => {
+				expect(runtime.getSnapshot().fields).toHaveLength(rowCount * fields.length);
+			});
+			runtime.dispose();
+			form.dispose();
+			return { rowCount, predicates };
+		});
+
+		expect(operations).toEqual([
+			{ rowCount: 100, predicates: 0 },
+			{ rowCount: 200, predicates: 0 },
+			{ rowCount: 500, predicates: 0 },
+		]);
 	});
 
 	it("associates limits with actions before, after, and inside scoped repeaters", async () => {

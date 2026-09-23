@@ -1,5 +1,5 @@
-import { createCoreExpressionNamespaces, structuredEqual } from "@formbar/core";
-import type { FormApi } from "@formbar/core";
+import { createCoreExpressionNamespaces } from "@formbar/core";
+import type { FormApi, FormStateCapture } from "@formbar/core";
 import { CallbackBoundary, createExpressionService, failure } from "@formbar/expressions";
 import type { JsonValue, Observation, Segment, StateRef, WriteResult } from "@formbar/expressions";
 import type { ValidatedFormDefinition } from "./definition.js";
@@ -30,6 +30,7 @@ class DeclarativeRuntime implements RuntimePort {
 	private readonly expressions;
 	private cleanup: (() => void) | undefined;
 	private snapshot: RuntimeSnapshot | undefined;
+	private sourceState: unknown;
 	private nodeIndex = new Map<string, RuntimeResolvedNodeState>();
 	private disposed = false;
 
@@ -39,21 +40,24 @@ class DeclarativeRuntime implements RuntimePort {
 	}
 
 	getSnapshot = (): RuntimeSnapshot => {
-		const next = projectRuntime({
+		const capture = this.options.form.captureState() as FormStateCapture<unknown, unknown>;
+		const sourceState = capture.state;
+		if (this.snapshot && this.sourceState === sourceState) return this.snapshot;
+		const snapshot = projectRuntime({
 			form: this.options.form,
 			definition: this.options.definition,
+			capture,
 			...(this.options.baseline ? { baseline: this.options.baseline } : {}),
 			...(this.options.repeaterBaseline ? { repeaterBaseline: this.options.repeaterBaseline } : {}),
 		});
-		if (!this.snapshot || !structuredEqual(this.snapshot, next)) {
-			this.snapshot = next;
-			this.nodeIndex = new Map(next.nodes.map((node) => [node.instance.instanceKey, node]));
-		}
-		return this.snapshot;
+		this.snapshot = snapshot;
+		this.sourceState = sourceState;
+		this.nodeIndex = new Map(snapshot.nodes.map((node) => [node.instance.instanceKey, node]));
+		return snapshot;
 	};
 
 	getNode = (instanceKey: string): RuntimeResolvedNodeState | undefined => {
-		if (!this.snapshot) this.getSnapshot();
+		this.getSnapshot();
 		return this.nodeIndex.get(instanceKey);
 	};
 
@@ -123,6 +127,7 @@ class DeclarativeRuntime implements RuntimePort {
 
 	private notify = (): void => {
 		this.snapshot = undefined;
+		this.sourceState = undefined;
 		this.nodeIndex.clear();
 		this.lifecycle.runAll([...this.listeners]);
 	};
@@ -143,6 +148,7 @@ class DeclarativeRuntime implements RuntimePort {
 		this.observations.clear();
 		this.listeners.clear();
 		this.snapshot = undefined;
+		this.sourceState = undefined;
 		this.expressions.dispose();
 	};
 }

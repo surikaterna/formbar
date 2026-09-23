@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { input, mountForm } from "./renderer-test-utils.js";
+import { binding, input, mountForm } from "./renderer-test-utils.js";
 
 async function click(button: HTMLButtonElement): Promise<void> {
 	await act(async () => {
@@ -16,6 +16,8 @@ function button(container: HTMLElement, label: string): HTMLButtonElement {
 	if (!(match instanceof HTMLButtonElement)) throw new Error(`Missing button: ${label}`);
 	return match;
 }
+
+const scoped = (scope: string, ...segments: readonly string[]) => ({ namespace: "data" as const, segments, scope });
 
 describe("form-backed repeater rendering", () => {
 	it("renders primitive rows and preserves private row identity through generated actions", async () => {
@@ -160,6 +162,172 @@ describe("form-backed repeater rendering", () => {
 		expect(code.minLength).toBe(2);
 		expect(code.maxLength).toBe(4);
 		expect(view.container.textContent).toContain("Row code");
+		view.unmount();
+	});
+
+	it("focuses the exact append action after removing the final row", async () => {
+		const view = mountForm({
+			schema: { type: "object", properties: { rows: { type: "array", items: { type: "string" } } } },
+			data: { rows: ["only"] },
+			definition: {
+				version: 1,
+				id: "focus-append",
+				root: {
+					type: "group",
+					id: "root",
+					children: [
+						{
+							type: "repeater",
+							id: "rows",
+							binding: binding("rows"),
+							scope: "row",
+							children: [
+								{ type: "field", id: "value", binding: scoped("row"), widget: "text" },
+								{ type: "action", id: "remove", action: "array.remove", target: binding("rows"), label: "Remove" },
+							],
+						},
+						{
+							type: "action",
+							id: "insert",
+							action: "array.insert",
+							target: binding("rows"),
+							payload: { kind: "literal", value: { index: 0, item: "other" } },
+							label: "Insert first",
+						},
+						{
+							type: "action",
+							id: "append",
+							action: "array.append",
+							target: binding("rows"),
+							payload: { kind: "literal", value: "new" },
+							label: "Append exact",
+						},
+					],
+				},
+			},
+		});
+
+		await click(button(view.container, "Remove"));
+		expect(view.form.getState().data.rows).toEqual([]);
+		expect(document.activeElement).toBe(button(view.container, "Append exact"));
+		view.unmount();
+	});
+
+	it("keeps nested final-row focus within the same repeater binding", async () => {
+		const childTarget = scoped("row", "children");
+		const view = mountForm({
+			schema: {
+				type: "object",
+				properties: { rows: { type: "array", items: { type: "object", properties: { children: { type: "array" } } } } },
+			},
+			data: { rows: [{ children: ["only"] }] },
+			definition: {
+				version: 1,
+				id: "nested-focus",
+				root: {
+					type: "repeater",
+					id: "rows",
+					binding: binding("rows"),
+					scope: "row",
+					children: [
+						{
+							type: "repeater",
+							id: "children",
+							binding: childTarget,
+							scope: "child",
+							children: [
+								{ type: "field", id: "child", binding: scoped("child"), widget: "text" },
+								{
+									type: "action",
+									id: "remove-child",
+									action: "array.remove",
+									target: childTarget,
+									label: "Remove child",
+								},
+							],
+						},
+						{
+							type: "action",
+							id: "insert-child",
+							action: "array.insert",
+							target: childTarget,
+							payload: { kind: "literal", value: { index: 0, item: "other" } },
+							label: "Insert child",
+						},
+						{
+							type: "action",
+							id: "append-child",
+							action: "array.append",
+							target: childTarget,
+							payload: { kind: "literal", value: "new" },
+							label: "Append child",
+						},
+					],
+				},
+			},
+		});
+
+		await click(button(view.container, "Remove child"));
+		expect(view.form.getState().data.rows[0]?.children).toEqual([]);
+		expect(document.activeElement).toBe(button(view.container, "Append child"));
+		view.unmount();
+	});
+
+	it.each(["missing", "disabled"] as const)("falls back to the repeater group when append is %s", async (mode) => {
+		const append = {
+			type: "action" as const,
+			id: "append",
+			action: "array.append",
+			target: binding("rows"),
+			payload: { kind: "literal" as const, value: "new" },
+			label: "Append",
+			disabled: { kind: "literal" as const, value: true },
+		};
+		const view = mountForm({
+			schema: { type: "object", properties: { rows: { type: "array", items: { type: "string" } } } },
+			data: { rows: ["only"] },
+			definition: {
+				version: 1,
+				id: `focus-${mode}`,
+				root: {
+					type: "group",
+					id: "root",
+					children: [
+						{
+							type: "repeater",
+							id: "rows",
+							binding: binding("rows"),
+							scope: "row",
+							children: [
+								{ type: "field", id: "value", binding: scoped("row"), widget: "text" },
+								{ type: "action", id: "remove", action: "array.remove", target: binding("rows"), label: "Remove" },
+							],
+						},
+						...(mode === "disabled" ? [append] : []),
+					],
+				},
+			},
+		});
+
+		await click(button(view.container, "Remove"));
+		const repeater = view.container.querySelector('[data-formbar-node="rows"]');
+		expect(document.activeElement).toBe(repeater);
+		view.unmount();
+	});
+
+	it("renders a revoked array as malformed without reading it", () => {
+		const revocable = Proxy.revocable(["private"], {});
+		const view = mountForm({
+			schema: { type: "object", properties: { rows: { type: "array", items: { type: "string" } } } },
+			data: { rows: ["initial"] as unknown as string[] },
+			prepareForm(form) {
+				form.setValue("rows", revocable.proxy);
+				revocable.revoke();
+			},
+		});
+
+		expect(view.container.textContent).toContain("Array value is unavailable.");
+		expect(view.form.getState().data.rows).toBe(revocable.proxy);
 		view.unmount();
 	});
 });

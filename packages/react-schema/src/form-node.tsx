@@ -37,67 +37,107 @@ export const FormNodeView = memo(function FormNodeView({
 	const layout = layoutProps(spanOutput(node.presentation?.span));
 	if (!state) return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 	if (!state.visible) return null;
+	return renderNode({ node, environment, scopes }, state, layout);
+});
+
+function renderNode(
+	props: Required<FormNodeProps>,
+	state: RuntimeResolvedNodeState,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	const { node, environment, scopes } = props;
 	if (node.type === "field") return renderField(node, state, environment, layout);
 	if (node.type === "output") return renderOutput(node, state, environment, layout);
 	if (node.type === "action") return renderAction(node, state, environment, layout);
-	if (node.type === "repeater") {
-		if (!isResolvedRepeaterState(state))
-			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
-		return (
-			<RepeaterNodeView
-				node={node}
-				state={state}
-				environment={environment}
-				layout={layout}
-				renderChildren={(children, itemScopes) => renderChildren(children, environment, itemScopes)}
-			/>
-		);
-	}
-	if (node.type === "validation")
-		return isResolvedValidationState(state) ? (
-			<FormValidation node={node} state={state} environment={environment} layout={layout} />
-		) : (
-			<DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />
-		);
+	if (node.type === "repeater") return renderRepeater(node, state, environment, layout);
+	if (node.type === "validation") return renderValidation(node, state, environment, layout);
+	return renderCompositeNode(node, state, environment, scopes, layout);
+}
+
+function renderCompositeNode(
+	node: Exclude<FormNode, { type: "field" | "output" | "action" | "repeater" | "validation" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
 	if (node.type === "group") return renderGroup(node, state, environment, scopes, layout);
 	if (node.type === "section") return renderSection(node, state, environment, scopes, layout);
 	if (node.type === "conditional") return renderConditional(node, state.branch, environment, scopes, layout);
-	if (node.type === "tabs")
-		return (
-			<TabsView
-				node={node}
-				environment={environment}
-				layout={layout}
-				renderChildren={(children) => renderChildren(children, environment, scopes)}
-			/>
-		);
-	if (node.type === "accordion")
-		return (
-			<AccordionView
-				node={node}
-				environment={environment}
-				layout={layout}
-				renderChildren={(children) => renderChildren(children, environment, scopes)}
-			/>
-		);
-	if (node.type === "custom")
-		return (
-			<CustomNodeView
-				node={node}
-				state={state}
-				environment={environment}
-				layout={layout}
-				renderChild={(child) => (
-					<FormNodeView
-						node={child}
-						scopes={scopes}
-						environment={{ ...environment, extensionFailureCode: "extension-child-failed" }}
-					/>
-				)}
-			/>
-		);
+	if (node.type === "tabs" || node.type === "accordion") return renderCollection(node, environment, scopes, layout);
+	if (node.type === "custom") return renderCustom(node, state, environment, scopes, layout);
 	return <DiagnosticFallback code="unsupported-node" nodeId={state.instance.nodeId} layout={layout} />;
-});
+}
+
+function renderRepeater(
+	node: Extract<FormNode, { type: "repeater" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	if (!isResolvedRepeaterState(state))
+		return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+	return (
+		<RepeaterNodeView
+			node={node}
+			state={state}
+			environment={environment}
+			layout={layout}
+			renderChildren={(children, itemScopes) => renderChildren(children, environment, itemScopes)}
+		/>
+	);
+}
+
+function renderValidation(
+	node: Extract<FormNode, { type: "validation" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	return isResolvedValidationState(state) ? (
+		<FormValidation node={node} state={state} environment={environment} layout={layout} />
+	) : (
+		<DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />
+	);
+}
+
+function renderCollection(
+	node: Extract<FormNode, { type: "tabs" | "accordion" }>,
+	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	const render = (children: readonly FormNode[]) => renderChildren(children, environment, scopes);
+	return node.type === "tabs" ? (
+		<TabsView node={node} environment={environment} layout={layout} renderChildren={render} />
+	) : (
+		<AccordionView node={node} environment={environment} layout={layout} renderChildren={render} />
+	);
+}
+
+function renderCustom(
+	node: Extract<FormNode, { type: "custom" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	scopes: readonly RuntimeScopeInstance[],
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	return (
+		<CustomNodeView
+			node={node}
+			state={state}
+			environment={environment}
+			layout={layout}
+			renderChild={(child) => (
+				<FormNodeView
+					node={child}
+					scopes={scopes}
+					environment={{ ...environment, extensionFailureCode: "extension-child-failed" }}
+				/>
+			)}
+		/>
+	);
+}
 
 function renderField(
 	node: Extract<FormNode, { type: "field" }>,

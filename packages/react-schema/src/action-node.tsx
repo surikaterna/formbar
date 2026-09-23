@@ -1,5 +1,6 @@
 import type { ActionNode, ResolvedActionState } from "@formbar/declarative";
 import { fieldId } from "@formbar/react";
+import { useEffect, useRef } from "react";
 import type { ReactElement } from "react";
 import type { layoutProps } from "./renderer-elements.js";
 import { domIdToken } from "./renderer-evidence.js";
@@ -28,6 +29,12 @@ export function ActionNodeView({ node, state, environment, layout }: ActionNodeP
 		state.readOnly ||
 		(execution.status === "pending" && state.concurrency === "drop");
 	const item = state.instance.scopes.at(-1)?.index;
+	const button = useRef<HTMLButtonElement>(null);
+	const targetKey = state.target ? bindingKey(state.target) : undefined;
+	useEffect(() => {
+		if (state.action !== "array.append" || !targetKey || !button.current) return;
+		return environment.repeaters.registerAppend(targetKey, button.current);
+	}, [environment.repeaters, state.action, targetKey]);
 	const label = node.label ?? state.action;
 	const accessibleLabel =
 		state.action.startsWith("array.") && item !== undefined ? `${label}, item ${item + 1}` : label;
@@ -40,6 +47,7 @@ export function ActionNodeView({ node, state, environment, layout }: ActionNodeP
 	return (
 		<div data-formbar-node={node.id} data-formbar-action={state.action} {...layout.attributes} style={layout.style}>
 			<button
+				ref={button}
 				type="button"
 				disabled={disabled}
 				aria-disabled={softBoundary || undefined}
@@ -47,7 +55,8 @@ export function ActionNodeView({ node, state, environment, layout }: ActionNodeP
 				aria-describedby={showStatus ? statusId : undefined}
 				data-formbar-instance={state.instance.instanceKey}
 				data-formbar-action-node={node.id}
-				{...(state.target ? { "data-formbar-array-target": bindingKey(state.target) } : {})}
+				{...(targetKey ? { "data-formbar-array-target": targetKey } : {})}
+				{...(state.action.startsWith("array.") ? { "data-formbar-array-operation": state.action } : {})}
 				aria-label={accessibleLabel}
 				onClick={() => void execute()}
 			>

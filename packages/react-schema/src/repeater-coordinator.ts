@@ -1,5 +1,7 @@
 import type { ResolvedActionState } from "@formbar/declarative";
 
+const invalidProperty = Symbol("invalid-property");
+
 export type StructuralOperation =
 	| { readonly type: "append" }
 	| { readonly type: "insert"; readonly index: number }
@@ -21,6 +23,7 @@ export interface RepeaterIntentListener {
 
 export class RepeaterCoordinator {
 	private readonly listeners = new Map<string, Set<RepeaterIntentListener>>();
+	private readonly appendButtons = new Map<string, Set<HTMLButtonElement>>();
 
 	register(key: string, listener: RepeaterIntentListener): () => void {
 		const listeners = this.listeners.get(key) ?? new Set();
@@ -31,6 +34,23 @@ export class RepeaterCoordinator {
 			if (!listeners.size) this.listeners.delete(key);
 		};
 	}
+
+	registerAppend(key: string, button: HTMLButtonElement): () => void {
+		const buttons = this.appendButtons.get(key) ?? new Set();
+		buttons.add(button);
+		this.appendButtons.set(key, buttons);
+		return () => {
+			buttons.delete(button);
+			if (!buttons.size) this.appendButtons.delete(key);
+		};
+	}
+
+	appendTarget = (key: string): HTMLButtonElement | undefined => {
+		for (const button of this.appendButtons.get(key) ?? []) {
+			if (!button.disabled && button.isConnected) return button;
+		}
+		return undefined;
+	};
 
 	begin(state: ResolvedActionState, actionNodeId: string): StructuralIntent | undefined {
 		const operation = structuralOperation(state);
@@ -60,7 +80,9 @@ function structuralOperation(state: ResolvedActionState): StructuralOperation | 
 	const fallback = state.instance.scopes.at(-1)?.index;
 	if (state.action === "array.append") return { type: "append" };
 	if (state.action === "array.insert" && record(payload)) {
-		const index = payload.index === undefined ? fallback : payload.index;
+		const payloadIndex = ownValue(payload, "index");
+		if (payloadIndex === invalidProperty) return undefined;
+		const index = payloadIndex === undefined ? fallback : payloadIndex;
 		return Number.isSafeInteger(index) ? { type: "insert", index: index as number } : undefined;
 	}
 	if (state.action === "array.remove") {
@@ -68,8 +90,13 @@ function structuralOperation(state: ResolvedActionState): StructuralOperation | 
 		return Number.isSafeInteger(index) ? { type: "remove", index: index as number } : undefined;
 	}
 	if ((state.action === "array.move" || state.action === "array.swap") && record(payload)) {
-		const from = payload.from === undefined ? fallback : payload.from;
-		const to = payload.offset === -1 || payload.offset === 1 ? Number(from) + payload.offset : payload.to;
+		const payloadFrom = ownValue(payload, "from");
+		if (payloadFrom === invalidProperty) return undefined;
+		const from = payloadFrom === undefined ? fallback : payloadFrom;
+		const offset = ownValue(payload, "offset");
+		if (offset === invalidProperty) return undefined;
+		const to = offset === -1 || offset === 1 ? Number(from) + offset : ownValue(payload, "to");
+		if (to === invalidProperty) return undefined;
 		return Number.isSafeInteger(from) && Number.isSafeInteger(to)
 			? { type: state.action.slice(6) as "move" | "swap", from: from as number, to: to as number }
 			: undefined;
@@ -77,6 +104,19 @@ function structuralOperation(state: ResolvedActionState): StructuralOperation | 
 	return undefined;
 }
 
+function ownValue(value: Readonly<Record<string, unknown>>, key: string): unknown | typeof invalidProperty {
+	try {
+		const descriptor = Object.getOwnPropertyDescriptor(value, key);
+		return !descriptor || "value" in descriptor ? descriptor?.value : invalidProperty;
+	} catch {
+		return invalidProperty;
+	}
+}
+
 function record(value: unknown): value is Readonly<Record<string, unknown>> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
+	try {
+		return value !== null && typeof value === "object" && !Array.isArray(value);
+	} catch {
+		return false;
+	}
 }
