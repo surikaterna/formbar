@@ -1,16 +1,4 @@
-import { execFileSync } from "node:child_process";
-import {
-	copyFileSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -77,34 +65,9 @@ describe("expression ownership and source principles", () => {
 			}
 		}
 	});
-	it("keeps the source-free package boundary before build artifacts exist", () => {
-		const fixture = mkdtempSync(join(tmpdir(), "formbar-expressions-pack-"));
-		mkdirSync(join(fixture, "docs/adr"), { recursive: true });
-		mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
-		mkdirSync(join(fixture, "scripts"));
-		writeFileSync(join(fixture, "package.json"), JSON.stringify(manifest("expressions")));
-		copyFileSync(fileURLToPath(new URL("packages/expressions/README.md", root)), join(fixture, "README.md"));
-		copyFileSync(
-			fileURLToPath(new URL("packages/expressions/docs/adr/0001-expression-service-and-reactive-props.md", root)),
-			join(fixture, "docs/adr/0001-expression-service-and-reactive-props.md"),
-		);
-		writeFileSync(join(fixture, "src/__tests__/leak.test.ts"), "export {};\n");
-		writeFileSync(join(fixture, "scripts/workspace.mjs"), "export {};\n");
-		writeFileSync(join(fixture, "tsconfig.json"), "{}\n");
-		let files: string[] = [];
-		try {
-			const output = execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: fixture, encoding: "utf8" });
-			files = JSON.parse(output)[0].files.map(({ path }: { path: string }) => path);
-		} finally {
-			rmSync(fixture, { recursive: true, force: true });
-		}
+	it("declares only the built runtime and linked ADR as package content", () => {
 		expect(manifest("expressions").files).toEqual(["dist", "docs"]);
-		expect(files).toEqual(
-			expect.arrayContaining(["package.json", "README.md", "docs/adr/0001-expression-service-and-reactive-props.md"]),
-		);
-		expect(files.some((path) => path.startsWith("dist/"))).toBe(false);
-		expect(files).not.toContain(expect.stringMatching(/(^|\/)(src|__tests__|test|scripts|node_modules)(\/|\.|$)/));
-		expect(files).not.toContain(expect.stringMatching(/(^|\/)tsconfig|(^|\/)tsup\.config/));
+		expect(read("packages/expressions/README.md")).toContain("docs/adr/0001-expression-service-and-reactive-props.md");
 	});
 	it.each(newFiles)("keeps %s cohesive and bounded without private imports", (path) => {
 		const source = read(path);
