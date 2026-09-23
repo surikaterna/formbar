@@ -54,6 +54,22 @@ describe("action rendering", () => {
 		expect(view.container.textContent).not.toContain("private.missing");
 	});
 
+	it("keeps failed handlers enabled for a successful retry", async () => {
+		const handler = vi.fn().mockRejectedValueOnce(new Error("private failure")).mockResolvedValueOnce(undefined);
+		const view = mount(action("host.save"), handler);
+		const button = view.container.querySelector("button") as HTMLButtonElement;
+		const status = view.container.querySelector('output[data-formbar-action="host.save"]');
+
+		await act(async () => button.click());
+		expect(button.disabled).toBe(false);
+		expect(status?.textContent).toBe("Action failed.");
+		expect(status?.getAttribute("data-formbar-diagnostic")).toBe("action-failed");
+		await act(async () => button.click());
+		expect(status?.textContent).toBe("Action completed.");
+		expect(status?.hasAttribute("data-formbar-diagnostic")).toBe(false);
+		expect(handler).toHaveBeenCalledTimes(2);
+	});
+
 	it("reacts to pending drop state and never duplicates submit lifecycle announcements", async () => {
 		let resolve!: () => void;
 		const pending = new Promise<void>((done) => {
@@ -76,6 +92,45 @@ describe("action rendering", () => {
 		expect(submitView.container.querySelectorAll('[data-formbar-status=""]')).toHaveLength(1);
 		await act(async () => submitButton.click());
 		expect(submitView.container.querySelectorAll("output")).toHaveLength(0);
+	});
+
+	it("disables every action during submission and gives submit no action status node", async () => {
+		let resolve!: () => void;
+		const pending = new Promise<void>((done) => {
+			resolve = done;
+		});
+		const definition: FormDefinition = {
+			version: 1,
+			id: "submission-lock",
+			root: {
+				type: "group",
+				id: "actions",
+				children: [
+					{ type: "action", id: "submit", action: "submit" },
+					{ type: "action", id: "save", action: "host.save", concurrency: "replace" },
+				],
+			},
+		};
+		const view = mountForm({
+			schema,
+			definition,
+			data: { name: "Ada" },
+			formOptions: { onSubmit: () => pending },
+			actions: [{ id: "host.save", handler: vi.fn() }],
+		});
+		mounted.push(view);
+		const submitButton = view.container.querySelector('[data-formbar-action="submit"] button') as HTMLButtonElement;
+		const saveButton = view.container.querySelector('[data-formbar-action="host.save"] button') as HTMLButtonElement;
+
+		act(() => submitButton.click());
+		await act(async () => Promise.resolve());
+		expect(submitButton.disabled).toBe(true);
+		expect(submitButton.getAttribute("aria-busy")).toBe("true");
+		expect(saveButton.disabled).toBe(true);
+		expect(view.container.querySelectorAll('output[data-formbar-action="submit"]')).toHaveLength(0);
+		expect(view.container.querySelectorAll('[data-formbar-status=""]')).toHaveLength(1);
+
+		await act(async () => resolve());
 	});
 
 	it("is StrictMode-safe across unmount with ignored pending work", async () => {

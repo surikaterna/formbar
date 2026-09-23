@@ -65,6 +65,14 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	};
 
 	execute = (instanceKey: string): Promise<ActionExecutionResult> => {
+		try {
+			return this.executeSafe(instanceKey);
+		} catch {
+			return Promise.resolve(this.fail(instanceKey, "action-failed"));
+		}
+	};
+
+	private executeSafe(instanceKey: string): Promise<ActionExecutionResult> {
 		if (this.disposed) return Promise.resolve(ABORTED);
 		this.attach();
 		if (this.disposed) return Promise.resolve(ABORTED);
@@ -76,7 +84,7 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		if (state?.concurrency !== "replace") return Promise.resolve(Object.freeze({ status: "dropped" }));
 		this.cancelActive(instanceKey, lane);
 		return this.start(instanceKey, lane);
-	};
+	}
 
 	private start(instanceKey: string, lane: Lane): Promise<ActionExecutionResult> {
 		const state = this.resolvedState(instanceKey);
@@ -202,17 +210,39 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	}
 
 	private readState(instanceKey: string): ActionExecutionState {
+		try {
+			return this.readStateSafe(instanceKey);
+		} catch {
+			const failed = Object.freeze({ status: "failed" as const, diagnostic: "action-failed" as const });
+			this.states.set(instanceKey, failed);
+			return failed;
+		}
+	}
+
+	private readStateSafe(instanceKey: string): ActionExecutionState {
 		const current = this.states.get(instanceKey);
 		if (current?.status === "pending") return current;
 		const state = this.resolvedState(instanceKey);
 		const diagnostic = preflightAction(this.form, state, state ? this.registry.handlers.has(state.action) : false);
 		if (diagnostic) {
-			if (current?.status === "idle" && current.diagnostic === diagnostic) return current;
-			const unavailable = Object.freeze({ status: "idle" as const, diagnostic });
+			if (current?.availability === diagnostic) return current;
+			const unavailable = Object.freeze({
+				status: current?.status ?? ("idle" as const),
+				...(current?.diagnostic ? { diagnostic: current.diagnostic } : {}),
+				availability: diagnostic,
+			});
 			this.states.set(instanceKey, unavailable);
 			return unavailable;
 		}
-		if (current && !(current.status === "idle" && current.diagnostic)) return current;
+		if (current && !current.availability) return current;
+		if (current) {
+			const available = Object.freeze({
+				status: current.status,
+				...(current.diagnostic ? { diagnostic: current.diagnostic } : {}),
+			});
+			this.states.set(instanceKey, available);
+			return available;
+		}
 		const idle = Object.freeze({ status: "idle" as const });
 		this.states.set(instanceKey, idle);
 		return idle;
@@ -248,6 +278,7 @@ class DeclarativeActionExecutor implements ActionExecutor {
 		if (this.attached || this.disposed) return;
 		this.attached = true;
 		this.addCleanup(this.runtime.subscribe(this.notifyAll));
+		this.addCleanup(this.form.subscribe(this.notifyAll));
 		this.addCleanup(this.runtime.onDispose(this.dispose));
 		this.addCleanup(this.form.onDispose(this.dispose));
 		this.addCleanup(this.form.onReset(this.onReset));

@@ -1,4 +1,5 @@
 import type { ArrayFieldHelpers, FormApi } from "@formbar/core";
+import { copyJson, readOwn } from "@formbar/expressions";
 import type { JsonValue } from "@formbar/expressions";
 import { BUILT_IN_ACTIONS } from "./action-registry.js";
 import type { ActionDiagnosticCode } from "./actions.js";
@@ -17,20 +18,37 @@ type ArrayPlan =
 	| { readonly operation: "remove"; readonly index: number }
 	| { readonly operation: "move" | "swap"; readonly from: number; readonly to: number };
 
+type ArrayPreparation =
+	| { readonly plan: ArrayPlan; readonly target: readonly (string | number)[] }
+	| { readonly diagnostic: ActionDiagnosticCode };
+
+type JsonCopyResult = { readonly ok: true; readonly value: JsonValue } | { readonly ok: false };
+
 export function preflightAction(
+	form: FormApi<unknown, unknown>,
+	state: ResolvedActionState | undefined,
+	hasCustomHandler: boolean,
+): ActionDiagnosticCode | undefined {
+	try {
+		return preflightActionUnsafe(form, state, hasCustomHandler);
+	} catch {
+		return state?.action.startsWith("array.") ? "invalid-action-target" : "action-failed";
+	}
+}
+
+function preflightActionUnsafe(
 	form: FormApi<unknown, unknown>,
 	state: ResolvedActionState | undefined,
 	hasCustomHandler: boolean,
 ): ActionDiagnosticCode | undefined {
 	if (!state) return "action-unavailable";
 	if (!state.visible || state.disabled || state.readOnly) return "action-unavailable";
-	if (form.isSubmitting() && state.action !== "reset") return "action-unavailable";
+	if (form.isSubmitting()) return "action-unavailable";
 	if (state.payload.status === "error") return "invalid-action-payload";
 	if (!BUILT_IN_ACTIONS.has(state.action)) return hasCustomHandler ? undefined : "unknown-action";
 	if (!state.action.startsWith("array.")) return undefined;
-	if (!state.target || state.target.namespace !== "data") return "invalid-action-target";
-	if (policyBlocked(form, state)) return "action-unavailable";
-	return arrayPlan(form, state) ? undefined : arrayFailure(form, state);
+	const preparation = prepareArray(form, state);
+	return "diagnostic" in preparation ? preparation.diagnostic : undefined;
 }
 
 export async function runBuiltIn(context: BuiltInContext): Promise<ActionDiagnosticCode | undefined> {
@@ -55,15 +73,22 @@ async function runValidate(context: BuiltInContext): Promise<ActionDiagnosticCod
 	const dispatched = context.form.dispatch({ type: "validate", origin: "declarative-action" });
 	if (!dispatched.ok) return "action-failed";
 	const result = await context.form.validateAsync(undefined, context.signal);
-	void context.form.getState().issues;
 	return asyncAborted(context.signal, result.status);
 }
 
 function runArray(form: FormApi<unknown, unknown>, state: ResolvedActionState): ActionDiagnosticCode | undefined {
-	const plan = arrayPlan(form, state);
-	if (!plan || !state.target) return arrayFailure(form, state);
-	const field = form.fieldDynamic(pointer(state.target.segments)) as unknown as ArrayFieldHelpers<readonly JsonValue[]>;
-	const result = applyArrayPlan(field, plan);
+	try {
+		return runArrayUnsafe(form, state);
+	} catch {
+		return "action-failed";
+	}
+}
+
+function runArrayUnsafe(form: FormApi<unknown, unknown>, state: ResolvedActionState): ActionDiagnosticCode | undefined {
+	const preparation = prepareArray(form, state);
+	if ("diagnostic" in preparation) return preparation.diagnostic;
+	const field = form.fieldDynamic(pointer(preparation.target)) as unknown as ArrayFieldHelpers<readonly JsonValue[]>;
+	const result = applyArrayPlan(field, preparation.plan);
 	return result.ok ? undefined : "action-failed";
 }
 
@@ -75,24 +100,42 @@ function applyArrayPlan(field: ArrayFieldHelpers<readonly JsonValue[]>, plan: Ar
 	return field.swapValue(plan.from, plan.to);
 }
 
-function arrayFailure(form: FormApi<unknown, unknown>, state: ResolvedActionState): ActionDiagnosticCode {
-	if (!state.target || state.target.namespace !== "data") return "invalid-action-target";
-	if (policyBlocked(form, state)) return "action-unavailable";
+function prepareArray(form: FormApi<unknown, unknown>, state: ResolvedActionState): ArrayPreparation {
+	if (!state.target || state.target.namespace !== "data") return { diagnostic: "invalid-action-target" };
+	try {
+		if (policyBlocked(form, state)) return { diagnostic: "action-unavailable" };
+	} catch {
+		return { diagnostic: "invalid-action-target" };
+	}
 	const target = readTarget(form, state);
-	return Array.isArray(target) ? "invalid-action-payload" : "invalid-action-target";
+	if (!target.ok) return { diagnostic: "invalid-action-target" };
+	const value = target.value;
+	let length: number;
+	try {
+		if (!Array.isArray(value)) return { diagnostic: "invalid-action-target" };
+		length = value.length;
+		if (!Number.isSafeInteger(length) || length < 0) return { diagnostic: "invalid-action-target" };
+	} catch {
+		return { diagnostic: "invalid-action-target" };
+	}
+	try {
+		const plan = arrayPlan(state, length);
+		return plan ? { plan, target: state.target.segments } : { diagnostic: "invalid-action-payload" };
+	} catch {
+		return { diagnostic: "invalid-action-payload" };
+	}
 }
 
-function arrayPlan(form: FormApi<unknown, unknown>, state: ResolvedActionState): ArrayPlan | undefined {
-	if (!state.target || state.target.namespace !== "data" || policyBlocked(form, state)) return undefined;
-	const value = readTarget(form, state);
-	if (!Array.isArray(value)) return undefined;
-	const payload = state.payload.status === "ready" ? state.payload.value : undefined;
+function arrayPlan(state: ResolvedActionState, length: number): ArrayPlan | undefined {
+	const payloadValue = state.payload.status === "ready" ? copyActionPayload(state.payload.value) : undefined;
+	if (payloadValue && !payloadValue.ok) return undefined;
+	const payload = payloadValue?.value;
 	const fallback = state.instance.scopes.at(-1)?.index;
 	if (state.action === "array.append" && payload !== undefined) return { operation: "append", item: payload };
-	if (state.action === "array.insert") return insertPlan(payload, fallback, value.length);
-	if (state.action === "array.remove") return removePlan(payload, fallback, value.length);
+	if (state.action === "array.insert") return insertPlan(payload, fallback, length);
+	if (state.action === "array.remove") return removePlan(payload, fallback, length);
 	if (state.action === "array.move" || state.action === "array.swap")
-		return reorderPlan(state.action.slice(6) as "move" | "swap", payload, fallback, value.length);
+		return reorderPlan(state.action.slice(6) as "move" | "swap", payload, fallback, length);
 	return undefined;
 }
 
@@ -144,13 +187,23 @@ function exactKeys(value: Readonly<Record<string, JsonValue>>, keys: readonly st
 	return Object.keys(value).every((key) => keys.includes(key));
 }
 
-function readTarget(form: FormApi<unknown, unknown>, state: ResolvedActionState): unknown {
-	let value: unknown = form.getState().data;
-	for (const segment of state.target?.segments ?? []) {
-		if (value === null || typeof value !== "object" || !Object.hasOwn(value, segment)) return undefined;
-		value = (value as Record<string | number, unknown>)[segment];
+function copyActionPayload(value: JsonValue): JsonCopyResult {
+	try {
+		return { ok: true, value: copyJson(value) };
+	} catch {
+		return { ok: false };
 	}
-	return value;
+}
+
+function readTarget(
+	form: FormApi<unknown, unknown>,
+	state: ResolvedActionState,
+): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+	try {
+		return { ok: true, value: readOwn(form.getState().data, state.target?.segments ?? []) };
+	} catch {
+		return { ok: false };
+	}
 }
 
 function policyBlocked(form: FormApi<unknown, unknown>, state: ResolvedActionState): boolean {

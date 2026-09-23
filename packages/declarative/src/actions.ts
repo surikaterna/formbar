@@ -54,6 +54,9 @@ export type ActionExecutionStatus = "idle" | "pending" | "succeeded" | "failed";
 
 export interface ActionExecutionState {
 	readonly status: ActionExecutionStatus;
+	/** Current static/runtime reason the action cannot start. */
+	readonly availability?: ActionDiagnosticCode;
+	/** Diagnostic from the most recent started execution. */
 	readonly diagnostic?: ActionDiagnosticCode;
 }
 

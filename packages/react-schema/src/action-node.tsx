@@ -16,13 +16,15 @@ interface ActionNodeProps {
 export function ActionNodeView({ node, state, environment, layout }: ActionNodeProps): ReactElement {
 	const execution = useActionObservation(environment.actions, state.instance.instanceKey);
 	const submit = state.action === "submit";
-	const showStatus = !submit || execution.diagnostic !== undefined;
+	const diagnostic = execution.availability ?? execution.diagnostic;
+	const showStatus = !submit;
 	const statusId = fieldId(`${domIdToken(state.instance.instanceKey)}-action-status`, environment.prefix);
 	const disabled =
-		execution.diagnostic !== undefined ||
+		execution.availability !== undefined ||
 		!state.visible ||
 		state.disabled ||
 		state.readOnly ||
+		environment.form.isSubmitting() ||
 		(execution.status === "pending" && state.concurrency === "drop");
 	return (
 		<div data-formbar-node={node.id} data-formbar-action={state.action} {...layout.attributes} style={layout.style}>
@@ -42,9 +44,9 @@ export function ActionNodeView({ node, state, environment, layout }: ActionNodeP
 					data-formbar-action={state.action}
 					data-formbar-node={node.id}
 					data-formbar-instance={state.instance.instanceKey}
-					{...(execution.diagnostic ? { "data-formbar-diagnostic": execution.diagnostic } : {})}
+					{...(diagnostic ? { "data-formbar-diagnostic": diagnostic } : {})}
 				>
-					{statusText(execution.status, execution.diagnostic !== undefined)}
+					{statusText(execution.status, execution.availability !== undefined)}
 				</output>
 			) : null}
 		</div>

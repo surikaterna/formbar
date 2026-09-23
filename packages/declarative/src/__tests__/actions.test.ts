@@ -39,6 +39,24 @@ describe("declarative actions", () => {
 		form.dispose();
 	});
 
+	it("keeps transient handler failures retryable and clears failure state after success", async () => {
+		const { form, runtime } = setup([{ type: "action", id: "save", action: "host.save" }], {});
+		const handler = vi.fn().mockRejectedValueOnce(new Error("private failure")).mockResolvedValueOnce(undefined);
+		const executor = createActionExecutor({ form, runtime, actions: [{ id: "host.save", handler }] });
+		const observation = executor.observe(key("save"));
+
+		expect(await executor.execute(key("save"))).toEqual({ status: "failed", diagnostic: "action-failed" });
+		expect(observation.getSnapshot()).toEqual({ status: "failed", diagnostic: "action-failed" });
+		expect(await executor.execute(key("save"))).toEqual({ status: "completed" });
+		expect(observation.getSnapshot()).toEqual({ status: "succeeded" });
+		expect(handler).toHaveBeenCalledTimes(2);
+
+		observation.dispose();
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
 	it("routes invalid declarative submit through the same core gate without calling onSubmit", async () => {
 		const onSubmit = vi.fn();
 		const issue = {
@@ -218,6 +236,115 @@ describe("declarative actions", () => {
 			{ code: "duplicate-action-registration", action: "duplicate" },
 			{ code: "reserved-action-registration", action: "submit" },
 		]);
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("normalizes hostile registries atomically without invoking accessors", async () => {
+		const getter = vi.fn(() => "host.getter");
+		const accessorRegistration = Object.defineProperty({ handler: vi.fn() }, "id", { get: getter });
+		const validHandler = vi.fn();
+		const { form, runtime } = setup([{ type: "action", id: "save", action: "host.save" }], {});
+		const hostileRegistration = new Proxy(
+			{},
+			{
+				ownKeys: () => {
+					throw new Error("private reflection failure");
+				},
+			},
+		);
+		const accessorExecutor = createActionExecutor({
+			form,
+			runtime,
+			actions: [{ id: "host.save", handler: validHandler }, accessorRegistration] as never,
+		});
+
+		expect(accessorExecutor.getDiagnostics()).toEqual([{ code: "invalid-registration" }]);
+		expect(await accessorExecutor.execute(key("save"))).toEqual({ status: "failed", diagnostic: "unknown-action" });
+		expect(validHandler).not.toHaveBeenCalled();
+		expect(getter).not.toHaveBeenCalled();
+		accessorExecutor.dispose();
+
+		const proxyExecutor = createActionExecutor({
+			form,
+			runtime,
+			actions: [{ id: "host.save", handler: validHandler }, hostileRegistration] as never,
+		});
+		expect(proxyExecutor.getDiagnostics()).toEqual([{ code: "invalid-registration" }]);
+		expect(await proxyExecutor.execute(key("save"))).toEqual({ status: "failed", diagnostic: "unknown-action" });
+		expect(validHandler).not.toHaveBeenCalled();
+
+		proxyExecutor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("contains hostile array target reflection without mutating core data", async () => {
+		const node: FormNode = {
+			type: "action",
+			id: "remove",
+			action: "array.remove",
+			target: binding(["items"]),
+			payload: literal(0),
+		};
+		const { form, runtime } = setup([node], { items: ["private"] });
+		const hostileItems = new Proxy(["private"], {
+			get: () => {
+				throw new Error("private data failure");
+			},
+		});
+		const hostileForm = new Proxy(form, {
+			get(target, property, receiver) {
+				if (property === "getState") return () => ({ ...form.getState(), data: { items: hostileItems } });
+				return Reflect.get(target, property, receiver);
+			},
+		});
+		const executor = createActionExecutor({ form: hostileForm, runtime });
+
+		expect(await executor.execute(key("remove"))).toEqual({
+			status: "failed",
+			diagnostic: "invalid-action-target",
+		});
+		expect(form.getState().data).toEqual({ items: ["private"] });
+
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("rejects hostile array payload accessors without invoking or mutating", async () => {
+		const getter = vi.fn(() => "private");
+		const hostilePayload = Object.defineProperty({}, "secret", { enumerable: true, get: getter });
+		const node: FormNode = {
+			type: "action",
+			id: "append",
+			action: "array.append",
+			target: binding(["items"]),
+			payload: literal("safe"),
+		};
+		const { form, runtime } = setup([node], { items: ["safe"] });
+		const hostileRuntime = new Proxy(runtime, {
+			get(target, property, receiver) {
+				if (property !== "getSnapshot") return Reflect.get(target, property, receiver);
+				return () => {
+					const snapshot = runtime.getSnapshot();
+					const nodes = snapshot.nodes.map((state) =>
+						state.type === "action" ? { ...state, payload: { status: "ready", value: hostilePayload } } : state,
+					);
+					return { ...snapshot, nodes };
+				};
+			},
+		});
+		const executor = createActionExecutor({ form, runtime: hostileRuntime as never });
+
+		expect(await executor.execute(key("append"))).toEqual({
+			status: "failed",
+			diagnostic: "invalid-action-payload",
+		});
+		expect(getter).not.toHaveBeenCalled();
+		expect(form.getState().data).toEqual({ items: ["safe"] });
+
 		executor.dispose();
 		runtime.dispose();
 		form.dispose();

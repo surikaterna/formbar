@@ -135,6 +135,43 @@ describe("action executor concurrency", () => {
 		form.dispose();
 	});
 
+	it("blocks queued and newly requested actions while core submission has authority", async () => {
+		const active = deferred();
+		const submission = deferred();
+		const handler = vi.fn(() => active.promise);
+		const form = createForm({
+			initialData: {},
+			initialUiState: {},
+			onSubmit: () => submission.promise,
+		});
+		const runtime = createFormRuntime({
+			form,
+			definition: definition([
+				{ type: "action", id: "run", action: "host.run", concurrency: "queue" },
+				{ type: "action", id: "other", action: "host.run" },
+			]),
+		});
+		const executor = createActionExecutor({ form, runtime, actions: [{ id: "host.run", handler }] });
+		const first = executor.execute(key("run"));
+		await Promise.resolve();
+		const queued = executor.execute(key("run"));
+		const submit = form.submit();
+		await Promise.resolve();
+
+		expect(executor.observe(key("other")).getSnapshot().availability).toBe("action-unavailable");
+		expect(await executor.execute(key("other"))).toEqual({ status: "failed", diagnostic: "action-unavailable" });
+		active.resolve();
+		expect(await first).toEqual({ status: "completed" });
+		expect(await queued).toEqual({ status: "failed", diagnostic: "action-unavailable" });
+		expect(handler).toHaveBeenCalledOnce();
+		submission.resolve();
+		await submit;
+
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
 	it("reset aborts active and queued work before restoring core state", async () => {
 		const ignored = deferred();
 		const form = createForm({ initialData: { name: "first" }, initialUiState: {} });

@@ -84,6 +84,29 @@ describe("form.reset()", () => {
 		form.dispose();
 	});
 
+	it("coalesces recursive reset notification while preserving snapshot listener semantics", () => {
+		const form = createForm({ initialData: { name: "Alice" } });
+		const resets: string[] = [];
+		let recurse = true;
+		let unsubscribeSecond = () => {};
+		form.onReset(() => {
+			resets.push("first");
+			unsubscribeSecond();
+			form.onReset(() => resets.push("late"));
+			if (recurse) {
+				recurse = false;
+				form.reset();
+			}
+		});
+		unsubscribeSecond = form.onReset(() => resets.push("second"));
+
+		form.reset();
+		expect(resets).toEqual(["first", "second"]);
+		form.reset();
+		expect(resets).toEqual(["first", "second", "first", "late"]);
+		form.dispose();
+	});
+
 	it("reset({data: newData}) resets to new initial values", () => {
 		const form = createForm({ initialData: { name: "Alice" } });
 		form.setValue("name", "Bob");
