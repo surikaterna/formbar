@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/declarative",
-	"version": "0.15.0",
+	"version": "0.15.1",
 	"type": "module",
 	"description": "Framework-neutral serialized form definition contracts",
 	"license": "MIT",
