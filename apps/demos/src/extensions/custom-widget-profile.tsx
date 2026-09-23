@@ -210,7 +210,7 @@ const widgets = Object.freeze([
 	Object.freeze({ id: "demo16.progress", component: ProgressWidget }),
 ]);
 
-export const customWidgetProfile: SchemaDemoRuntimeProfile = Object.freeze({
+export const customWidgetProfile = Object.freeze({
 	id: "demo16.trusted-widgets.v1",
 	extensions: Object.freeze({ widgets }),
-});
+}) satisfies SchemaDemoRuntimeProfile;

@@ -1,10 +1,11 @@
 import type { ArbiterPluginOptions } from "@formbar/arbiter";
-import type { FormDefinition } from "@formbar/declarative";
+import type { ActionRegistration, FormDefinition } from "@formbar/declarative";
 import type { RendererExtensions } from "@formbar/react-schema";
 
 export interface SchemaDemoRuntimeProfile {
 	readonly id: string;
-	readonly extensions: RendererExtensions;
+	readonly extensions?: RendererExtensions;
+	readonly actions?: readonly ActionRegistration[];
 }
 
 export interface SchemaDemoDefinitionVariant {
@@ -18,6 +19,7 @@ interface SchemaDemoSourceBase {
 	readonly label: string;
 	readonly schema: Readonly<Record<string, unknown>>;
 	readonly initialData: Readonly<Record<string, unknown>>;
+	readonly initialUiState?: Readonly<Record<string, unknown>>;
 	/** Immutable JSON-serializable module constant; structural changes replace this reference. */
 	readonly arbiterRules?: NonNullable<ArbiterPluginOptions["rules"]>;
 }
@@ -37,6 +39,7 @@ export interface SchemaDemoFixture {
 	readonly subtitle: string;
 	readonly copy: string;
 	readonly category: "baseline" | "conditional" | "layout" | "sources";
+	readonly actionControls?: "host" | "definition";
 	readonly sources: readonly [SchemaDemoSource, ...SchemaDemoSource[]];
 	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
 }
