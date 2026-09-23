@@ -103,6 +103,13 @@ async function interactWithExpectedMarker(page: Page, route: ExpectedRoute): Pro
 	if (route.diagnostic) {
 		await expect(preview.locator(`[data-formbar-diagnostic="${route.diagnostic}"]`).first()).toBeVisible();
 		expect(await preview.locator("input, select, textarea").count()).toBe(0);
+		const status = preview.getByLabel("Core validation issues and submission status");
+		const result = preview.getByText("Last successful submission", { exact: true }).locator("..");
+		await expect(status).toContainText("Status: idle; 0 issue(s); pristine.");
+		await expect(result).toContainText("No successful submission yet.");
+		await preview.getByRole("button", { name: "Submit", exact: true }).click();
+		await expect(status).toContainText("Status: succeeded; 0 issue(s); pristine.");
+		await expect(result).toContainText('"missingWidget": ""');
 	} else {
 		const control = preview.locator("input:not([disabled]), select:not([disabled]), textarea:not([disabled])").first();
 		await expect(control).toBeVisible();
