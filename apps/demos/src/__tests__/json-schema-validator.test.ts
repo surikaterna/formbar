@@ -1,6 +1,7 @@
 import { createForm } from "@formbar/core";
 import { describe, expect, it, vi } from "vitest";
 import { baselineFixtures } from "../demos";
+import { responsiveSectionsDemo } from "../demos/10-multi-section-responsive";
 import {
 	createJsonSchemaValidator,
 	createJsonSchemaValidators,
@@ -164,6 +165,23 @@ describe("Draft 2020-12 JSON Schema adapter", () => {
 			{ code: "json-schema.format", message: 'Must match the "email" format.' },
 		]);
 		expect(validate(schema, { email: "person@example.com" })).toEqual([]);
+	});
+
+	it("accepts historical free-text passenger DOB and phone while enforcing string types and required names", () => {
+		const schema = responsiveSectionsDemo.sources[0].schema;
+		const names = { firstName: "Ada", lastName: "Lovelace" };
+		expect(
+			validate(schema, { ...names, dateOfBirth: "not-a-date", emergencyContactPhone: "extension pending" }),
+		).toEqual([]);
+		expect(validate(schema, { ...names, dateOfBirth: "2024-02-30", emergencyContactPhone: "call later" })).toEqual([]);
+		expect(validate(schema, names)).toEqual([]);
+		expect(validate(schema, { ...names, dateOfBirth: "", emergencyContactPhone: "" })).toEqual([]);
+		for (const field of ["dateOfBirth", "emergencyContactPhone"]) {
+			expect(validate(schema, { ...names, [field]: 123 })).toMatchObject([
+				{ code: "json-schema.type", path: { namespace: "data", segments: [field] } },
+			]);
+		}
+		expect(validate(schema, {}).map((issue) => issue.path.segments)).toEqual([["firstName"], ["lastName"]]);
 	});
 
 	it("normalizes enum, const, number bounds, and integer failures", () => {

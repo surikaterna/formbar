@@ -35,7 +35,7 @@ const definition = {
 				children: [
 					field("f-first", "firstName", "text", "First Name", half),
 					field("f-last", "lastName", "text", "Last Name", half),
-					field("f-dob", "dateOfBirth", "date", "Date of Birth", half, "YYYY-MM-DD format"),
+					field("f-dob", "dateOfBirth", "text", "Date of Birth", half, "YYYY-MM-DD format"),
 					field("f-gender", "gender", "radio", "Gender", half),
 					field("f-nationality", "nationality", "text", "Nationality", half),
 					field("f-passport", "passportNumber", "text", "Passport Number", half),
@@ -47,7 +47,7 @@ const definition = {
 				title: "Emergency Contact",
 				children: [
 					field("f-ecName", "emergencyContactName", "text", "Emergency Contact Name", half),
-					field("f-ecPhone", "emergencyContactPhone", "tel", "Emergency Contact Phone", half),
+					field("f-ecPhone", "emergencyContactPhone", "text", "Emergency Contact Phone", half),
 					field("f-ecRel", "emergencyRelationship", "radio", "Relationship", half),
 				],
 			},
@@ -93,12 +93,12 @@ export const responsiveSectionsDemo = {
 				properties: {
 					firstName: { type: "string", title: "First Name" },
 					lastName: { type: "string", title: "Last Name" },
-					dateOfBirth: { type: "string", title: "Date of Birth", format: "date", description: "YYYY-MM-DD format" },
+					dateOfBirth: { type: "string", title: "Date of Birth", description: "YYYY-MM-DD format" },
 					gender: { type: "string", title: "Gender", enum: ["Male", "Female", "Non-Binary", "Prefer not to say"] },
 					nationality: { type: "string", title: "Nationality" },
 					passportNumber: { type: "string", title: "Passport Number" },
 					emergencyContactName: { type: "string", title: "Emergency Contact Name" },
-					emergencyContactPhone: { type: "string", title: "Emergency Contact Phone", format: "tel" },
+					emergencyContactPhone: { type: "string", title: "Emergency Contact Phone" },
 					emergencyRelationship: {
 						type: "string",
 						title: "Relationship",

@@ -100,19 +100,19 @@ describe("baseline fixture fidelity: demos 9, 10, 13, and 15", () => {
 		expect(source.initialData).toEqual({});
 	});
 
-	it("restores the complete passenger domain with truthful date, tel, and typed span output", () => {
+	it("restores the complete passenger domain with free-text DOB and phone and typed span output", () => {
 		const source = onlySource(responsiveSectionsDemo);
 		const schema = objectSchema(source);
 		expect(schema.required).toEqual(["firstName", "lastName"]);
 		expect(schema.properties).toEqual({
 			firstName: { type: "string", title: "First Name" },
 			lastName: { type: "string", title: "Last Name" },
-			dateOfBirth: { type: "string", title: "Date of Birth", format: "date", description: "YYYY-MM-DD format" },
+			dateOfBirth: { type: "string", title: "Date of Birth", description: "YYYY-MM-DD format" },
 			gender: { type: "string", title: "Gender", enum: ["Male", "Female", "Non-Binary", "Prefer not to say"] },
 			nationality: { type: "string", title: "Nationality" },
 			passportNumber: { type: "string", title: "Passport Number" },
 			emergencyContactName: { type: "string", title: "Emergency Contact Name" },
-			emergencyContactPhone: { type: "string", title: "Emergency Contact Phone", format: "tel" },
+			emergencyContactPhone: { type: "string", title: "Emergency Contact Phone" },
 			emergencyRelationship: {
 				type: "string",
 				title: "Relationship",

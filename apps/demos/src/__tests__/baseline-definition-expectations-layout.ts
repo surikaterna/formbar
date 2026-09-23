@@ -42,13 +42,15 @@ export const responsiveDefinition = expectedDefinition("multi-section-responsive
 	expectedSection("root", 0, "personal", "Personal Details"),
 	expectedField("personal", 0, "f-first", "firstName", "text", "First Name", { span: half }),
 	expectedField("personal", 1, "f-last", "lastName", "text", "Last Name", { span: half }),
-	expectedField("personal", 2, "f-dob", "dateOfBirth", "date", "Date of Birth", describedHalf("YYYY-MM-DD format")),
+	expectedField("personal", 2, "f-dob", "dateOfBirth", "text", "Date of Birth", describedHalf("YYYY-MM-DD format")),
 	expectedField("personal", 3, "f-gender", "gender", "radio", "Gender", { span: half }),
 	expectedField("personal", 4, "f-nationality", "nationality", "text", "Nationality", { span: half }),
 	expectedField("personal", 5, "f-passport", "passportNumber", "text", "Passport Number", { span: half }),
 	expectedSection("root", 1, "emergency", "Emergency Contact"),
 	expectedField("emergency", 0, "f-ecName", "emergencyContactName", "text", "Emergency Contact Name", { span: half }),
-	expectedField("emergency", 1, "f-ecPhone", "emergencyContactPhone", "tel", "Emergency Contact Phone", { span: half }),
+	expectedField("emergency", 1, "f-ecPhone", "emergencyContactPhone", "text", "Emergency Contact Phone", {
+		span: half,
+	}),
 	expectedField("emergency", 2, "f-ecRel", "emergencyRelationship", "radio", "Relationship", { span: half }),
 	expectedSection("root", 2, "health", "Health & Preferences"),
 	expectedField(
