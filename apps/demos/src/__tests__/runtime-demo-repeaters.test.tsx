@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { arrayItemsDemo, arrayItemsSchema } from "../demos/08-array-items";
 import { orderEntryDemo } from "../demos/14-order-entry";
@@ -50,8 +51,8 @@ describe("array demo repeaters", () => {
 		expect(tagControls).toHaveLength(2);
 		const tags = selects(view, "Tag");
 		for (const select of tags) {
-			expect([...select.options].map((option) => option.textContent)).toEqual(["", "", "frontend", "Back end"]);
-			expect(select.options[3].disabled).toBe(true);
+			expect([...select.options].map((option) => option.textContent)).toEqual(["(empty tag)", "frontend", "Back end"]);
+			expect(select.options[2].disabled).toBe(true);
 			expect(select.selectedOptions[0].value).toBe("option-0");
 			expect(select.getAttribute("aria-labelledby")).toBeTruthy();
 		}
@@ -70,6 +71,7 @@ describe("array demo repeaters", () => {
 		const roleControls = [...view.container.querySelectorAll('[data-formbar-node="f-member-role"] [data-widget]')];
 		expect(roleControls).toHaveLength(2);
 		for (const role of selects(view, "Role")) {
+			expect(role.options[0].value).toBe("");
 			expect([...role.options].map((option) => option.textContent)).toEqual([
 				"",
 				"Team lead",
@@ -111,6 +113,32 @@ describe("array demo repeaters", () => {
 		await click(button(view, "Reset"));
 		expect(view.container.querySelectorAll('[data-formbar-node="f-tag"]')).toHaveLength(0);
 		expect(resultJson(view)).toBe(successful);
+	});
+
+	it("returns from frontend to the sole labeled empty-string tag choice without changing its schema type", async () => {
+		const submitted = vi.fn();
+		const view = await mountDemo(arrayItemsDemo, submitted);
+		setInput(labelled(view, "Project Name") as HTMLInputElement, "Blank tag");
+		await click(button(view, "Add Tags"));
+		const tag = selects(view, "Tag")[0];
+		setSelect(tag, "option-1");
+		expect(selects(view, "Tag")[0].value).toBe("option-1");
+		await act(async () => {
+			await Promise.resolve();
+		});
+		setSelect(selects(view, "Tag")[0], "option-0");
+		expect([...selects(view, "Tag")[0].options].map((option) => option.textContent)).toEqual([
+			"(empty tag)",
+			"frontend",
+			"Back end",
+		]);
+		await click(button(view, "Submit"));
+		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ tags: [""] }));
+		expect(view.container.querySelector("[data-formbar-error-summary]")).toBeNull();
+		await click(button(view, "Reset"));
+		expect(selects(view, "Tag")).toHaveLength(0);
+		await click(button(view, "Add Tags"));
+		expect(selects(view, "Tag")[0].value).toBe("option-0");
 	});
 
 	it("preserves an unlisted schema-valid tag without silently replacing it with a presented option", async () => {

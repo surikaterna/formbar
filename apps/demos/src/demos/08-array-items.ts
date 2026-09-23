@@ -4,7 +4,7 @@ import type { SchemaDemoFixture } from "./baseline-contracts";
 const disabledBackendOption = Object.freeze({ value: "backend", title: "Back end", disabled: true });
 const tagSchemaOptions = Object.freeze(["frontend", disabledBackendOption]);
 const tagPresentationOptions = Object.freeze([
-	Object.freeze({ value: "", title: "" }),
+	Object.freeze({ value: "", title: "(empty tag)" }),
 	Object.freeze({ value: "frontend", title: "frontend" }),
 	disabledBackendOption,
 ]);

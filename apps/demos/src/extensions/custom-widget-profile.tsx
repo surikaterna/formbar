@@ -165,6 +165,7 @@ export function RichOptionsWidget(props: WidgetProps) {
 
 export function RichSelectWidget(props: WidgetProps) {
 	const options = richOptions(props);
+	const hasEmptyChoice = options.some((option) => option.value === "");
 	const selected = options.findIndex((option) => Object.is(option.value, props.value));
 	const unknown = selected < 0 && props.value !== undefined;
 	const token = selected < 0 ? (unknown ? "unlisted" : "") : `option-${selected}`;
@@ -185,7 +186,7 @@ export function RichSelectWidget(props: WidgetProps) {
 				}}
 				onBlur={props.onBlur}
 			>
-				<option value="" />
+				{hasEmptyChoice ? null : <option value="" />}
 				{unknown ? <option value="unlisted">{String(props.value)}</option> : null}
 				{options.map((option, index) => (
 					<option

@@ -243,7 +243,7 @@ describe("runtime demo architecture", () => {
 		expect(richFields[0]?.props?.richOptions).toEqual({
 			mode: "literal",
 			value: [
-				{ value: "", title: "" },
+				{ value: "", title: "(empty tag)" },
 				{ value: "frontend", title: "frontend" },
 				{ value: "backend", title: "Back end", disabled: true },
 			],
