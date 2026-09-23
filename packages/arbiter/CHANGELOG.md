@@ -1,5 +1,12 @@
 # @formbar/arbiter
 
+## 0.13.0
+
+### Patch Changes
+
+- Updated dependencies [bea9fd1]
+  - @formbar/core@0.13.0
+
 ## 0.12.0
 
 ### Patch Changes

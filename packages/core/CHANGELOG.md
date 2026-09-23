@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.13.0
+
+### Patch Changes
+
+- bea9fd1: Add form-backed repeater projection, generated actions, constraint guards, scoped React rendering, and stable renderer-private row coordination. Preserve nested field metadata when moving array items.
+
 ## 0.12.0
 
 ### Minor Changes
