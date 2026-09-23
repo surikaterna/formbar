@@ -248,7 +248,7 @@ class SubmitRuntime<TData, TUi> {
 	private async finishHandler(run: ActiveSubmit, result: SubmitResult): Promise<SubmitResult> {
 		const completed = this.complete(run, result);
 		await runNotifyHooksAsync(
-			(this.deps.options.middleware ?? []) as readonly Middleware[],
+			(this.deps.pipelineOptions.middleware ?? []) as readonly Middleware[],
 			"afterSubmit",
 			{ action: { type: "submit" }, state: this.deps.store.getState(), result: completed },
 			this.deps.options.timeouts?.middleware ?? DEFAULT_RUNTIME_CONSTRAINTS.middlewareTimeout,

@@ -85,7 +85,8 @@ describe("renderer SSR", () => {
 		expect(error).not.toHaveBeenCalled();
 		act(() => root.unmount());
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(clientForms[0]?.isDisposed()).toBe(true);
+		expect(clientForms[0]?.isDisposed()).toBe(false);
+		clientForms[0]?.dispose();
 		error.mockRestore();
 		container.remove();
 	});

@@ -168,6 +168,7 @@ try {
 				`@types/react-dom@${domTypes}`,
 				"@types/node@22.15.30",
 				"typescript@5.7.3",
+				"jsdom@26.1.0",
 			],
 			directory,
 		);
@@ -181,6 +182,9 @@ try {
 			compile(directory, fixture, moduleKind, resolution, extension);
 		compile(directory, "upstream.cts", "NodeNext", "NodeNext", "cts");
 		runtime(directory);
+		const lifecycleFixture = resolve(directory, "strict-lifecycle.mjs");
+		writeFileSync(lifecycleFixture, readFileSync(resolve(fixtures, "strict-lifecycle.mjs")));
+		console.log(execFileSync(process.execPath, [lifecycleFixture], { cwd: directory, encoding: "utf8" }).trim());
 	}
 	console.log(`CONSUMER_PACK source=${root} native_tarballs=${tarballs.length} temporary=${temporary}`);
 } finally {

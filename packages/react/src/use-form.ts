@@ -1,5 +1,5 @@
 import type { CreateFormOptions, FormApi, SubmitResult } from "@formbar/core";
-import { createForm } from "@formbar/core";
+import { createDeferredForm } from "@formbar/core";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { focusFirstError } from "./a11y.js";
 import { getCoreFormOptions } from "./core-form-options.js";
@@ -12,7 +12,8 @@ export interface UseFormOptions<TData, TUi> extends CreateFormOptions<TData, TUi
 
 /**
  * React hook that creates and manages a form instance with automatic cleanup.
- * The form is created once on mount and disposed on unmount (StrictMode-safe).
+ * The store is retained across StrictMode replay; plugin init resources are commit-scoped.
+ * Unmount releases those resources but does not permanently dispose externally held form APIs.
  *
  * @param options - Form configuration (same as {@link createForm} options).
  * @returns A stable {@link FormApi} reference that persists across re-renders.
@@ -34,14 +35,14 @@ export interface UseFormOptions<TData, TUi> extends CreateFormOptions<TData, TUi
  */
 export function useForm<TData, TUi>(options?: UseFormOptions<TData, TUi>): FormApi<TData, TUi> {
 	const autoFocus = options?.autoFocusOnError ?? true;
-	const formRef = useRef<FormApi<TData, TUi> | null>(null);
-	const disposeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const runtimeRef = useRef<ReturnType<typeof createDeferredForm<TData, TUi>> | null>(null);
 
-	if (formRef.current === null) {
-		formRef.current = createForm<TData, TUi>(getCoreFormOptions(options));
+	if (runtimeRef.current === null) {
+		runtimeRef.current = createDeferredForm<TData, TUi>(getCoreFormOptions(options));
 	}
 
-	const form = formRef.current;
+	const runtime = runtimeRef.current;
+	const form = runtime.form;
 
 	// Adapt form.subscribe (which passes state) to useSyncExternalStore's expected signature
 	const subscribe = useRef((onStoreChange: () => void) => {
@@ -51,18 +52,10 @@ export function useForm<TData, TUi>(options?: UseFormOptions<TData, TUi>): FormA
 
 	useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-	// Deferred disposal: schedule dispose in a macrotask so StrictMode remount can cancel it
 	useEffect(() => {
-		if (disposeTimerRef.current !== null) {
-			clearTimeout(disposeTimerRef.current);
-			disposeTimerRef.current = null;
-		}
-		return () => {
-			disposeTimerRef.current = setTimeout(() => {
-				formRef.current?.dispose();
-			}, 0);
-		};
-	}, []);
+		runtime.activate();
+		return () => runtime.deactivate();
+	}, [runtime]);
 
 	// Wrap the form API to auto-focus on submit errors (ADR §12)
 	const wrappedApi = useMemo((): FormApi<TData, TUi> => {

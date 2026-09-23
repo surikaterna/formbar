@@ -137,13 +137,6 @@ async function readableStreamHtml(element: ReactNode): Promise<string | undefine
 	return new Response(stream).text();
 }
 
-async function flushDisposalTimers(): Promise<void> {
-	await act(async () => {
-		await vi.runAllTimersAsync();
-		await Promise.resolve();
-	});
-}
-
 afterEach(() => {
 	vi.restoreAllMocks();
 	vi.useRealTimers();
@@ -226,12 +219,17 @@ describe("useForm SSR snapshots", () => {
 		expect(form.getState()).not.toBe(initial);
 		expect(container.querySelector("output")?.textContent).toBe("Grace:night");
 		expect(clientLifecycle.actionCalls).toBe(0);
+		const onDispose = vi.fn();
+		form.onDispose(onDispose);
 		act(() => root.unmount());
 		expect(clientLifecycle.active).toBe(0);
 		expect(clientLifecycle.unsubscriptions).toBe(clientLifecycle.subscriptions);
-		await flushDisposalTimers();
-		expect(clientLifecycle.disposeCalls.get(form)).toBe(1);
+		expect(clientLifecycle.disposeCalls.get(form)).toBeUndefined();
+		expect(form.isDisposed()).toBe(false);
+		expect(onDispose).not.toHaveBeenCalled();
+		form.dispose();
 		expect(form.isDisposed()).toBe(true);
+		expect(onDispose).toHaveBeenCalledOnce();
 	});
 
 	it("keeps StrictMode subscriptions singular and committed cleanup balanced", async () => {
@@ -260,10 +258,10 @@ describe("useForm SSR snapshots", () => {
 		act(() => root.unmount());
 		expect(lifecycle.active).toBe(0);
 		expect(lifecycle.unsubscriptions).toBe(lifecycle.subscriptions);
-		await flushDisposalTimers();
 		for (const form of lifecycle.subscribedForms) {
-			expect(lifecycle.disposeCalls.get(form)).toBe(1);
-			expect(form.isDisposed()).toBe(true);
+			expect(lifecycle.disposeCalls.get(form)).toBeUndefined();
+			expect(form.isDisposed()).toBe(false);
+			form.dispose();
 		}
 		expect(sessions.active).toBe(0);
 		expect(sessions.disposed).toBe(sessions.created);
