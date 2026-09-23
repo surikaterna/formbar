@@ -34,7 +34,7 @@
 			"require": "./dist/validation.entry.cjs"
 		}
 	},
-	"files": ["dist", "src/*.ts"],
+	"files": ["dist"],
 	"sideEffects": false,
 	"scripts": {
 		"build": "tsc --noEmit",

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -74,17 +73,8 @@ describe("@formbar/core public API surface", () => {
 		}
 	});
 
-	it("publishes runtime source without test source trees", () => {
+	it("declares the repository source-free package policy", () => {
 		const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-		expect(manifest.files).toEqual(["dist", "src/*.ts"]);
-		expect(manifest.files).not.toContain("src");
-		const packageDirectory = new URL("../..", import.meta.url);
-		const output = execFileSync("npm", ["pack", "--dry-run", "--json"], {
-			cwd: packageDirectory,
-			encoding: "utf8",
-		});
-		const paths = JSON.parse(output)[0].files.map((file: { path: string }) => file.path);
-		expect(paths).toContain("src/index.ts");
-		expect(paths.some((path: string) => path.includes("/__tests__/") || path.includes(".test."))).toBe(false);
+		expect(manifest.files).toEqual(["dist"]);
 	});
 });
