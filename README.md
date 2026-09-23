@@ -30,7 +30,7 @@ The dependency direction is one-way: `from-schema -> declarative`. Declarative n
 
 Formbar currently has no compatibility commitment to the removed Scheman v1 flat-field, layout, renderer-registry, or state-pruning APIs. They were deleted rather than translated or shimmed. Persisted playground documents use version 2 and older documents are rejected rather than migrated.
 
-The demo app keeps a read-only compilation playground and also provides numbered, interactive examples rendered by the production `useSchemaForm` → `FormRenderer` path.
+The interactive playground covers all 21 numbered demos (26 preset variants) plus a schema-compilation example (27 examples total). Its serializable JSON editors for schema, definition, and initial data feed the production `useSchemaForm` → `FormRenderer` path with validation; executable extensions come only from fixed, trusted host profiles, not editable JSON. This does not promise [composed-schema presentation (#49)](https://github.com/surikaterna/formbar/issues/49) or [stored computations (#129)](https://github.com/surikaterna/formbar/issues/129).
 
 See [Schema compilation architecture](./docs/architecture/schema-compilation.md).
 
