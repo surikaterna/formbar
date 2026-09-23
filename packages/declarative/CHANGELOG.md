@@ -1,5 +1,11 @@
 # @formbar/declarative
 
+## 0.11.0
+
+### Minor Changes
+
+- ea15d6b: Add pure declarative output evaluation with strict built-in format IDs and semantic accessible React rendering.
+
 ## 0.8.0
 
 ### Minor Changes
