@@ -51,7 +51,7 @@ const definition = {
 				children: [
 					field("f-darkMode", "darkMode", "checkbox", "Dark Mode", "Use dark color theme"),
 					field("f-compactView", "compactView", "checkbox", "Compact View", "Reduce spacing in lists"),
-					field("f-fontSize", "fontSize", "number", "Font Size", "Base font size in pixels"),
+					field("f-fontSize", "fontSize", "demo16.range", "Font Size", "Base font size in pixels"),
 				],
 			},
 			{
@@ -88,6 +88,7 @@ export const settingsPanelDemo = {
 	subtitle: "Native preferences controls",
 	copy: "The original toggle-heavy settings domain grouped into Notifications, Appearance, Localization, and Data & Privacy.",
 	category: "baseline",
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"],
 	sources: [
 		{
 			key: "default",

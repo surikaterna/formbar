@@ -36,7 +36,7 @@ const definition = {
 					field("f-firstName", "firstName", "text", "First Name", half),
 					field("f-lastName", "lastName", "text", "Last Name", half),
 					field("f-email", "email", "email", "Email", half),
-					field("f-age", "age", "number", "Age", half),
+					field("f-age", "age", "demo16.range", "Age", half),
 				],
 			},
 			{
@@ -72,8 +72,9 @@ export const userProfileDemo = {
 	id: "user-profile",
 	title: "2. User Profile",
 	subtitle: "Sections, selects, and numeric bounds",
-	copy: "Multi-column profile layout with schema-backed options, a constrained age number, biography, and newsletter preference.",
+	copy: "Multi-column profile layout with schema-backed options, a bounded age slider, biography, and newsletter preference.",
 	category: "baseline",
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"],
 	sources: [
 		{
 			key: "default",

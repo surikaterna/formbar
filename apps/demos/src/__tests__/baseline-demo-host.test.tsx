@@ -86,6 +86,23 @@ async function click(view: MountedHost, text: string): Promise<void> {
 	});
 }
 
+function fillRequiredFields(view: MountedHost, fixture: SchemaDemoFixture): void {
+	if (fixture === userProfileDemo) {
+		input(control(view, "First Name") as HTMLInputElement, "Ada");
+		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
+		input(control(view, "Email") as HTMLInputElement, "ada@example.com");
+		change(control(view, "Role") as HTMLSelectElement, "option-0");
+	} else if (fixture === productEntryDemo) {
+		input(control(view, "Product Name") as HTMLInputElement, "Widget");
+		input(control(view, "SKU") as HTMLInputElement, "SKU-1");
+		input(control(view, "Price (USD)") as HTMLInputElement, "10");
+		change(control(view, "Category") as HTMLSelectElement, "option-0");
+	} else if (fixture === customLayoutDemo) {
+		input(control(view, "Vessel Name") as HTMLInputElement, "Aurora");
+		input(control(view, "IMO Number") as HTMLInputElement, "1234567");
+	}
+}
+
 describe("SchemaDemoHost routes", () => {
 	it("renders every registered fixture through a semantic production form", () => {
 		for (const fixture of baselineFixtures) {
@@ -118,19 +135,22 @@ describe("generated and schema-evidence behavior", () => {
 		expect(countries[0].selectedOptions[0].textContent).toBe("United States");
 	});
 
-	it("keeps select, checkbox, and constrained-number edits across renderer updates", () => {
+	it("keeps select, checkbox, and bounded-slider edits across renderer updates", async () => {
 		const profile = mount(userProfileDemo);
+		await act(async () => {
+			await Promise.resolve();
+		});
 		const age = control(profile, "Age") as HTMLInputElement;
-		expect([age.type, age.min, age.max, age.step]).toEqual(["number", "18", "120", "1"]);
-		input(age, "42");
-		expect(age.value).toBe("42");
+		expect([age.type, age.min, age.max, age.step]).toEqual(["range", "18", "120", "1"]);
 		const department = control(profile, "Department") as HTMLSelectElement;
 		change(department, "option-2");
 		expect(department.selectedOptions[0].textContent).toBe("Marketing");
+		input(age, "42");
+		expect(age.value).toBe("42");
 
 		const settings = mount(settingsPanelDemo);
 		const fontSize = control(settings, "Font Size") as HTMLInputElement;
-		expect([fontSize.min, fontSize.max, fontSize.step]).toEqual(["12", "24", "1"]);
+		expect([fontSize.type, fontSize.min, fontSize.max, fontSize.step]).toEqual(["range", "12", "24", "1"]);
 		const analytics = control(settings, "Usage Analytics") as HTMLInputElement;
 		act(() => analytics.click());
 		expect(analytics.checked).toBe(true);
@@ -142,7 +162,10 @@ describe("generated and schema-evidence behavior", () => {
 	it("renders product constraints and authored vessel layout without app-owned controls", () => {
 		const product = mount(productEntryDemo);
 		const rating = control(product, "Quality Rating") as HTMLInputElement;
-		expect([rating.type, rating.min, rating.max, rating.step]).toEqual(["number", "1", "5", "1"]);
+		expect([rating.type, rating.min, rating.max, rating.step]).toEqual(["range", "1", "5", "1"]);
+		for (const label of ["Price (USD)", "Weight (kg)", "Stock Quantity"]) {
+			expect((control(product, label) as HTMLInputElement).type).toBe("number");
+		}
 		expect(
 			[...(control(product, "Category") as HTMLSelectElement).options].map((option) => option.textContent),
 		).toContain("Electronics");
@@ -153,11 +176,65 @@ describe("generated and schema-evidence behavior", () => {
 			"Classification",
 			"Dimensions & Capacity",
 		]);
-		expect((control(vessel, "Year Built") as HTMLInputElement).step).toBe("1");
+		const year = control(vessel, "Year Built") as HTMLInputElement;
+		expect([year.type, year.min, year.max, year.step]).toEqual(["range", "1950", "2026", "1"]);
+		for (const label of ["Gross Tonnage", "Deadweight", "LOA (m)", "Beam (m)", "Max Draft (m)"]) {
+			expect((control(vessel, label) as HTMLInputElement).type).toBe("number");
+		}
 	});
 });
 
 describe("lifecycle and accessibility", () => {
+	it.each([
+		[userProfileDemo, "Age", "age", 18, 120, 42],
+		[settingsPanelDemo, "Font Size", "fontSize", 12, 24, 18],
+		[productEntryDemo, "Quality Rating", "rating", 1, 5, 4],
+		[customLayoutDemo, "Year Built", "yearBuilt", 1950, 2026, 2000],
+	] as const)("keeps %s slider presentation separate from core data", async (fixture, label, key, min, max, edited) => {
+		const onSubmit = vi.fn();
+		const view = mount(fixture, onSubmit);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		const slider = control(view, label) as HTMLInputElement;
+		const widget = slider.closest('[data-widget="demo16.range"]');
+		expect([slider.type, slider.min, slider.max, slider.step, slider.value]).toEqual([
+			"range",
+			String(min),
+			String(max),
+			"1",
+			String(min),
+		]);
+		expect(slider.getAttribute("aria-labelledby")).toBeTruthy();
+		expect(widget?.querySelector("output")?.textContent).toBe(String(min));
+		expect(widget?.getAttribute("data-dirty")).toBeNull();
+		if (label === "Font Size" || label === "Quality Rating") {
+			const descriptionId = slider.getAttribute("aria-describedby");
+			expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+				label === "Font Size" ? "Base font size in pixels" : "Internal quality score",
+			);
+		}
+		input(slider, String(edited));
+		expect(widget?.querySelector("output")?.textContent).toBe(String(edited));
+		expect(widget?.getAttribute("data-dirty")).toBe("true");
+		act(() => {
+			slider.focus();
+			slider.blur();
+		});
+		await click(view, "Reset");
+		expect([slider.value, widget?.querySelector("output")?.textContent]).toEqual([String(min), String(min)]);
+		expect(widget?.getAttribute("data-dirty")).toBeNull();
+		fillRequiredFields(view, fixture);
+		await click(view, "Submit");
+		expect(onSubmit).toHaveBeenCalledOnce();
+		expect(onSubmit.mock.calls[0][0]).not.toHaveProperty(key);
+		input(slider, String(edited));
+		await click(view, "Submit");
+		expect(onSubmit).toHaveBeenCalledTimes(2);
+		expect(onSubmit.mock.calls[1][0]).toHaveProperty(key, edited);
+		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
+	});
+
 	it("submits valid data and resets edited data through FormApi", async () => {
 		const view = mount(userProfileDemo);
 		input(control(view, "First Name") as HTMLInputElement, "Ada");
@@ -169,7 +246,7 @@ describe("lifecycle and accessibility", () => {
 		await click(view, "Submit");
 		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
 		await click(view, "Reset");
-		expect(age.value).toBe("");
+		expect(age.value).toBe("18");
 		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("");
 
 		const kitchen = mount(kitchenSinkDemo);

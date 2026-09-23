@@ -45,7 +45,7 @@ const definition = {
 				title: "Classification",
 				children: [
 					field("f-type", "vesselType", "select", "Vessel Type", undefined, half),
-					field("f-year", "yearBuilt", "number", "Year Built", undefined, half),
+					field("f-year", "yearBuilt", "demo16.range", "Year Built", undefined, half),
 					field("f-active", "isActive", "checkbox", "Active", "Currently in service", half),
 				],
 			},
@@ -71,6 +71,7 @@ export const customLayoutDemo = {
 	subtitle: "Authored vessel field arrangement",
 	copy: "The original flat vessel schema is arranged into identity, classification, and dimensions without app-owned layout rendering.",
 	category: "layout",
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"],
 	sources: [
 		{
 			key: "default",
