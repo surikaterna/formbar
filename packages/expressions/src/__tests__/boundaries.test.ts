@@ -39,7 +39,7 @@ const newFiles = [
 
 describe("expression ownership and source principles", () => {
 	it("uses the released Kuery runtime and keeps integrations decoupled", () => {
-		expect(manifest("expressions").dependencies.kuery).toBe("^2.1.0");
+		expect(manifest("expressions").dependencies.kuery).toBe("^2.1.1");
 		expect(read("packages/expressions/tsup.config.ts")).not.toContain("noExternal");
 		for (const name of ["core", "react", "arbiter"]) {
 			expect(manifest(name).dependencies["@formbar/expressions"]).toBeDefined();

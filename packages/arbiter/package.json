@@ -31,11 +31,11 @@
 		"@formbar/core": "^0.14.2"
 	},
 	"peerDependencies": {
-		"@arbitre/core": "^0.3.0",
-		"kuery": "^2.1.0"
+		"@arbitre/core": "^0.3.1",
+		"kuery": "^2.1.1"
 	},
 	"devDependencies": {
-		"@arbitre/core": "^0.3.0",
-		"kuery": "^2.1.0"
+		"@arbitre/core": "^0.3.1",
+		"kuery": "^2.1.1"
 	}
 }
