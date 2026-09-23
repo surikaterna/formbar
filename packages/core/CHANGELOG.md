@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.15.0
+
+### Minor Changes
+
+- b998e2b: Fix #160: defer hook-owned plugin and middleware initialization to committed React effects and release resources synchronously on StrictMode replay and unmount. The opt-in core factory leaves imperative `createForm` eager. Hook-owned stores now survive replay and are not permanently disposed on unmount; externally held APIs require explicit `dispose()` to fire `onDispose`.
+
 ## 0.14.3
 
 ### Patch Changes
