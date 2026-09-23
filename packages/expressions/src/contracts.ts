@@ -8,6 +8,12 @@ export type StateRef = Readonly<Record<string, JsonValue>> & {
 	readonly scope?: string;
 };
 export type Expression = ValueExpression<StateRef>;
+export type SumByPath = readonly Segment[];
+export type SumByExpression = {
+	readonly kind: "op";
+	readonly op: "sumBy";
+	readonly args: readonly [Expression, { readonly kind: "literal"; readonly value: SumByPath }];
+};
 export type DiagnosticCode =
 	| "invalid-input"
 	| "limit"
@@ -52,7 +58,7 @@ export interface NamespaceProvider {
 export type Authorization = (ref: StateRef, operation: "read" | "write") => boolean;
 export type Scopes = Readonly<Record<string, StateRef>>;
 export interface ServiceOptions {
-	/** Immutable Kuery operator profile. Defaults to Kuery standard-v1. */
+	/** Immutable Kuery operator profile. Defaults to standard-v1 plus Formbar's bounded sumBy. */
 	readonly profile?: ExpressionProfile;
 	readonly namespaces?: Readonly<Record<string, NamespaceProvider>>;
 	readonly scopes?: Scopes;

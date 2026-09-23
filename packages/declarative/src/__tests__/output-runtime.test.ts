@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { FormDefinition, OutputNode, ResolvedOutputState, createFormRuntime } from "../index.js";
+import type { FormDefinition, OutputNode, ResolvedOutputState, SumByExpression, createFormRuntime } from "../index.js";
 import { validateFormDefinition } from "../index.js";
 import { dataRef, definition, literal, node, op, runtime } from "./runtime-fixtures.js";
 
@@ -99,6 +99,48 @@ describe("output runtime projection", () => {
 		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "ready", value: 5 });
 		form.reset({ data: { amount: 21, count: 3 } });
 		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "ready", value: 7 });
+	});
+
+	it("projects collection sums through append, edit, remove, and reset without stored output state", async () => {
+		const submitted = vi.fn();
+		const expression: SumByExpression = {
+			kind: "op",
+			op: "sumBy",
+			args: [dataRef(["lines"]), { kind: "literal", value: ["amount"] }],
+		};
+		const candidate: FormDefinition = {
+			version: 1,
+			id: "collection-total",
+			root: output("subtotal", expression),
+		};
+		const validated = validateFormDefinition(candidate);
+		if (!validated.ok) throw new Error(JSON.stringify(validated.diagnostics));
+		expect(JSON.parse(JSON.stringify(validated.value))).toEqual(validated.value);
+		const { form, runtime: port } = runtime(validated.value, {
+			initialData: { lines: [{ amount: 2 }, { amount: 3 }] },
+			onSubmit: async ({ payload }) => {
+				submitted(payload);
+				return { ok: true, submitId: "sumBy" };
+			},
+		});
+
+		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 5 });
+		form.field("lines").pushValue({ amount: 4 });
+		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 9 });
+		form.setValue("lines.1.amount", 5);
+		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 11 });
+		form.field("lines").removeValue(0);
+		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 9 });
+		expect(form.getState()).toMatchObject({ data: { lines: [{ amount: 5 }, { amount: 4 }] }, issues: [] });
+		expect(form.isDirty()).toBe(true);
+
+		form.reset();
+		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 5 });
+		expect(form.isDirty()).toBe(false);
+		expect(form.isTouched()).toBe(false);
+		await form.submit();
+		expect(submitted).toHaveBeenCalledWith({ lines: [{ amount: 2 }, { amount: 3 }] });
+		expect(form.getState().data).toEqual({ lines: [{ amount: 2 }, { amount: 3 }] });
 	});
 
 	it("resolves lexical repeater scopes for each output instance", () => {

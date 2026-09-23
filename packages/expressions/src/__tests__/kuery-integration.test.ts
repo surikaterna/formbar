@@ -208,6 +208,121 @@ describe("Kuery whole-AST integration", () => {
 	);
 });
 
+describe("default sumBy operator", () => {
+	const sumBy = (collection: ReturnType<typeof literal> | ReturnType<typeof ref>, path: readonly (string | number)[]) =>
+		op("sumBy", collection, literal(path));
+
+	it("sums empty, direct, and nested finite numeric projections", () => {
+		const service = createExpressionService({});
+		const cases = [
+			[sumBy(literal([]), []), 0],
+			[sumBy(literal([{ amount: 2 }, { amount: 3.5 }]), ["amount"]), 5.5],
+			[sumBy(literal([{ totals: [2] }, { totals: [4] }]), ["totals", 0]), 6],
+			[sumBy(literal([-0, 0]), []), 0],
+		] as const;
+		for (const [expression, expected] of cases) {
+			const compiled = service.compile(expression);
+			if (!compiled.ok) throw new Error("compile");
+			const result = service.evaluate(compiled.value);
+			expect(result).toEqual({ ok: true, value: expected });
+			if (result.ok && expected === 0) expect(Object.is(result.value, -0)).toBe(false);
+		}
+	});
+
+	it("retains the collection dependency and immutable public sumBy expression", () => {
+		const path = ["amount"];
+		const expression = sumBy(ref("lines"), path);
+		const service = createExpressionService({ namespaces: { data: namespace({ lines: [{ amount: 2 }] }).provider } });
+		const compiled = service.compile(expression);
+		if (!compiled.ok) throw new Error("compile");
+		path[0] = "changed";
+		expect(compiled.value.dependencies).toEqual([{ namespace: "data", segments: ["lines"] }]);
+		expect(compiled.value.expression).toEqual(sumBy(ref("lines"), ["amount"]));
+		expect(JSON.stringify(compiled.value.expression)).not.toContain("formbar:sum-by");
+		expect(Object.isFrozen(compiled.value.expression)).toBe(true);
+		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: 2 });
+	});
+
+	it("restores a transformed public sumBy nested inside another operator", () => {
+		const service = createExpressionService({});
+		const expression = op("add", sumBy(literal([{ amount: 2 }, { amount: 3.5 }]), ["amount"]), literal(1));
+		const compiled = service.compile(expression);
+		if (!compiled.ok) throw new Error("compile");
+		expect(compiled.value.expression).toEqual(expression);
+		expect(JSON.stringify(compiled.value.expression)).not.toContain("formbar:sum-by");
+		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: 6.5 });
+	});
+
+	it("rejects direct and nested authored use of the reserved backend operator", () => {
+		const service = createExpressionService({});
+		const internal = op("formbar:sum-by", literal([{ amount: 2 }]), literal(["amount"]));
+		for (const expression of [
+			internal,
+			op("add", literal(1), internal),
+			op("if", literal(true), internal, literal(0)),
+		]) {
+			expect(service.compile(expression)).toEqual({ ok: false, diagnostics: [{ code: "invalid-input" }] });
+		}
+	});
+
+	it("rejects reference and computed paths through both public and reserved spellings", () => {
+		const service = createExpressionService({});
+		const collection = literal([{ amount: 2 }]);
+		const computedPath = op("if", literal(true), literal(["amount"]), literal([]));
+		for (const name of ["sumBy", "formbar:sum-by"]) {
+			for (const path of [ref("path"), computedPath]) {
+				expect(service.compile(op(name, collection, path))).toEqual({
+					ok: false,
+					diagnostics: [{ code: "invalid-input" }],
+				});
+			}
+		}
+	});
+
+	it.each([
+		[sumBy(literal({ amount: 1 }) as never, ["amount"]), "type"],
+		[sumBy(literal([{ other: 1 }]), ["amount"]), "missing"],
+		[sumBy(literal([{ amount: "2" }]), ["amount"]), "type"],
+		[sumBy(literal([Number.MAX_VALUE, Number.MAX_VALUE]), []), "non-finite"],
+	] as const)("fails invalid collection values with a code-only diagnostic", (expression, code) => {
+		const service = createExpressionService({});
+		const compiled = service.compile(expression);
+		if (!compiled.ok) throw new Error("compile");
+		expect(() => service.evaluate(compiled.value)).not.toThrow();
+		expect(service.evaluate(compiled.value)).toEqual({ ok: false, diagnostics: [{ code }] });
+	});
+
+	it("requires a bounded literal path with safe segments", () => {
+		const service = createExpressionService({});
+		for (const path of [["__proto__"], ["constructor"], ["prototype"], [-1], [1.5], [""], Array(65).fill("x")]) {
+			expect(service.compile(sumBy(literal([]), path as (string | number)[])).ok).toBe(false);
+		}
+		expect(service.compile(op("sumBy", literal([]), ref("path")))).toEqual({
+			ok: false,
+			diagnostics: [{ code: "invalid-input" }],
+		});
+	});
+
+	it("supports duplicate item identities but rejects non-JSON and oversized collections", () => {
+		const item = { amount: 2 };
+		const valid = namespace({ lines: [item, item] });
+		const service = createExpressionService({ namespaces: { data: valid.provider } });
+		const compiled = service.compile(sumBy(ref("lines"), ["amount"]));
+		if (!compiled.ok) throw new Error("compile");
+		expect(service.evaluate(compiled.value)).toEqual({ ok: true, value: 4 });
+
+		for (const lines of [[new Uint8Array([1])], [new Date(0)], Array(1025).fill(1)]) {
+			valid.replace({ lines });
+			const result = service.evaluate(compiled.value);
+			expect(result.ok).toBe(false);
+			expect(result).toEqual({
+				ok: false,
+				diagnostics: [{ code: lines.length > 1024 ? "limit" : "invalid-input" }],
+			});
+		}
+	});
+});
+
 expressionConformance("Kuery standard-v1 through Formbar");
 expressionConformance("explicit Kuery standard-v1 profile", () =>
 	createExpressionService({ profile: standardExpressionProfile }),
