@@ -1,5 +1,12 @@
 # @formbar/from-schema
 
+## 0.11.0
+
+### Patch Changes
+
+- Updated dependencies [ea15d6b]
+  - @formbar/declarative@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes

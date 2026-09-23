@@ -1,5 +1,17 @@
 # @formbar/react-schema
 
+## 0.11.0
+
+### Minor Changes
+
+- ea15d6b: Add pure declarative output evaluation with strict built-in format IDs and semantic accessible React rendering.
+
+### Patch Changes
+
+- Updated dependencies [ea15d6b]
+  - @formbar/declarative@0.11.0
+  - @formbar/from-schema@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes
