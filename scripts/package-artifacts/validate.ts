@@ -1,8 +1,8 @@
 import { deepStrictEqual, strictEqual } from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, posix, relative, resolve } from "node:path";
-import type { PackageManifest, PackagePolicy } from "./policy";
-import { expressionAdr, standardPackageFiles } from "./policy";
+import type { ExportConditions, PackageManifest, PackagePolicy } from "./policy";
+import { exportEntries, expressionAdr, standardPackageFiles } from "./policy";
 
 const distributionFile = /^dist\/.+\.(?:js|cjs|d\.ts|d\.cts|js\.map|cjs\.map)$/;
 const prohibitedArtifact =
@@ -64,25 +64,46 @@ function validateRepository(policy: PackagePolicy, manifest: PackageManifest): v
 	);
 }
 
+function validateExportBranch(
+	policy: PackagePolicy,
+	subpath: string,
+	condition: "import" | "require",
+	branch: ExportConditions["import"],
+	stem: string,
+	files: readonly string[],
+): void {
+	deepStrictEqual(
+		Object.keys(branch ?? {}),
+		["types", "default"],
+		`${policy.name}: ${subpath} ${condition} condition order`,
+	);
+	const extension = condition === "import" ? { types: "d.ts", default: "js" } : { types: "d.cts", default: "cjs" };
+	for (const key of ["types", "default"] as const) {
+		const target = branch[key];
+		if (target !== `./dist/${stem}.${extension[key]}`)
+			fail(policy, `${subpath} ${condition} ${key} target mismatch: ${target}`);
+		const path = packageTarget(target, policy);
+		if (!files.includes(path)) fail(policy, `${subpath} ${condition} ${key} target is not packed: ${path}`);
+	}
+}
+
 export function validateExportTargets(
 	policy: PackagePolicy,
 	manifest: PackageManifest,
 	files: readonly string[],
 ): void {
-	const root = manifest.exports?.["."];
-	if (!root) fail(policy, "missing root export");
+	const expected = policy.directory === "core" ? exportEntries : exportEntries.slice(0, 1);
+	deepStrictEqual(Object.keys(manifest.exports ?? {}), [...expected], `${policy.name}: export subpaths`);
 	deepStrictEqual(
-		{ types: manifest.types, import: manifest.module, require: manifest.main },
-		root,
+		{ types: manifest.types, module: manifest.module, main: manifest.main },
+		{ types: "./dist/index.d.ts", module: "./dist/index.js", main: "./dist/index.cjs" },
 		`${policy.name}: root entry metadata`,
 	);
 	for (const [subpath, conditions] of Object.entries(manifest.exports)) {
-		for (const condition of ["types", "import", "require"] as const) {
-			const target = conditions[condition];
-			if (typeof target !== "string") fail(policy, `${subpath} lacks ${condition} target`);
-			const path = packageTarget(target, policy);
-			if (!files.includes(path)) fail(policy, `${subpath} ${condition} target is not packed: ${path}`);
-		}
+		const stem = subpath === "." ? "index" : `${subpath.slice(2)}.entry`;
+		deepStrictEqual(Object.keys(conditions), ["import", "require"], `${policy.name}: ${subpath} condition order`);
+		for (const condition of ["import", "require"] as const)
+			validateExportBranch(policy, subpath, condition, conditions[condition], stem, files);
 	}
 }
 
