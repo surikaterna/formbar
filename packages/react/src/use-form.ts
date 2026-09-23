@@ -47,8 +47,9 @@ export function useForm<TData, TUi>(options?: UseFormOptions<TData, TUi>): FormA
 	const subscribe = useRef((onStoreChange: () => void) => {
 		return form.subscribe(onStoreChange);
 	}).current;
+	const getSnapshot = useRef(() => form.getState()).current;
 
-	useSyncExternalStore(subscribe, () => form.getState());
+	useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
 	// Deferred disposal: schedule dispose in a macrotask so StrictMode remount can cancel it
 	useEffect(() => {
