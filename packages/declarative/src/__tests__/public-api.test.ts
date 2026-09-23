@@ -49,9 +49,8 @@ describe("public package boundary", () => {
 		expect(manifest.files).toEqual(["dist"]);
 		expectNeutralDependencies(manifest.dependencies, readNeutralVersions());
 		expect(manifest.exports["."]).toEqual({
-			types: "./dist/index.d.ts",
-			import: "./dist/index.js",
-			require: "./dist/index.cjs",
+			import: { types: "./dist/index.d.ts", default: "./dist/index.js" },
+			require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },
 		});
 	});
 

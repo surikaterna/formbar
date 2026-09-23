@@ -14,24 +14,20 @@
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
+			"import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+			"require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
 		},
 		"./path": {
-			"types": "./dist/path.entry.d.ts",
-			"import": "./dist/path.entry.js",
-			"require": "./dist/path.entry.cjs"
+			"import": { "types": "./dist/path.entry.d.ts", "default": "./dist/path.entry.js" },
+			"require": { "types": "./dist/path.entry.d.cts", "default": "./dist/path.entry.cjs" }
 		},
 		"./transforms": {
-			"types": "./dist/transforms.entry.d.ts",
-			"import": "./dist/transforms.entry.js",
-			"require": "./dist/transforms.entry.cjs"
+			"import": { "types": "./dist/transforms.entry.d.ts", "default": "./dist/transforms.entry.js" },
+			"require": { "types": "./dist/transforms.entry.d.cts", "default": "./dist/transforms.entry.cjs" }
 		},
 		"./validation": {
-			"types": "./dist/validation.entry.d.ts",
-			"import": "./dist/validation.entry.js",
-			"require": "./dist/validation.entry.cjs"
+			"import": { "types": "./dist/validation.entry.d.ts", "default": "./dist/validation.entry.js" },
+			"require": { "types": "./dist/validation.entry.d.cts", "default": "./dist/validation.entry.cjs" }
 		}
 	},
 	"files": ["dist"],
