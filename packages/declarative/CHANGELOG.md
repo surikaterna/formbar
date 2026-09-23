@@ -1,5 +1,11 @@
 # @formbar/declarative
 
+## 0.15.1
+
+### Patch Changes
+
+- 66527c7: Bound each concrete action queue to 32 waiting intents so a stalled host handler cannot retain unbounded pending executions.
+
 ## 0.15.0
 
 ### Patch Changes
