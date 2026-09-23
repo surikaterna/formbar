@@ -101,6 +101,15 @@ class DeclarativeActionExecutor implements ActionExecutor {
 	}
 
 	private start(instanceKey: string, lane: Lane): Promise<ActionExecutionResult> {
+		try {
+			return this.startSafe(instanceKey, lane);
+		} catch {
+			if (!this.owns(instanceKey, lane)) return Promise.resolve(ABORTED);
+			return this.failStart(instanceKey, lane, "action-failed");
+		}
+	}
+
+	private startSafe(instanceKey: string, lane: Lane): Promise<ActionExecutionResult> {
 		if (!this.owns(instanceKey, lane) || lane.active) return Promise.resolve(ABORTED);
 		const state = this.resolvedState(instanceKey);
 		if (!this.owns(instanceKey, lane) || lane.active) return Promise.resolve(ABORTED);

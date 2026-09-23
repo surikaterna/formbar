@@ -140,6 +140,96 @@ describe("bounded action queues", () => {
 		form.dispose();
 	});
 
+	it("contains throwing runtime lookups during drain and settles every waiter in FIFO order", async () => {
+		const gate = deferred();
+		const handler = vi.fn(() => (handler.mock.calls.length === 1 ? gate.promise : undefined));
+		const { form, runtime, executor } = setup(handler);
+		const active = executor.execute(key("one"));
+		await Promise.resolve();
+		const queued = Array.from({ length: 4 }, () => executor.execute(key("one")));
+		const original = runtime.getNode;
+		let failures = 2;
+		const lookup = vi.spyOn(runtime, "getNode").mockImplementation((instance) => {
+			if (failures-- > 0) throw new Error("secret-runtime");
+			return original(instance);
+		});
+		const unhandled = vi.fn();
+		process.on("unhandledRejection", unhandled);
+		try {
+			gate.resolve();
+			expect(await active).toEqual({ status: "completed" });
+			expect(await Promise.all(queued)).toEqual([
+				{ status: "failed", diagnostic: "action-failed" },
+				{ status: "failed", diagnostic: "action-failed" },
+				{ status: "completed" },
+				{ status: "completed" },
+			]);
+			await new Promise(setImmediate);
+			expect(unhandled).not.toHaveBeenCalled();
+			expect(handler).toHaveBeenCalledTimes(3);
+		} finally {
+			process.off("unhandledRejection", unhandled);
+			lookup.mockRestore();
+			executor.dispose();
+			runtime.dispose();
+			form.dispose();
+		}
+	});
+
+	it("settles all 32 waiters when every dequeue lookup throws", async () => {
+		const gate = deferred();
+		const handler = vi.fn(() => gate.promise);
+		const { form, runtime, executor } = setup(handler);
+		const active = executor.execute(key("one"));
+		await Promise.resolve();
+		const queued = Array.from({ length: 32 }, () => executor.execute(key("one")));
+		const lookup = vi.spyOn(runtime, "getNode").mockImplementation(() => {
+			throw new Error("secret-runtime");
+		});
+		gate.resolve();
+		expect(await active).toEqual({ status: "completed" });
+		expect(await Promise.all(queued)).toEqual(
+			Array.from({ length: 32 }, () => ({ status: "failed", diagnostic: "action-failed" })),
+		);
+		expect(handler).toHaveBeenCalledOnce();
+		lookup.mockRestore();
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
+	it("does not revive drained failures when a later ignored-signal run rejects after reset", async () => {
+		const first = deferred();
+		const late = deferred();
+		const handler = vi.fn(() => (handler.mock.calls.length === 1 ? first.promise : late.promise));
+		const { form, runtime, executor } = setup(handler);
+		const active = executor.execute(key("one"));
+		await Promise.resolve();
+		const queued = Array.from({ length: 3 }, () => executor.execute(key("one")));
+		const original = runtime.getNode;
+		let fail = true;
+		const lookup = vi.spyOn(runtime, "getNode").mockImplementation((instance) => {
+			if (fail) {
+				fail = false;
+				throw new Error("secret-runtime");
+			}
+			return original(instance);
+		});
+		first.resolve();
+		expect(await active).toEqual({ status: "completed" });
+		expect(await queued[0]).toEqual({ status: "failed", diagnostic: "action-failed" });
+		await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2));
+		form.reset();
+		expect(await Promise.all(queued.slice(1))).toEqual([aborted, aborted]);
+		late.reject(new Error("secret-late"));
+		await new Promise(setImmediate);
+		expect(handler).toHaveBeenCalledTimes(2);
+		lookup.mockRestore();
+		executor.dispose();
+		runtime.dispose();
+		form.dispose();
+	});
+
 	it.each(["direct reset", "built-in reset", "executor", "runtime", "form"] as const)(
 		"aborts all accepted waiters on %s and contains late rejection",
 		async (cause) => {
