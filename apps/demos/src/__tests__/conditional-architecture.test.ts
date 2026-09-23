@@ -41,7 +41,7 @@ describe("conditional demo architecture", () => {
 		expect(owners).toEqual(["18-arbiter-visibility.ts", "21-arbiter-dynamic-sections.ts"]);
 	});
 
-	it("registers only the four requested routes without expanding playground support", () => {
+	it("keeps numeric demo routes without expanding playground support", () => {
 		expect(demos.map((demo) => demo.id)).toEqual([
 			"basic-contact",
 			"user-profile",
@@ -54,6 +54,8 @@ describe("conditional demo architecture", () => {
 			"survey",
 			"multi-schema-sources",
 			"kitchen-sink",
+			"custom-renderers",
+			"custom-layout-types",
 			"arbiter-visibility",
 			"arbiter-dynamic-sections",
 			"schema-compilation",

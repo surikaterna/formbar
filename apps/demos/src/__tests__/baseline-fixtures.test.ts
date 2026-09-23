@@ -12,7 +12,9 @@ function compile(fixtureId: string, sourceKey = "default") {
 	return createSchemaForm(source.schema, {
 		provider,
 		side: "input",
-		...(source.definition ? { definition: source.definition } : {}),
+		...(source.definition || source.definitionVariants
+			? { definition: source.definition ?? source.definitionVariants?.[0].definition }
+			: {}),
 	});
 }
 

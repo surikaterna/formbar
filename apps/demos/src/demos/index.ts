@@ -12,6 +12,8 @@ import { responsiveSectionsDemo } from "./10-multi-section-responsive";
 import { surveyDemo } from "./12-survey-questionnaire";
 import { multiSchemaSourcesDemo } from "./13-multi-schema-sources";
 import { kitchenSinkDemo } from "./15-kitchen-sink";
+import { customRenderersDemo } from "./16-custom-renderers";
+import { customLayoutTypesDemo } from "./17-custom-layout";
 import { arbiterVisibilityDemo } from "./18-arbiter-visibility";
 import { arbiterDynamicSectionsDemo } from "./21-arbiter-dynamic-sections";
 import type { SchemaDemoFixture } from "./baseline-contracts";
@@ -22,9 +24,10 @@ export interface DemoRegistration {
 	readonly subtitle: string;
 	readonly category: "baseline" | "conditional" | "layout" | "sources" | "compilation";
 	readonly component: ComponentType;
+	readonly fixture?: SchemaDemoFixture;
 }
 
-export const baselineFixtures: readonly SchemaDemoFixture[] = [
+export const baselineFixtures: readonly SchemaDemoFixture[] = Object.freeze([
 	basicContactDemo,
 	userProfileDemo,
 	nestedAddressDemo,
@@ -36,27 +39,30 @@ export const baselineFixtures: readonly SchemaDemoFixture[] = [
 	surveyDemo,
 	multiSchemaSourcesDemo,
 	kitchenSinkDemo,
+	customRenderersDemo,
+	customLayoutTypesDemo,
 	arbiterVisibilityDemo,
 	arbiterDynamicSectionsDemo,
-];
+]);
 
 function registerFixture(fixture: SchemaDemoFixture): DemoRegistration {
-	return {
+	return Object.freeze({
 		id: fixture.id,
 		title: fixture.title,
 		subtitle: fixture.subtitle,
 		category: fixture.category,
 		component: () => createElement(SchemaDemoHost, { fixture }),
-	};
+		fixture,
+	});
 }
 
-export const demos: readonly DemoRegistration[] = [
+export const demos: readonly DemoRegistration[] = Object.freeze([
 	...baselineFixtures.map(registerFixture),
-	{
+	Object.freeze({
 		id: "schema-compilation",
 		title: "Compilation preview",
 		subtitle: "Descriptors and validated FormDefinition v1",
 		category: "compilation",
 		component: CompilationPreviewDemo,
-	},
-];
+	}),
+]);

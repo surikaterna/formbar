@@ -42,6 +42,18 @@ async function traverseHistory(move: () => void): Promise<void> {
 }
 
 describe("App route history", () => {
+	it("resolves both extension demo routes directly and through history", () => {
+		const view = mount("/?mode=demo&demo=custom-renderers");
+		expect(view.textContent).toContain("16. Custom Renderers");
+		expect(window.location.search).toBe("?mode=demo&demo=custom-renderers");
+		act(() => {
+			window.history.pushState(null, "", "/?mode=demo&demo=custom-layout-types");
+			window.dispatchEvent(new PopStateEvent("popstate"));
+		});
+		expect(view.textContent).toContain("17. Custom Layout Types");
+		expect(window.location.search).toBe("?mode=demo&demo=custom-layout-types");
+	});
+
 	it("canonicalizes a direct unsupported playground load to normal demo mode", () => {
 		const view = mount("/?mode=playground&demo=basic-contact&preset=fallback");
 		expect(view.textContent).toContain("1. Basic Contact Form");
