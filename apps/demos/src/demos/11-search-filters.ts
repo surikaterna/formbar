@@ -1,5 +1,4 @@
 import type { FormDefinition, FormNode } from "@formbar/declarative";
-import { searchFilterRuntimeProfile } from "../actions/search-filter-actions";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
 const half = { base: "full", md: 6 } as const;
@@ -86,7 +85,7 @@ export const searchFiltersDemo = {
 	copy: "A compact search and filter panel demonstrating formbar for non-traditional form UIs. Select components keep the interface clean, while switch toggles provide quick boolean options.",
 	category: "layout",
 	actionControls: "definition",
-	runtimeProfile: searchFilterRuntimeProfile,
+	runtimeProfileIds: ["demo11.search-actions.v1"],
 	sources: [
 		{
 			key: "default",

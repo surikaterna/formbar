@@ -1,12 +1,15 @@
 import type { ArbiterPluginOptions } from "@formbar/arbiter";
-import type { ActionRegistration, FormDefinition } from "@formbar/declarative";
-import type { RendererExtensions } from "@formbar/react-schema";
+import type { FormDefinition } from "@formbar/declarative";
 
-export interface SchemaDemoRuntimeProfile {
-	readonly id: string;
-	readonly extensions?: RendererExtensions;
-	readonly actions?: readonly ActionRegistration[];
-}
+export const TRUSTED_RUNTIME_PROFILE_IDS = [
+	"formbar.standard.v1",
+	"formbar.arbiter.v1",
+	"demo11.search-actions.v1",
+	"demo16.trusted-widgets.v1",
+	"demo17.advanced-layout.v1",
+] as const;
+
+export type TrustedRuntimeProfileId = (typeof TRUSTED_RUNTIME_PROFILE_IDS)[number];
 
 export interface SchemaDemoDefinitionVariant {
 	readonly key: string;
@@ -38,8 +41,8 @@ export interface SchemaDemoFixture {
 	readonly title: string;
 	readonly subtitle: string;
 	readonly copy: string;
-	readonly category: "baseline" | "conditional" | "layout" | "sources";
+	readonly category: "baseline" | "conditional" | "layout" | "sources" | "compilation";
 	readonly actionControls?: "host" | "definition";
 	readonly sources: readonly [SchemaDemoSource, ...SchemaDemoSource[]];
-	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
+	readonly runtimeProfileIds?: readonly TrustedRuntimeProfileId[];
 }

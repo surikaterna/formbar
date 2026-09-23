@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPreset } from "../playground/presets";
+import { getPlaygroundExample } from "../playground/examples";
 import {
 	applySources,
 	createPlaygroundSession,
@@ -10,7 +10,7 @@ import {
 import { type StorageLike, saveDraft } from "../playground/storage";
 
 function presetDocument() {
-	const preset = getPreset("schema-compilation");
+	const preset = getPlaygroundExample("schema-compilation");
 	if (!preset) throw new Error("missing test preset");
 	return preset.document;
 }

@@ -1,5 +1,4 @@
 import type { Binding, FormDefinition, FormNode, JsonValue } from "@formbar/declarative";
-import { customWidgetProfile } from "../extensions/custom-widget-profile";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
 const disabledBackendOption = Object.freeze({ value: "backend", title: "Back end", disabled: true });
@@ -216,7 +215,7 @@ export const arrayItemsDemo = {
 	copy: "Shows how formbar handles array fields in JSON Schema. Simple arrays, object arrays, and nested structures are all supported. Array items render with schema-aware controls including enums, booleans, and text inputs.",
 	category: "sources",
 	actionControls: "definition",
-	runtimeProfile: customWidgetProfile,
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"],
 	sources: [
 		{
 			key: "default",

@@ -1,12 +1,18 @@
-import { CompilationPreview } from "../renderers/CompilationPreview";
-import type { PlaygroundDocument } from "./contracts";
+import { SchemaFormRuntime } from "../renderers/SchemaFormRuntime";
+import type { PlaygroundExample } from "./contracts";
 
-export function PlaygroundRunner({ document }: { readonly document: PlaygroundDocument }) {
+export function PlaygroundRunner(props: {
+	readonly document: PlaygroundExample["document"];
+	readonly runtime: PlaygroundExample["runtime"];
+}) {
 	return (
-		<CompilationPreview
-			schema={document.schema}
-			{...(document.definition ? { definition: document.definition } : {})}
-			initialData={document.initialData}
+		<SchemaFormRuntime
+			document={props.document}
+			profileIds={props.runtime.profileIds}
+			initialUiState={props.runtime.initialUiState}
+			arbiterRules={props.runtime.arbiterRules}
+			actionControls={props.runtime.actionControls}
+			showObservability
 		/>
 	);
 }

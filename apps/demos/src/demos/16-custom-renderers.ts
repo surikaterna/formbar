@@ -1,5 +1,4 @@
 import type { FormDefinition, FormNode, JsonValue } from "@formbar/declarative";
-import { customWidgetProfile } from "../extensions/custom-widget-profile";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
 const brightColors = Object.freeze([
@@ -174,7 +173,7 @@ export const customRenderersDemo: SchemaDemoFixture = Object.freeze({
 	subtitle: "Trusted widgets selected by serializable IDs",
 	copy: "Demonstrates custom field renderers using x-formbar metadata extensions. Star ratings, color pickers, checkbox groups, and progress bars — all driven by schema metadata.",
 	category: "sources",
-	runtimeProfile: customWidgetProfile,
+	runtimeProfileIds: ["demo16.trusted-widgets.v1"] as const,
 	sources: Object.freeze([
 		Object.freeze({
 			key: "schema-hints",

@@ -2,16 +2,17 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import "./globals.css";
 import { demos } from "./demos/index";
 import { PlaygroundPage } from "./playground/PlaygroundPage";
-import { compatibilityMatrix, getCompatibility } from "./playground/presets";
+import { getPlaygroundCompatibility } from "./playground/examples";
 import { type AppRoute, readRoute, resolveRoute, routeUrl } from "./playground/route";
 import { Button, ScrollArea, cn } from "./ui";
 
 const demoIds = demos.map((demo) => demo.id);
+const compatibility = getPlaygroundCompatibility();
 
 function useAppRoute() {
-	const [route, setRoute] = useState(() => readRoute(new URL(window.location.href), demoIds, compatibilityMatrix));
+	const [route, setRoute] = useState(() => readRoute(new URL(window.location.href), demoIds, compatibility));
 	useEffect(() => {
-		const onPopState = () => setRoute(readRoute(new URL(window.location.href), demoIds, compatibilityMatrix));
+		const onPopState = () => setRoute(readRoute(new URL(window.location.href), demoIds, compatibility));
 		window.addEventListener("popstate", onPopState);
 		return () => window.removeEventListener("popstate", onPopState);
 	}, []);
@@ -19,7 +20,7 @@ function useAppRoute() {
 		window.history.replaceState(null, "", routeUrl(new URL(window.location.href), route));
 	}, [route]);
 	const navigate = useCallback((next: AppRoute) => {
-		const { route, url } = resolveRoute(new URL(window.location.href), next, demoIds, compatibilityMatrix);
+		const { route, url } = resolveRoute(new URL(window.location.href), next, demoIds, compatibility);
 		window.history.pushState(null, "", url);
 		setRoute(route);
 	}, []);
@@ -27,19 +28,20 @@ function useAppRoute() {
 }
 
 function playgroundRoute(demoId: string): AppRoute {
-	const presets = getCompatibility(demoId).presets;
+	const presets = compatibility.find((entry) => entry.demoId === demoId)?.presets ?? [];
 	return { mode: "playground", demoId, ...(presets.length > 1 ? { preset: presets[0].variant } : {}) };
 }
 
 export function App() {
 	const { route, navigate } = useAppRoute();
-	const hasPlayground = compatibilityMatrix.some((entry) => entry.demoId === route.demoId);
+	const hasPlayground = compatibility.some((entry) => entry.demoId === route.demoId && entry.support === "full");
 	if (route.mode === "playground" && hasPlayground) {
 		return (
 			<PlaygroundPage
 				demoId={route.demoId}
 				{...(route.preset ? { variant: route.preset } : {})}
 				onClose={() => navigate({ mode: "demo", demoId: route.demoId })}
+				onDemoChange={(demoId) => navigate(playgroundRoute(demoId))}
 				onPresetChange={(preset) => navigate({ ...route, preset })}
 			/>
 		);
@@ -56,7 +58,7 @@ export function App() {
 							className="border-primary bg-primary text-primary-foreground"
 							onClick={() => navigate(playgroundRoute(route.demoId))}
 						>
-							Open compilation playground
+							Open in Playground
 						</Button>
 					</div>
 				) : null}

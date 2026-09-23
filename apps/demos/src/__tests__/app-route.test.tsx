@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { createRoot } from "react-dom/client";
-import type { Root } from "react-dom/client";
+import { type Root, createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App";
+import { demos } from "../demos/registry";
+import { exampleVariant, getPlaygroundExamples } from "../playground/examples";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -41,104 +42,58 @@ async function traverseHistory(move: () => void): Promise<void> {
 	});
 }
 
-describe("App route history", () => {
-	it("resolves all six runtime demo routes directly and through history", () => {
-		const routes = [
-			["rich-validation", "6. Rich Validation"],
-			["array-items", "8. Array/Repeatable Items"],
-			["search-filters", "11. Search Filter Bar"],
-			["order-entry", "14. Order / Invoice Entry"],
-			["arbiter-calculated", "19. Arbiter: Calculated Fields"],
-			["arbiter-validation-gating", "20. Arbiter: Validation Gating"],
-		] as const;
-		const view = mount(`/?mode=demo&demo=${routes[0][0]}`);
-		expect(view.textContent).toContain(routes[0][1]);
-		for (const [id, title] of routes.slice(1)) {
+describe("App registry-derived routes", () => {
+	it("resolves every numbered demo directly in numeric order", () => {
+		const numbered = demos.filter(({ number }) => number !== undefined);
+		const view = mount(`/?mode=demo&demo=${numbered[0].id}`);
+		for (const demo of numbered) {
 			act(() => {
-				window.history.pushState(null, "", `/?mode=demo&demo=${id}`);
+				window.history.pushState(null, "", `/?mode=demo&demo=${demo.id}`);
 				window.dispatchEvent(new PopStateEvent("popstate"));
 			});
-			expect(view.textContent).toContain(title);
-			expect(window.location.search).toBe(`?mode=demo&demo=${id}`);
+			expect(view.textContent, demo.id).toContain(demo.title);
+			expect(button(view, "Open in Playground"), demo.id).toBeDefined();
 		}
 	});
 
-	it("resolves both extension demo routes directly and through history", () => {
+	it("deep-links every playground example through the production renderer", () => {
+		const view = mount("/?mode=playground&demo=basic-contact");
+		for (const example of getPlaygroundExamples()) {
+			const variant = exampleVariant(example);
+			act(() => {
+				window.history.pushState(null, "", `/?mode=playground&demo=${example.demoId}&preset=${variant}`);
+				window.dispatchEvent(new PopStateEvent("popstate"));
+			});
+			expect(view.textContent, example.key).toContain("Interactive playground");
+			if (!example.runtime.arbiterRules) expect(view.querySelector("form"), example.key).not.toBeNull();
+		}
+	});
+
+	it("canonicalizes invalid IDs and presets without dropping unrelated URL state", () => {
+		const view = mount("/formbar/?theme=dark&mode=playground&demo=missing&preset=bogus#docs");
+		expect(view.textContent).toContain("Interactive playground");
+		expect(window.location.pathname).toBe("/formbar/");
+		expect(window.location.hash).toBe("#docs");
+		expect(window.location.search).toBe("?theme=dark&mode=playground&demo=basic-contact&preset=default");
+	});
+
+	it("opens from a demo and closes back to the same demo", () => {
 		const view = mount("/?mode=demo&demo=custom-renderers");
-		expect(view.textContent).toContain("16. Custom Renderers");
+		act(() => button(view, "Open in Playground").click());
+		expect(window.location.search).toBe("?mode=playground&demo=custom-renderers&preset=schema-hints");
+		expect(view.textContent).toContain("Interactive playground");
+		act(() => button(view, "← Demo").click());
 		expect(window.location.search).toBe("?mode=demo&demo=custom-renderers");
-		act(() => {
-			window.history.pushState(null, "", "/?mode=demo&demo=custom-layout-types");
-			window.dispatchEvent(new PopStateEvent("popstate"));
-		});
-		expect(view.textContent).toContain("17. Custom Layout Types");
-		expect(window.location.search).toBe("?mode=demo&demo=custom-layout-types");
+		expect(view.textContent).toContain("16. Custom Renderers");
 	});
 
-	it("canonicalizes a direct unsupported playground load to normal demo mode", () => {
-		const view = mount("/?mode=playground&demo=basic-contact&preset=fallback");
-		expect(view.textContent).toContain("1. Basic Contact Form");
-		expect(view.textContent).not.toContain("Compilation playground");
-		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
-	});
-
-	it("canonicalizes a direct invalid preset to the actual playground default", () => {
-		const view = mount("/?mode=playground&demo=schema-compilation&preset=bogus");
-		expect(view.textContent).toContain("Compilation playground");
-		expect(view.textContent).toContain("Compilation preview loaded.");
-		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation&preset=default");
-	});
-
-	it("navigates the compatible compilation demo into its valid playground", () => {
+	it("keeps playground navigation in browser back and forward history", async () => {
 		const view = mount("/?mode=demo&demo=basic-contact");
-		act(() => button(view, "Compilation preview").click());
-		expect(window.location.search).toBe("?mode=demo&demo=schema-compilation");
-		act(() => button(view, "Open compilation playground").click());
-		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation");
-		expect(view.textContent).toContain("Compilation playground");
-	});
-
-	it("canonicalizes unsupported playground state received through popstate", () => {
-		const view = mount("/?mode=playground&demo=schema-compilation");
-		expect(view.textContent).toContain("Compilation playground");
-		act(() => {
-			window.history.pushState(null, "", "/?mode=playground&demo=basic-contact");
-			window.dispatchEvent(new PopStateEvent("popstate"));
-		});
-		expect(view.textContent).toContain("1. Basic Contact Form");
-		expect(view.textContent).not.toContain("Compilation playground");
-		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
-	});
-
-	it("canonicalizes invalid preset and unsupported-demo popstate entries without adding history", () => {
-		const view = mount("/?mode=playground&demo=schema-compilation");
-		const initialLength = window.history.length;
-		act(() => {
-			window.history.pushState(null, "", "/?mode=playground&demo=schema-compilation&preset=bogus");
-			window.dispatchEvent(new PopStateEvent("popstate"));
-		});
-		expect(window.history.length).toBe(initialLength + 1);
-		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation&preset=default");
-		expect(view.textContent).toContain("Compilation preview loaded.");
-		act(() => {
-			window.history.pushState(null, "", "/?mode=playground&demo=basic-contact&preset=bogus");
-			window.dispatchEvent(new PopStateEvent("popstate"));
-		});
-		expect(window.history.length).toBe(initialLength + 2);
-		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
-		expect(view.textContent).toContain("1. Basic Contact Form");
-	});
-
-	it("keeps valid playground behavior through browser back and forward", async () => {
-		const view = mount("/?mode=demo&demo=basic-contact");
-		act(() => button(view, "Compilation preview").click());
-		act(() => button(view, "Open compilation playground").click());
-		expect(view.textContent).toContain("Compilation playground");
+		act(() => button(view, "Open in Playground").click());
+		expect(view.textContent).toContain("Interactive playground");
 		await traverseHistory(() => window.history.back());
-		expect(window.location.search).toBe("?mode=demo&demo=schema-compilation");
-		expect(view.textContent).not.toContain("Compilation playground");
+		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
 		await traverseHistory(() => window.history.forward());
-		expect(window.location.search).toBe("?mode=playground&demo=schema-compilation");
-		expect(view.textContent).toContain("Compilation playground");
+		expect(window.location.search).toBe("?mode=playground&demo=basic-contact");
 	});
 });

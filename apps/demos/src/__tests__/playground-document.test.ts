@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { SOURCE_LIMIT_BYTES } from "../playground/contracts";
 import { parseDocument, stringifyDocument } from "../playground/document";
-import { getPreset } from "../playground/presets";
+import { getPlaygroundExample } from "../playground/examples";
 
 function validSources() {
-	const preset = getPreset("schema-compilation");
+	const preset = getPlaygroundExample("schema-compilation");
 	if (!preset) throw new Error("missing test preset");
 	return stringifyDocument(preset.document);
 }
@@ -12,7 +12,7 @@ function validSources() {
 describe("playground document v2", () => {
 	it.each([
 		["schema", "[]", "object"],
-		["definition", "[]", "object or null"],
+		["definition", "[]", "object"],
 		["initialData", "[]", "object"],
 	] as const)("reports a shape error for %s", (key, value, message) => {
 		const result = parseDocument({ ...validSources(), [key]: value });

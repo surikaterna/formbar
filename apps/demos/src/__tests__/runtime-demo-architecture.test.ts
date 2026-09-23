@@ -12,6 +12,7 @@ import { orderEntrySchema } from "../demos/14-order-entry";
 import { arbiterCalculatedData, arbiterCalculatedUiState } from "../demos/19-arbiter-calculated";
 import { arbiterValidationData, arbiterValidationSchema } from "../demos/20-arbiter-validation-gating";
 import { demos } from "../demos/index";
+import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
 
 const ids = [
 	"rich-validation",
@@ -74,12 +75,9 @@ describe("runtime demo architecture", () => {
 			expect(registered.sources[0].key, id).toBe("default");
 			expect(registered.sources[0].definition, id).toBeDefined();
 		}
-		expect(fixture("search-filters").runtimeProfile?.id).toBe("demo11.search-actions.v1");
-		expect(fixture("search-filters").runtimeProfile?.actions?.map((action) => action.id)).toEqual([
-			"demo11.apply-filters",
-		]);
-		expect(fixture("rich-validation").runtimeProfile?.id).toBe("demo16.trusted-widgets.v1");
-		expect(fixture("array-items").runtimeProfile?.id).toBe("demo16.trusted-widgets.v1");
+		expect(fixture("search-filters").runtimeProfileIds).toEqual(["demo11.search-actions.v1"]);
+		expect(fixture("rich-validation").runtimeProfileIds).toEqual(["demo16.trusted-widgets.v1"]);
+		expect(fixture("array-items").runtimeProfileIds).toEqual(["demo16.trusted-widgets.v1"]);
 		expect(fixture("arbiter-calculated").sources[0].arbiterRules).toBeDefined();
 		expect(fixture("arbiter-validation-gating").sources[0].arbiterRules).toBeDefined();
 	});
@@ -269,12 +267,13 @@ describe("runtime demo architecture", () => {
 				initialData: source.initialData,
 				initialUiState: source.initialUiState ?? {},
 			});
+			const profile = resolveTrustedRuntimeProfiles(["formbar.standard.v1", ...(demo.runtimeProfileIds ?? [])]);
 			const html = renderToString(
 				createElement(FormRenderer<Record<string, unknown>, Record<string, unknown>>, {
 					...prepared,
 					form,
-					extensions: demo.runtimeProfile?.extensions,
-					actions: demo.runtimeProfile?.actions,
+					extensions: profile.extensions,
+					actions: profile.actions,
 				}),
 			);
 			expect(html, id).toContain("data-formbar-definition");

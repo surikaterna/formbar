@@ -41,10 +41,9 @@ function parseSource(key: SourceKey, source: string, errors: SourceErrors): unkn
 
 function validateShapes(values: Record<SourceKey, unknown>, errors: SourceErrors): void {
 	if (!errors.schema && !isRecord(values.schema)) errors.schema = "Schema must be a JSON object";
-	if (!errors.definition && values.definition !== null && !isRecord(values.definition))
-		errors.definition = "Definition must be an object or null";
+	if (!errors.definition && !isRecord(values.definition)) errors.definition = "Definition must be a JSON object";
 	if (!errors.initialData && !isRecord(values.initialData)) errors.initialData = "Initial Data must be a JSON object";
-	if (!errors.definition && values.definition !== null) {
+	if (!errors.definition) {
 		const result = validateFormDefinition(values.definition);
 		if (!result.ok) errors.definition = `Definition is invalid: ${result.diagnostics[0]?.message ?? "unknown error"}`;
 	}
@@ -56,9 +55,7 @@ function preflight(values: Record<SourceKey, unknown>, errors: SourceErrors): vo
 		createSchemaForm(values.schema, {
 			provider: jsonSchemaProvider({ dialect: "draft-2020-12" }),
 			side: "input",
-			...(values.definition === null
-				? {}
-				: { definition: values.definition as Exclude<PlaygroundDocument["definition"], null> }),
+			definition: values.definition as PlaygroundDocument["definition"],
 		});
 	} catch (error) {
 		errors.schema = `Schema compilation failed: ${error instanceof Error ? error.message : String(error)}`;

@@ -1,7 +1,5 @@
 import type { FormDefinition } from "@formbar/declarative";
-import { jsonSchemaProvider } from "@formbar/from-schema";
-import { useFormSelector } from "@formbar/react";
-import { useSchemaForm } from "@formbar/react-schema";
+import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { CodeBlock } from "./CodeBlock";
 
 interface CompilationPreviewProps {
@@ -11,13 +9,11 @@ interface CompilationPreviewProps {
 }
 
 export function CompilationPreview({ schema, definition, initialData }: CompilationPreviewProps) {
-	const prepared = useSchemaForm<Record<string, unknown>, Record<string, unknown>>(schema, {
+	const prepared = createSchemaForm<Record<string, unknown>, Record<string, unknown>>(schema, {
 		provider: jsonSchemaProvider({ dialect: "draft-2020-12" }),
 		side: "input",
 		...(definition ? { definition } : {}),
-		...(initialData ? { initialData } : {}),
 	});
-	const data = useFormSelector(prepared.form, (state) => state.data);
 	return (
 		<main className="mx-auto max-w-6xl p-6 md:p-10">
 			<section className="rounded-lg border border-info bg-info-background p-4">
@@ -30,7 +26,7 @@ export function CompilationPreview({ schema, definition, initialData }: Compilat
 				<CodeBlock title="Validated FormDefinition v1" code={prepared.definition} />
 				<CodeBlock title="Descriptor document and evidence" code={prepared.descriptors} />
 				<CodeBlock title="Separated diagnostics" code={prepared.diagnostics} />
-				<CodeBlock title="Current core data (read-only)" code={data} />
+				<CodeBlock title="Initial data (read-only)" code={initialData ?? {}} />
 			</div>
 		</main>
 	);
