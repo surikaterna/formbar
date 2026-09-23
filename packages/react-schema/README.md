@@ -35,6 +35,19 @@ const extensions = {
 
 Definitions and schemas contain only allowlisted IDs and JSON props. Components, validators, imports, form APIs, runtime ports, and recursive render callbacks never enter serialized data. Unknown, colliding, invalid, or throwing extensions fail closed with accessible diagnostics. Extension components receive only the typed `WidgetProps` or `RendererContext` contract; custom-node children are pre-rendered by the same renderer traversal.
 
+Trusted action handlers are a separate capability registry, not renderer
+extensions:
+
+```tsx
+const actions = [{ id: "app.save-draft", handler: saveDraft }] as const;
+<FormRenderer {...prepared} actions={actions} />;
+```
+
+An authored `ActionNode` renders one native accessible button at its declared
+position. Submit actions use core submission and the root form's single lifecycle
+announcement; other actions expose adjacent pending/result status. Unknown IDs
+and invalid payloads or targets render disabled with code-only diagnostics.
+
 Use `@formbar/from-schema` directly outside React, `@formbar/react` for hand-authored React controls, and `@formbar/declarative` to author presentation intent. Registrations are local to a `FormRenderer`; there is no global registry, remote loading, built-in override, runtime injection, styling system, or demo-specific behavior.
 
 See [Schema compilation architecture](../../docs/architecture/schema-compilation.md).

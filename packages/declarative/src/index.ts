@@ -19,6 +19,7 @@ export type {
 	WriteResult,
 } from "@formbar/expressions";
 export type * from "./actions.js";
+export { createActionExecutor } from "./action-executor.js";
 export type * from "./bindings.js";
 export type * from "./computations.js";
 export type * from "./definition.js";

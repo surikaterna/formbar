@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import * as api from "../index.js";
 import type {
+	ActionHandler,
+	ActionHandlerContext,
+	ActionRegistration,
+	ActionRequest,
 	CustomNodeRegistration,
 	ExtensionPolicy,
 	ExtensionProps,
@@ -30,6 +34,10 @@ type PublicExtensionTypes = [
 	CustomNodeRegistration,
 	RendererExtensions,
 	RendererDiagnostic,
+	ActionHandler,
+	ActionHandlerContext,
+	ActionRegistration,
+	ActionRequest,
 ];
 
 const publicExtensionTypesCompile: PublicExtensionTypes | undefined = undefined;

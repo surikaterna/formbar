@@ -24,6 +24,9 @@ runtime.dispose();
 form.dispose();
 ```
 
+`form.onReset(listener)` observes every authoritative reset without owning a state
+subscription. Listener failures are contained and cannot prevent reset.
+
 The adapter acquires subscriptions only when the service is observed. Disposal
 invalidates retained setters and clears rendered values. Root reads are supported;
 use `form.reset` for root replacement, not a writable root expression. See the

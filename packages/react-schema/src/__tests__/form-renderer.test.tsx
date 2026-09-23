@@ -151,7 +151,7 @@ describe("FormRenderer evidence and fallbacks", () => {
 		);
 		expect(codes).toEqual([
 			"unsupported-node",
-			"unsupported-node",
+			"unknown-action",
 			"missing-extension",
 			"missing-extension",
 			"unsupported-binding",

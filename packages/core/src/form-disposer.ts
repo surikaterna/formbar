@@ -10,6 +10,7 @@ interface Resources {
 	readonly pluginDisposers: (() => void)[];
 	readonly middlewares: readonly DisposalHook[];
 	clearFields(): void;
+	clearResetListeners?(): void;
 	disposeStore(): void;
 }
 
@@ -24,6 +25,7 @@ export function createFormDisposer(signal: ReturnType<typeof createDisposalSigna
 			...resources.pluginDisposers.splice(0),
 			...resources.middlewares.map((middleware) => () => middleware.onDispose?.()),
 			resources.clearFields,
+			...(resources.clearResetListeners ? [resources.clearResetListeners] : []),
 			resources.disposeStore,
 		]);
 	};

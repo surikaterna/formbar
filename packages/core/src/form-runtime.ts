@@ -19,6 +19,7 @@ import { parsePath } from "./path-parser.js";
 import type { CanonicalPath } from "./path.js";
 import { executePipeline } from "./pipeline.js";
 import type { FormPlugin, PluginInitContext } from "./plugin-types.js";
+import { createResetSignal } from "./reset-signal.js";
 import { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
 import { createFormStateCapture } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
@@ -74,6 +75,7 @@ export class FormRuntime<TData, TUi> {
 	private readonly coordinator: ValidationCoordinator<TData, TUi>;
 	private readonly submitHandler: ReturnType<typeof createSubmitHandler<TData, TUi>>;
 	private readonly disposal = createDisposalSignal();
+	private readonly resetSignal = createResetSignal();
 	private readonly api: FormApi<TData, TUi>;
 
 	constructor(private readonly options: CreateFormOptions<TData, TUi>) {
@@ -308,6 +310,7 @@ export class FormRuntime<TData, TUi> {
 		this.store.commitTransaction(tx);
 		this.fieldCache.clear();
 		this.listeners.clear();
+		this.resetSignal.notify();
 		for (const plugin of this.plugins) plugin.onReset?.();
 	};
 
@@ -332,6 +335,7 @@ export class FormRuntime<TData, TUi> {
 			isTouched: () => computeIsTouched(this.store.getState()),
 			isDisposed: this.disposal.isDisposed,
 			onDispose: this.disposal.onDispose,
+			onReset: this.resetSignal.onReset,
 			getDisposalDiagnostics: this.disposal.getDiagnostics,
 			dispose: this.createDispose(),
 		};
@@ -353,6 +357,7 @@ export class FormRuntime<TData, TUi> {
 			pluginDisposers: this.pluginDisposers,
 			middlewares: this.options.middleware ?? [],
 			clearFields: () => this.fieldCache.clear(),
+			clearResetListeners: () => this.resetSignal.clear(),
 			disposeStore: () => this.store.dispose(),
 		});
 	}

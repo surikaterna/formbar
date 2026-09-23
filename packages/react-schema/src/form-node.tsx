@@ -1,7 +1,14 @@
-import type { FormNode, ResolvedFieldState, ResolvedOutputState, RuntimeResolvedNodeState } from "@formbar/declarative";
+import type {
+	FormNode,
+	ResolvedActionState,
+	ResolvedFieldState,
+	ResolvedOutputState,
+	RuntimeResolvedNodeState,
+} from "@formbar/declarative";
 import { fieldId } from "@formbar/react";
 import { memo } from "react";
 import type { ReactElement } from "react";
+import { ActionNodeView } from "./action-node.js";
 import { AccordionView, TabsView } from "./collection-nodes.js";
 import { CustomNodeView } from "./extension-node.js";
 import { FormField, FormValidation } from "./form-field.js";
@@ -21,12 +28,9 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 	const layout = layoutProps(spanOutput(node.presentation?.span));
 	if (!state) return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 	if (!state.visible) return null;
-	if (node.type === "field") {
-		if (!isResolvedFieldState(state))
-			return <DiagnosticFallback code="unsupported-node" nodeId={node.id} widget={node.widget} layout={layout} />;
-		return <FormField node={node} state={state} environment={environment} layout={layout} />;
-	}
+	if (node.type === "field") return renderField(node, state, environment, layout);
 	if (node.type === "output") return renderOutput(node, state, environment, layout);
+	if (node.type === "action") return renderAction(node, state, environment, layout);
 	if (node.type === "validation")
 		return <FormValidation node={node} environment={environment} visible={state.visible} layout={layout} />;
 	if (node.type === "group") return renderGroup(node, environment, layout);
@@ -64,6 +68,28 @@ export const FormNodeView = memo(function FormNodeView({ node, environment }: Fo
 		);
 	return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
 });
+
+function renderField(
+	node: Extract<FormNode, { type: "field" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	if (!isResolvedFieldState(state))
+		return <DiagnosticFallback code="unsupported-node" nodeId={node.id} widget={node.widget} layout={layout} />;
+	return <FormField node={node} state={state} environment={environment} layout={layout} />;
+}
+
+function renderAction(
+	node: Extract<FormNode, { type: "action" }>,
+	state: RuntimeResolvedNodeState,
+	environment: RendererEnvironment,
+	layout: ReturnType<typeof layoutProps>,
+): ReactElement {
+	if (!isResolvedActionState(state))
+		return <DiagnosticFallback code="unsupported-node" nodeId={node.id} layout={layout} />;
+	return <ActionNodeView node={node} state={state} environment={environment} layout={layout} />;
+}
 
 function renderOutput(
 	node: Extract<FormNode, { type: "output" }>,
@@ -153,4 +179,8 @@ function isResolvedFieldState(state: RuntimeResolvedNodeState): state is Resolve
 
 function isResolvedOutputState(state: RuntimeResolvedNodeState): state is ResolvedOutputState {
 	return state.type === "output" && "output" in state;
+}
+
+function isResolvedActionState(state: RuntimeResolvedNodeState): state is ResolvedActionState {
+	return state.type === "action" && "action" in state && "payload" in state;
 }

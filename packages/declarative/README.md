@@ -37,6 +37,15 @@ The runtime uses the existing expression service and core namespaces. `form` ref
 
 Output nodes are pure snapshot projections. A visible output evaluates its `value` expression against the same captured state as the rest of the runtime and exposes either its raw JSON value or a code-only failure. Hidden outputs are not evaluated. The optional `label` is presentation metadata, and `format` is one of `plain`, `number`, `currency-usd`, or `percent`; formatting is renderer-owned and never changes form data, field lifecycle, validation, reset state, or submission payloads.
 
+Action nodes contain only a trusted string ID and optional JSON-valued payload
+expression. `createActionExecutor({ form, runtime, actions? })` executes the
+reserved `submit`, `reset`, `validate`, and five `array.*` IDs through existing
+core authority. Other IDs resolve only through the immutable host registration
+list. Execution is isolated per concrete node instance with `drop` (default),
+`replace`, or FIFO `queue` concurrency; payloads and snapshots are re-evaluated
+when a run starts. Results and diagnostics are code-only, and reset or disposal
+aborts active and queued work even when a trusted handler ignores its signal.
+
 `StoredComputation` declarations currently receive static duplicate-target and cycle validation only; the runtime does not execute or persist them. Atomic stored computation lifecycle is tracked separately in [#129](https://github.com/surikaterna/formbar/issues/129). Consumers must not treat accepted declarations as persisted calculations until that work is delivered.
 
 ## Non-ownership

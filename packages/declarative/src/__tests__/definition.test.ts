@@ -107,6 +107,29 @@ describe("version 1 form definitions", () => {
 		}
 	});
 
+	it("validates exact action concurrency, target, and built-in payload contracts", () => {
+		const valid = completeDefinition() as { root: { children: unknown[] } };
+		valid.root.children.push({
+			type: "action",
+			id: "append",
+			action: "array.append",
+			concurrency: "queue",
+			target: binding(["orders"]),
+			payload: literal("new"),
+		});
+		expect(validateFormDefinition(valid).ok).toBe(true);
+		for (const node of [
+			{ type: "action", id: "missing-target", action: "array.remove" },
+			{ type: "action", id: "missing-payload", action: "array.append", target: binding(["orders"]) },
+			{ type: "action", id: "submit-payload", action: "submit", payload: literal("secret") },
+			{ type: "action", id: "custom-target", action: "save", target: binding(["orders"]) },
+			{ type: "action", id: "bad-mode", action: "save", concurrency: "parallel" },
+		]) {
+			const result = validateFormDefinition({ version: 1, id: "action", root: node });
+			expect(result).toMatchObject({ ok: false });
+		}
+	});
+
 	it("rejects executable, accessor, symbol, non-finite, and unsafe-prototype input without invoking it", () => {
 		const getter = vi.fn(() => "root");
 		const accessor = {
