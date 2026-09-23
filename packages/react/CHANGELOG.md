@@ -1,5 +1,11 @@
 # @formbar/react
 
+## 0.14.1
+
+### Patch Changes
+
+- a25e705: Restore server rendering and hydration for forms created with `useForm` by providing React a stable server snapshot reader.
+
 ## 0.14.0
 
 ### Patch Changes
