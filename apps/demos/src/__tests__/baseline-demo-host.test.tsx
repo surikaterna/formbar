@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { basicContactDemo } from "../demos/01-basic-contact";
 import { userProfileDemo } from "../demos/02-user-profile";
 import { nestedAddressDemo } from "../demos/03-nested-address";
@@ -31,11 +31,14 @@ afterEach(() => {
 	}
 });
 
-function mount(fixture: SchemaDemoFixture): MountedHost {
+function mount(
+	fixture: SchemaDemoFixture,
+	onSubmit?: (payload: Readonly<Record<string, unknown>>) => void,
+): MountedHost {
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
-	act(() => root.render(<SchemaDemoHost fixture={fixture} />));
+	act(() => root.render(<SchemaDemoHost fixture={fixture} onSubmit={onSubmit} />));
 	const view = { container, root };
 	mounted.push(view);
 	return view;
@@ -204,6 +207,36 @@ describe("lifecycle and accessibility", () => {
 });
 
 describe("source and responsive presentation", () => {
+	it("submits and resets historical free-text DOB and phone through the production host", async () => {
+		const onSubmit = vi.fn();
+		const view = mount(responsiveSectionsDemo, onSubmit);
+		const dob = control(view, "Date of Birth") as HTMLInputElement;
+		const phone = control(view, "Emergency Contact Phone") as HTMLInputElement;
+		expect(dob.type).toBe("text");
+		expect(phone.type).toBe("text");
+		expect(dob.getAttribute("aria-describedby")).toBeTruthy();
+		expect(document.getElementById(dob.getAttribute("aria-describedby") ?? "")?.textContent).toContain(
+			"YYYY-MM-DD format",
+		);
+		input(control(view, "First Name") as HTMLInputElement, "Ada");
+		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
+		input(dob, "not-a-date");
+		input(phone, "extension pending");
+		expect([dob.value, phone.value]).toEqual(["not-a-date", "extension pending"]);
+		await click(view, "Submit");
+		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
+		expect(onSubmit).toHaveBeenCalledOnce();
+		expect(onSubmit.mock.calls[0][0]).toMatchObject({
+			firstName: "Ada",
+			lastName: "Lovelace",
+			dateOfBirth: "not-a-date",
+			emergencyContactPhone: "extension pending",
+		});
+		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
+		await click(view, "Reset");
+		expect([dob.value, phone.value]).toEqual(["", ""]);
+	});
+
 	it("remounts the same host path when the JSON Schema detail level changes", () => {
 		const view = mount(multiSchemaSourcesDemo);
 		const name = view.container.querySelector('form input[type="text"]') as HTMLInputElement;
