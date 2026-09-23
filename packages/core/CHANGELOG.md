@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.12.0
+
+### Minor Changes
+
+- ce05dcf: Add serialized declarative actions with core-authoritative built-ins, abort-safe instance concurrency, trusted host handlers, and accessible React action controls.
+
 ## 0.8.0
 
 ### Minor Changes
