@@ -1,6 +1,7 @@
 import type { Expression, JsonValue, Scopes } from "@formbar/expressions";
 import type { DiagnosticPathSegment } from "../diagnostics.js";
 import type { BaseNode, FormNode, OutputFormat } from "../nodes.js";
+import { actionNode } from "./actions.js";
 import { binding } from "./bindings.js";
 import { type NodeContext, diagnostic } from "./context.js";
 import { expression, props } from "./expressions.js";
@@ -13,7 +14,7 @@ const KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	section: ["title", "description", "children"],
 	field: ["binding", "widget", "label", "required", "props"],
 	repeater: ["binding", "scope", "children", "minItems", "maxItems"],
-	action: ["action", "label", "payload", "props"],
+	action: ["action", "label", "payload", "concurrency", "target", "props"],
 	output: ["value", "label", "format", "props"],
 	conditional: ["condition", "then", "else"],
 	tabs: ["tabs"],
@@ -75,7 +76,8 @@ function specificNode(
 	if (type === "group" || type === "section") return containerNode(type, source, path, context, base);
 	if (type === "field") return fieldNode(source, path, context, base);
 	if (type === "repeater") return repeaterNode(source, path, context, base);
-	if (type === "action" || type === "output") return valueNode(type, source, path, context, base);
+	if (type === "action") return actionNode(source, path, context, base);
+	if (type === "output") return outputNode(source, path, context, base);
 	if (type === "conditional") return conditionalNode(source, path, context, base);
 	if (type === "tabs" || type === "accordion") return collectionNode(type, source, path, context, base);
 	if (type === "validation") return validationNode(source, path, context, base);
@@ -155,36 +157,20 @@ function repeaterNode(
 	});
 }
 
-function valueNode(
-	type: "action" | "output",
+function outputNode(
 	source: JsonRecord,
 	path: readonly DiagnosticPathSegment[],
 	context: NodeContext,
 	base: BaseNode,
 ): FormNode | undefined {
 	const definitions = props(source.props, [...path, "props"], context.scopes, context);
-	if (type === "action") {
-		const action = identifier(source.action, [...path, "action"], context);
-		const label = optionalString(source.label, [...path, "label"], context);
-		const payload = optionalExpression(source.payload, [...path, "payload"], context);
-		return action
-			? Object.freeze({
-					...base,
-					type,
-					action,
-					...(label === undefined ? {} : { label }),
-					...(payload ? { payload } : {}),
-					...(definitions ? { props: definitions } : {}),
-				})
-			: undefined;
-	}
 	const value = requiredExpression(source.value, [...path, "value"], context);
 	const label = optionalString(source.label, [...path, "label"], context);
 	const format = outputFormat(source.format, [...path, "format"], context);
 	return value
 		? Object.freeze({
 				...base,
-				type,
+				type: "output",
 				value,
 				...(label === undefined ? {} : { label }),
 				...(format === undefined ? {} : { format }),

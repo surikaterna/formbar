@@ -67,6 +67,23 @@ describe("form.reset()", () => {
 		form.dispose();
 	});
 
+	it("observes every reset and contains listener failures", () => {
+		const form = createForm({ initialData: { name: "Alice" } });
+		const resets: string[] = [];
+		form.onReset(() => {
+			throw new Error("private reset failure");
+		});
+		const unsubscribe = form.onReset(() => resets.push("reset"));
+		form.setValue("name", "Bob");
+		expect(() => form.reset()).not.toThrow();
+		expect(form.getState().data).toEqual({ name: "Alice" });
+		expect(resets).toEqual(["reset"]);
+		unsubscribe();
+		form.reset();
+		expect(resets).toEqual(["reset"]);
+		form.dispose();
+	});
+
 	it("reset({data: newData}) resets to new initial values", () => {
 		const form = createForm({ initialData: { name: "Alice" } });
 		form.setValue("name", "Bob");

@@ -43,11 +43,15 @@ export interface RepeaterNode extends BaseNode {
 	readonly maxItems?: number;
 }
 
+export type ActionConcurrency = "drop" | "replace" | "queue";
+
 export interface ActionNode extends BaseNode {
 	readonly type: "action";
 	readonly action: string;
 	readonly label?: string;
 	readonly payload?: Expression;
+	readonly concurrency?: ActionConcurrency;
+	readonly target?: Binding;
 	readonly props?: ExtensionProps;
 }
 

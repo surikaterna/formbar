@@ -3,6 +3,7 @@ import type { Expression, JsonValue, Scopes, StateRef } from "@formbar/expressio
 import type { ValidatedFormDefinition } from "./definition.js";
 import { fieldContributions, mergeFieldRestrictions, resolveFieldState } from "./field-state.js";
 import type { FormNode } from "./nodes.js";
+import { resolveActionState } from "./runtime-action-state.js";
 import type {
 	ResolvedFieldState,
 	ResolvedNodeState,
@@ -28,6 +29,7 @@ interface ConcreteNode {
 	readonly parentKey?: string;
 	readonly requiredBranch?: "then" | "else";
 	readonly binding?: StateRef;
+	readonly target?: StateRef;
 }
 
 interface ExpandFrame {
@@ -90,6 +92,7 @@ function expandNode(
 ): void {
 	const instance = createInstance(node.id, frame.scopeInstances);
 	const binding = "binding" in node ? safeBinding(node.binding, frame.scopes) : undefined;
+	const target = node.type === "action" && node.target ? safeBinding(node.target, frame.scopes) : undefined;
 	output.push({
 		node,
 		instance,
@@ -97,6 +100,7 @@ function expandNode(
 		...(frame.parentKey ? { parentKey: frame.parentKey } : {}),
 		...(frame.requiredBranch ? { requiredBranch: frame.requiredBranch } : {}),
 		...(binding ? { binding } : {}),
+		...(target ? { target } : {}),
 	});
 	const childFrame = { scopes: frame.scopes, scopeInstances: frame.scopeInstances, parentKey: instance.instanceKey };
 	if (node.type === "repeater") expandRepeater(node, binding, childFrame, state, output);
@@ -198,6 +202,16 @@ function resolveNode(
 	});
 	if (concrete.node.type === "output")
 		return { node: resolveOutput(context, concrete, nodeState, concrete.node.value) };
+	if (concrete.node.type === "action")
+		return {
+			node: resolveActionState({
+				node: concrete.node,
+				nodeState,
+				...(concrete.target ? { target: concrete.target } : {}),
+				frame: expressionFrame(context, concrete),
+				diagnostics: context.diagnostics,
+			}),
+		};
 	if (concrete.node.type !== "field" || !concrete.binding) return { node: nodeState as RuntimeResolvedNodeState };
 	nodeState = mergeFieldRestrictions(nodeState, fieldContributions(context.state, concrete.binding));
 	const conditionalRequired =

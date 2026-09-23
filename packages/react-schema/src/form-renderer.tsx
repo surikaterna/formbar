@@ -1,6 +1,6 @@
 import { structuredEqual } from "@formbar/core";
 import type { FormState, ValidationIssue } from "@formbar/core";
-import type { FieldNode, FormNode, ResolvedFieldState } from "@formbar/declarative";
+import type { ActionRegistration, FieldNode, FormNode, ResolvedFieldState } from "@formbar/declarative";
 import type { DescriptorDocument } from "@formbar/from-schema";
 import { fieldId, useFormSelector } from "@formbar/react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -11,12 +11,14 @@ import { FormNodeView } from "./form-node.js";
 import { DiagnosticFallback } from "./renderer-elements.js";
 import { domIdToken, focusableField } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
+import { useOwnedActionExecutor } from "./use-action-executor.js";
 import { useOwnedRuntime } from "./use-runtime-observation.js";
 import type { UseSchemaFormResult } from "./use-schema-form.js";
 
 export interface FormRendererProps<TData = unknown, TUi = unknown>
 	extends Pick<UseSchemaFormResult<TData, TUi>, "form" | "descriptors" | "definition" | "baseline"> {
 	readonly extensions?: RendererExtensions;
+	readonly actions?: readonly ActionRegistration[];
 }
 
 export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): ReactElement {
@@ -39,6 +41,7 @@ export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): 
 			</div>
 			{model.root.submitted && model.hasErrors ? <ErrorSummary id={model.summaryId} entries={model.summary} /> : null}
 			<RegistryDiagnostics extensions={model.environment.extensions} />
+			<ActionRegistryDiagnostics executor={model.environment.actions} />
 			<FormNodeView node={props.definition.root} environment={model.environment} />
 		</form>
 	);
@@ -46,6 +49,7 @@ export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): 
 
 function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 	const runtime = useOwnedRuntime({ form: props.form, definition: props.definition, baseline: props.baseline });
+	const actionExecutor = useOwnedActionExecutor(props.form as RendererEnvironment["form"], runtime, props.actions);
 	const rootId = useId();
 	const prefix = useMemo(
 		() => fieldId(domIdToken(props.definition.id), `formbar-${domIdToken(rootId)}`),
@@ -60,6 +64,7 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 		() => ({
 			runtime,
 			form: props.form as RendererEnvironment["form"],
+			actions: actionExecutor,
 			descriptors: props.descriptors,
 			prefix,
 			submitted: root.submitted,
@@ -67,7 +72,17 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 			extensionFailed,
 			extensionRecovered,
 		}),
-		[runtime, props.form, props.descriptors, prefix, root.submitted, extensions, extensionFailed, extensionRecovered],
+		[
+			runtime,
+			props.form,
+			actionExecutor,
+			props.descriptors,
+			prefix,
+			root.submitted,
+			extensions,
+			extensionFailed,
+			extensionRecovered,
+		],
 	);
 	const summary = summaryEntries(
 		runtime.getSnapshot().fields,
@@ -81,6 +96,22 @@ function useRendererModel<TData, TUi>(props: FormRendererProps<TData, TUi>) {
 	const summaryId = `${prefix}-error-summary`;
 	const hasErrors = root.issues.some(errorIssue);
 	return { root, environment, summary, summaryId, hasErrors };
+}
+
+function ActionRegistryDiagnostics(props: { readonly executor: RendererEnvironment["actions"] }): ReactElement {
+	return (
+		<>
+			{props.executor.getDiagnostics().map((diagnostic, index) => (
+				<output
+					key={`${diagnostic.code}:${diagnostic.action ?? ""}:${index}`}
+					data-formbar-action={diagnostic.action ?? ""}
+					data-formbar-diagnostic={diagnostic.code}
+				>
+					Action unavailable.
+				</output>
+			))}
+		</>
+	);
 }
 
 function useExtensionFailures() {

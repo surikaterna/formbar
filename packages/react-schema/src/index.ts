@@ -20,3 +20,13 @@ export type {
 	WidgetRegistration,
 } from "./extension-types.js";
 export type { RendererDiagnostic } from "./renderer-evidence.js";
+export type {
+	ActionDiagnostic,
+	ActionDiagnosticCode,
+	ActionExecutionResult,
+	ActionExecutionState,
+	ActionHandler,
+	ActionHandlerContext,
+	ActionRegistration,
+	ActionRequest,
+} from "@formbar/declarative";

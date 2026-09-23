@@ -21,6 +21,7 @@ export interface CreateFormRuntimeOptions<TData = unknown, TUi = unknown> {
 
 class DeclarativeRuntime implements RuntimePort {
 	private readonly listeners = new Set<() => void>();
+	private readonly disposalListeners = new Set<() => void>();
 	private readonly observations = new Set<{ dispose(): void }>();
 	private readonly lifecycle = new CallbackBoundary();
 	private readonly namespaces;
@@ -74,6 +75,19 @@ class DeclarativeRuntime implements RuntimePort {
 	observeNode = (instanceKey: string): Observation<RuntimeResolvedNodeState | undefined> =>
 		this.observation(() => this.getSnapshot().nodes.find((node) => node.instance.instanceKey === instanceKey));
 
+	isDisposed = (): boolean => this.disposed;
+
+	onDispose = (listener: () => void): (() => void) => {
+		if (this.disposed) {
+			this.lifecycle.run(listener);
+			return () => {};
+		}
+		this.disposalListeners.add(listener);
+		return () => {
+			this.disposalListeners.delete(listener);
+		};
+	};
+
 	private observation<T>(read: () => T): Observation<T> {
 		const observation = new RuntimeObservation(read, this.subscribe, (disposed) => this.observations.delete(disposed));
 		this.observations.add(observation);
@@ -109,6 +123,8 @@ class DeclarativeRuntime implements RuntimePort {
 	dispose = (): void => {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.lifecycle.runAll([...this.disposalListeners]);
+		this.disposalListeners.clear();
 		this.detach();
 		for (const observation of [...this.observations]) observation.dispose();
 		this.observations.clear();

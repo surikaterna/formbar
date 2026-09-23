@@ -59,10 +59,24 @@ export interface ResolvedOutputState extends ResolvedNodeState {
 	readonly output: ResolvedOutput;
 }
 
+export type ResolvedActionPayload =
+	| { readonly status: "absent" }
+	| { readonly status: "ready"; readonly value: JsonValue }
+	| { readonly status: "error"; readonly code: DiagnosticCode };
+
+export interface ResolvedActionState extends ResolvedNodeState {
+	readonly type: "action";
+	readonly action: string;
+	readonly concurrency: "drop" | "replace" | "queue";
+	readonly payload: ResolvedActionPayload;
+	readonly target?: AbsoluteBinding;
+}
+
 export type RuntimeResolvedNodeState =
 	| ResolvedFieldState
 	| ResolvedOutputState
-	| (ResolvedNodeState & { readonly type: Exclude<FormNode["type"], "field" | "output"> });
+	| ResolvedActionState
+	| (ResolvedNodeState & { readonly type: Exclude<FormNode["type"], "action" | "field" | "output"> });
 
 export interface RuntimeFieldBaseline {
 	readonly nodeId: string;
@@ -71,7 +85,14 @@ export interface RuntimeFieldBaseline {
 }
 
 export type RuntimeDiagnosticCode = "duplicate-baseline" | "expression" | "invalid-baseline" | "non-boolean";
-export type RuntimeExpressionProperty = "condition" | "disabled" | "readOnly" | "required" | "value" | "visible";
+export type RuntimeExpressionProperty =
+	| "condition"
+	| "disabled"
+	| "payload"
+	| "readOnly"
+	| "required"
+	| "value"
+	| "visible";
 
 export interface RuntimeDiagnostic {
 	readonly code: RuntimeDiagnosticCode;
@@ -90,11 +111,13 @@ export interface RuntimeSnapshot extends RuntimeFormState<JsonValue, JsonValue> 
 }
 
 export interface RuntimePort {
+	isDisposed(): boolean;
 	getSnapshot(): RuntimeSnapshot;
 	read(reference: StateRef): JsonValue | undefined;
 	write(namespace: string, segments: readonly Segment[], value: JsonValue): WriteResult;
 	subscribe(listener: () => void): () => void;
 	observeForm(): Observation<RuntimeFormStatus>;
 	observeNode(instanceKey: string): Observation<RuntimeResolvedNodeState | undefined>;
+	onDispose(listener: () => void): () => void;
 	dispose(): void;
 }

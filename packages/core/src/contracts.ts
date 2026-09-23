@@ -287,6 +287,8 @@ export interface FormApi<TData, TUi> {
 	isDisposed(): boolean;
 	/** Observe disposal without acquiring a state subscription. */
 	onDispose(listener: () => void): () => void;
+	/** Observe authoritative form resets without acquiring a state subscription. */
+	onReset(listener: () => void): () => void;
 	/** Bounded, code-only failures contained during disposal callbacks. */
 	getDisposalDiagnostics(): readonly import("@formbar/expressions").Diagnostic[];
 	dispose(): void;

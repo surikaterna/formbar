@@ -11,6 +11,38 @@ import type { RendererContext, WidgetProps } from "../index.js";
 import { binding } from "./renderer-test-utils.js";
 
 describe("renderer SSR", () => {
+	it("renders and hydrates action controls without mismatches", async () => {
+		const definition: FormDefinition = {
+			version: 1,
+			id: "action-ssr",
+			root: { type: "action", id: "save", action: "host.save", label: "Save" },
+		};
+		const prepared = createSchemaForm(
+			{ type: "object", properties: { name: { type: "string" } } },
+			{ provider: jsonSchemaProvider(), side: "input", definition },
+		);
+		const form = createForm({ initialData: { name: "Ada" }, initialUiState: {} });
+		const actions = [{ id: "host.save", handler: () => undefined }];
+		const renderer = <FormRenderer {...prepared} form={form} actions={actions} />;
+		const html = renderToString(renderer);
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		document.body.append(container);
+		const describedBy = container.querySelector("button")?.getAttribute("aria-describedby");
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		let root: ReturnType<typeof hydrateRoot>;
+		await act(async () => {
+			root = hydrateRoot(container, renderer);
+			await Promise.resolve();
+		});
+		expect(container.querySelector("button")?.getAttribute("aria-describedby")).toBe(describedBy);
+		expect(error).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		error.mockRestore();
+		container.remove();
+		form.dispose();
+	});
+
 	it.each([
 		["omitted", undefined, "Calculated value"],
 		["empty", "", "Calculated value"],

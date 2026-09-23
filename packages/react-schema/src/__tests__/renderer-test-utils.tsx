@@ -1,6 +1,6 @@
 import { createForm } from "@formbar/core";
 import type { CreateFormOptions, FormApi } from "@formbar/core";
-import type { FormDefinition } from "@formbar/declarative";
+import type { ActionRegistration, FormDefinition } from "@formbar/declarative";
 import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
@@ -27,6 +27,7 @@ export function mountForm<TData extends object, TUi extends object = Record<stri
 	readonly strict?: boolean;
 	readonly prepareForm?: (form: FormApi<TData, TUi>) => void;
 	readonly extensions?: RendererExtensions;
+	readonly actions?: readonly ActionRegistration[];
 }): MountedForm<TData, TUi> {
 	const prepared = createSchemaForm<TData, TUi>(options.schema, {
 		provider: jsonSchemaProvider(),
@@ -43,7 +44,12 @@ export function mountForm<TData extends object, TUi extends object = Record<stri
 	const root = createRoot(container);
 	options.prepareForm?.(form);
 	const renderer = (
-		<FormRenderer {...prepared} form={form} {...(options.extensions ? { extensions: options.extensions } : {})} />
+		<FormRenderer
+			{...prepared}
+			form={form}
+			{...(options.extensions ? { extensions: options.extensions } : {})}
+			{...(options.actions ? { actions: options.actions } : {})}
+		/>
 	);
 	act(() => root.render(options.strict ? <StrictMode>{renderer}</StrictMode> : renderer));
 	return {
