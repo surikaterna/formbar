@@ -4,6 +4,7 @@ import { searchFilterActions } from "../actions/search-filter-actions";
 import type { TrustedRuntimeProfileId } from "../demos/baseline-contracts";
 import { customLayoutRegistrations } from "../extensions/custom-layout-profile";
 import { customWidgetRegistrations } from "../extensions/custom-widget-profile";
+import { numericPresentationRegistrations } from "../extensions/numeric-presentation-profile";
 import type { RuntimeCapabilityDeclaration } from "../playground/contracts";
 
 interface CatalogEntry {
@@ -52,6 +53,10 @@ const catalog: Readonly<Record<TrustedRuntimeProfileId, CatalogEntry>> = Object.
 		capabilities: Object.freeze(
 			customLayoutRegistrations.map(({ id }) => Object.freeze({ kind: "custom-node" as const, id })),
 		),
+	}),
+	"demo19.numeric-presentation.v1": Object.freeze({
+		extensions: Object.freeze({ widgets: numericPresentationRegistrations }),
+		capabilities: Object.freeze([Object.freeze({ kind: "widget", id: "demo19.numeric-presentation" })]),
 	}),
 });
 

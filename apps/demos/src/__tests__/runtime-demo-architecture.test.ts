@@ -9,7 +9,11 @@ import { richValidationDemo, richValidationSchema } from "../demos/06-rich-valid
 import { arrayItemsDemo, arrayItemsSchema } from "../demos/08-array-items";
 import { searchFiltersDefinition, searchFiltersSchema } from "../demos/11-search-filters";
 import { orderEntrySchema } from "../demos/14-order-entry";
-import { arbiterCalculatedData, arbiterCalculatedUiState } from "../demos/19-arbiter-calculated";
+import {
+	arbiterCalculatedData,
+	arbiterCalculatedSchema,
+	arbiterCalculatedUiState,
+} from "../demos/19-arbiter-calculated";
 import { arbiterValidationData, arbiterValidationSchema } from "../demos/20-arbiter-validation-gating";
 import { demos } from "../demos/index";
 import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
@@ -78,6 +82,7 @@ describe("runtime demo architecture", () => {
 		expect(fixture("search-filters").runtimeProfileIds).toEqual(["demo11.search-actions.v1"]);
 		expect(fixture("rich-validation").runtimeProfileIds).toEqual(["demo16.trusted-widgets.v1"]);
 		expect(fixture("array-items").runtimeProfileIds).toEqual(["demo16.trusted-widgets.v1"]);
+		expect(fixture("arbiter-calculated").runtimeProfileIds).toEqual(["demo19.numeric-presentation.v1"]);
 		expect(fixture("arbiter-calculated").sources[0].arbiterRules).toBeDefined();
 		expect(fixture("arbiter-validation-gating").sources[0].arbiterRules).toBeDefined();
 	});
@@ -204,6 +209,10 @@ describe("runtime demo architecture", () => {
 		expect(orderEntrySchema.properties.deliveryDate.format).toBe("date");
 
 		expect(arbiterCalculatedData).toEqual({ quantity: 1, unitPrice: 25 });
+		expect(arbiterCalculatedSchema.properties).toEqual({
+			quantity: { type: "number", title: "Quantity", minimum: 1 },
+			unitPrice: { type: "number", title: "Unit Price" },
+		});
 		expect(arbiterCalculatedUiState).toEqual({ tier: "small", showBulkDiscount: false });
 		expect(arbiterValidationData).toEqual({ name: "", email: "", age: 0, agreeToTerms: false });
 		expect(arbiterValidationSchema.required).toEqual(["name", "email", "age", "agreeToTerms"]);
@@ -244,6 +253,17 @@ describe("runtime demo architecture", () => {
 				.map((node) => node.label),
 		).toEqual(["Subtotal", "Tax Amount", "Discount Amount", "Total"]);
 		const calculated = nodes(definition("arbiter-calculated").root);
+		expect(calculated.filter((node) => node.type === "field")).toMatchObject([
+			{ id: "f-quantity", widget: "number" },
+			{
+				id: "f-unit-price",
+				widget: "demo19.numeric-presentation",
+				props: { min: { mode: "literal", value: 0 }, step: { mode: "literal", value: 0.01 } },
+			},
+		]);
+		expect(resolveTrustedRuntimeProfiles(["demo19.numeric-presentation.v1"]).capabilities).toEqual([
+			{ kind: "widget", id: "demo19.numeric-presentation" },
+		]);
 		expect(calculated.filter((node) => node.type === "output").map((node) => node.label)).toEqual([
 			"Tier",
 			"Subtotal",

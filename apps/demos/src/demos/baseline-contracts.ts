@@ -7,6 +7,7 @@ export const TRUSTED_RUNTIME_PROFILE_IDS = [
 	"demo11.search-actions.v1",
 	"demo16.trusted-widgets.v1",
 	"demo17.advanced-layout.v1",
+	"demo19.numeric-presentation.v1",
 ] as const;
 
 export type TrustedRuntimeProfileId = (typeof TRUSTED_RUNTIME_PROFILE_IDS)[number];
