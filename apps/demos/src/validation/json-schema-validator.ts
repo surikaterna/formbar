@@ -2,7 +2,7 @@ import type { ValidationIssue, ValidatorFn } from "@formbar/core";
 import addFormats from "ajv-formats";
 import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 
-type DemoValidator = ValidatorFn<Record<string, unknown>, Record<string, never>>;
+type DemoValidator = ValidatorFn<Record<string, unknown>, Record<string, unknown>>;
 
 interface CacheEntry {
 	readonly validator: DemoValidator;

@@ -42,6 +42,27 @@ async function traverseHistory(move: () => void): Promise<void> {
 }
 
 describe("App route history", () => {
+	it("resolves all six runtime demo routes directly and through history", () => {
+		const routes = [
+			["rich-validation", "6. Rich Validation"],
+			["array-items", "8. Array/Repeatable Items"],
+			["search-filters", "11. Search Filter Bar"],
+			["order-entry", "14. Order / Invoice Entry"],
+			["arbiter-calculated", "19. Arbiter: Calculated Fields"],
+			["arbiter-validation-gating", "20. Arbiter: Validation Gating"],
+		] as const;
+		const view = mount(`/?mode=demo&demo=${routes[0][0]}`);
+		expect(view.textContent).toContain(routes[0][1]);
+		for (const [id, title] of routes.slice(1)) {
+			act(() => {
+				window.history.pushState(null, "", `/?mode=demo&demo=${id}`);
+				window.dispatchEvent(new PopStateEvent("popstate"));
+			});
+			expect(view.textContent).toContain(title);
+			expect(window.location.search).toBe(`?mode=demo&demo=${id}`);
+		}
+	});
+
 	it("resolves both extension demo routes directly and through history", () => {
 		const view = mount("/?mode=demo&demo=custom-renderers");
 		expect(view.textContent).toContain("16. Custom Renderers");

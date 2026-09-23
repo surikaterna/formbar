@@ -38,7 +38,7 @@ const nodes = Object.freeze([
 	Object.freeze({ id: "demo17.field-grid", component: FieldGrid }),
 ]);
 
-export const customLayoutProfile: SchemaDemoRuntimeProfile = Object.freeze({
+export const customLayoutProfile = Object.freeze({
 	id: "demo17.advanced-layout.v1",
 	extensions: Object.freeze({ nodes }),
-});
+}) satisfies SchemaDemoRuntimeProfile;

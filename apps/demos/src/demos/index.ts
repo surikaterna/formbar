@@ -6,15 +6,21 @@ import { userProfileDemo } from "./02-user-profile";
 import { nestedAddressDemo } from "./03-nested-address";
 import { settingsPanelDemo } from "./04-settings-panel";
 import { productEntryDemo } from "./05-product-entry";
+import { richValidationDemo } from "./06-rich-validation";
 import { conditionalFieldsDemo } from "./07-conditional-fields";
+import { arrayItemsDemo } from "./08-array-items";
 import { customLayoutDemo } from "./09-custom-layout";
 import { responsiveSectionsDemo } from "./10-multi-section-responsive";
+import { searchFiltersDemo } from "./11-search-filters";
 import { surveyDemo } from "./12-survey-questionnaire";
 import { multiSchemaSourcesDemo } from "./13-multi-schema-sources";
+import { orderEntryDemo } from "./14-order-entry";
 import { kitchenSinkDemo } from "./15-kitchen-sink";
 import { customRenderersDemo } from "./16-custom-renderers";
 import { customLayoutTypesDemo } from "./17-custom-layout";
 import { arbiterVisibilityDemo } from "./18-arbiter-visibility";
+import { arbiterCalculatedDemo } from "./19-arbiter-calculated";
+import { arbiterValidationDemo } from "./20-arbiter-validation-gating";
 import { arbiterDynamicSectionsDemo } from "./21-arbiter-dynamic-sections";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
@@ -33,15 +39,21 @@ export const baselineFixtures: readonly SchemaDemoFixture[] = Object.freeze([
 	nestedAddressDemo,
 	settingsPanelDemo,
 	productEntryDemo,
+	richValidationDemo,
 	conditionalFieldsDemo,
+	arrayItemsDemo,
 	customLayoutDemo,
 	responsiveSectionsDemo,
+	searchFiltersDemo,
 	surveyDemo,
 	multiSchemaSourcesDemo,
+	orderEntryDemo,
 	kitchenSinkDemo,
 	customRenderersDemo,
 	customLayoutTypesDemo,
 	arbiterVisibilityDemo,
+	arbiterCalculatedDemo,
+	arbiterValidationDemo,
 	arbiterDynamicSectionsDemo,
 ]);
 

@@ -36,18 +36,24 @@ describe("baseline demo architecture", () => {
 			"nested-address",
 			"settings-panel",
 			"product-entry",
+			"rich-validation",
 			"conditional-fields",
+			"array-items",
 			"custom-layout",
 			"multi-section-responsive",
+			"search-filters",
 			"survey",
 			"multi-schema-sources",
+			"order-entry",
 			"kitchen-sink",
 			"custom-renderers",
 			"custom-layout-types",
 			"arbiter-visibility",
+			"arbiter-calculated",
+			"arbiter-validation-gating",
 			"arbiter-dynamic-sections",
 		]);
 		expect(demos.at(-1)?.id).toBe("schema-compilation");
-		expect(demos).toHaveLength(16);
+		expect(demos).toHaveLength(22);
 	});
 });

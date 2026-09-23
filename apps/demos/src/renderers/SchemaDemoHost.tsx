@@ -1,7 +1,7 @@
 import { createArbiterPlugin } from "@formbar/arbiter";
 import type { SubmitExecutionContext } from "@formbar/core";
 import { jsonSchemaProvider } from "@formbar/from-schema";
-import { FormRenderer, useSchemaForm } from "@formbar/react-schema";
+import { FormRenderer, type UseSchemaFormResult, useSchemaForm } from "@formbar/react-schema";
 import { useEffect, useId, useState } from "react";
 import type { SchemaDemoFixture, SchemaDemoRuntimeProfile, SchemaDemoSource } from "../demos/baseline-contracts";
 import { createJsonSchemaValidators } from "../validation/json-schema-validator";
@@ -40,6 +40,7 @@ export function SchemaDemoHost({ fixture, onSubmit }: SchemaDemoHostProps) {
 				key={`${fixture.id}:${source.key}`}
 				source={source}
 				runtimeProfile={fixture.runtimeProfile}
+				actionControls={fixture.actionControls ?? "host"}
 				onSubmit={onSubmit}
 			/>
 		</main>
@@ -49,10 +50,12 @@ export function SchemaDemoHost({ fixture, onSubmit }: SchemaDemoHostProps) {
 function PreparedDemo({
 	source,
 	runtimeProfile,
+	actionControls,
 	onSubmit,
 }: {
 	readonly source: SchemaDemoSource;
 	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
+	readonly actionControls: "host" | "definition";
 	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
 }) {
 	const committed = useCommittedArbiterPlugin(source.arbiterRules);
@@ -63,6 +66,7 @@ function PreparedDemo({
 				source={source}
 				plugins={noPlugins}
 				runtimeProfile={runtimeProfile}
+				actionControls={actionControls}
 				onSubmit={onSubmit}
 			/>
 		);
@@ -73,6 +77,7 @@ function PreparedDemo({
 			source={source}
 			plugins={committed.plugins}
 			runtimeProfile={runtimeProfile}
+			actionControls={actionControls}
 			onSubmit={onSubmit}
 		/>
 	);
@@ -115,24 +120,26 @@ interface RenderedDemoProps {
 	readonly source: SchemaDemoSource;
 	readonly plugins: typeof noPlugins;
 	readonly runtimeProfile?: SchemaDemoRuntimeProfile;
+	readonly actionControls: "host" | "definition";
 	readonly onSubmit?: SchemaDemoHostProps["onSubmit"];
 }
 
-function RenderedDemo({ source, plugins, runtimeProfile, onSubmit }: RenderedDemoProps) {
+function RenderedDemo({ source, plugins, runtimeProfile, actionControls, onSubmit }: RenderedDemoProps) {
 	const [lastSubmission, setLastSubmission] = useState<string>();
 	const variants = source.definitionVariants;
 	const [variantKey, setVariantKey] = useState(variants?.[0].key);
 	const activeVariant = variants?.find((variant) => variant.key === variantKey) ?? variants?.[0];
 	const definition = activeVariant?.definition ?? source.definition;
 	const validators = createJsonSchemaValidators(source.schema);
-	const prepared = useSchemaForm<Record<string, unknown>, Record<string, never>>(source.schema, {
+	const prepared = useSchemaForm<Record<string, unknown>, Record<string, unknown>>(source.schema, {
 		provider,
 		side: "input",
 		...(definition ? { definition } : {}),
 		initialData: source.initialData,
+		initialUiState: source.initialUiState ?? {},
 		plugins,
 		validators,
-		onSubmit: async ({ payload }: SubmitExecutionContext<Record<string, unknown>, Record<string, never>>) => {
+		onSubmit: async ({ payload }: SubmitExecutionContext<Record<string, unknown>, Record<string, unknown>>) => {
 			const snapshot = immutableSnapshot(payload);
 			setLastSubmission(JSON.stringify(snapshot, null, 2));
 			onSubmit?.(snapshot);
@@ -145,15 +152,8 @@ function RenderedDemo({ source, plugins, runtimeProfile, onSubmit }: RenderedDem
 				{variants ? (
 					<DefinitionModeChooser variants={variants} activeKey={activeVariant?.key} onChange={setVariantKey} />
 				) : null}
-				<FormRenderer {...prepared} extensions={runtimeProfile?.extensions} />
-				<div className="schema-demo-actions mt-5 flex gap-3 border-t border-border pt-4">
-					<button type="button" onClick={() => void prepared.form.submit().catch(() => undefined)}>
-						Submit
-					</button>
-					<button type="button" onClick={() => prepared.form.reset()}>
-						Reset
-					</button>
-				</div>
+				<FormRenderer {...prepared} extensions={runtimeProfile?.extensions} actions={runtimeProfile?.actions} />
+				{actionControls === "host" ? <HostActions prepared={prepared} /> : null}
 			</section>
 			<SubmissionResult json={lastSubmission} />
 			<section className="mt-6 grid gap-4 lg:grid-cols-2" aria-label="Compiled source">
@@ -161,6 +161,21 @@ function RenderedDemo({ source, plugins, runtimeProfile, onSubmit }: RenderedDem
 				<CodeBlock title="Validated FormDefinition v1" code={prepared.definition} />
 			</section>
 		</>
+	);
+}
+
+function HostActions({
+	prepared,
+}: { readonly prepared: UseSchemaFormResult<Record<string, unknown>, Record<string, unknown>> }) {
+	return (
+		<div className="schema-demo-actions mt-5 flex gap-3 border-t border-border pt-4">
+			<button type="button" onClick={() => void prepared.form.submit().catch(() => undefined)}>
+				Submit
+			</button>
+			<button type="button" onClick={() => prepared.form.reset()}>
+				Reset
+			</button>
+		</div>
 	);
 }
 

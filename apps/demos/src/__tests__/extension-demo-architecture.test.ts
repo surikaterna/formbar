@@ -129,7 +129,7 @@ describe("extension demo architecture", () => {
 	});
 
 	it("registers stable routes, fixtures, profile IDs, and exact extension IDs", () => {
-		expect(demos.map((demo) => demo.id).slice(10, 14)).toEqual([
+		expect(demos.map((demo) => demo.id).slice(14, 18)).toEqual([
 			"kitchen-sink",
 			"custom-renderers",
 			"custom-layout-types",
@@ -145,6 +145,7 @@ describe("extension demo architecture", () => {
 			"demo16.rating",
 			"demo16.color",
 			"demo16.checkbox-group",
+			"demo16.rich-options",
 			"demo16.range",
 			"demo16.progress",
 		]);
