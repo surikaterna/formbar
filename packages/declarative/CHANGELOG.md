@@ -1,5 +1,14 @@
 # @formbar/declarative
 
+## 0.14.2
+
+### Patch Changes
+
+- 87071ad: Publish source-free package artifacts with synchronized licenses and validated self-contained source maps.
+- Updated dependencies [87071ad]
+  - @formbar/expressions@0.14.2
+  - @formbar/core@0.14.2
+
 ## 0.14.0
 
 ### Minor Changes

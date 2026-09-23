@@ -1,5 +1,16 @@
 # @formbar/react-schema
 
+## 0.14.2
+
+### Patch Changes
+
+- 87071ad: Publish source-free package artifacts with synchronized licenses and validated self-contained source maps.
+- Updated dependencies [87071ad]
+  - @formbar/core@0.14.2
+  - @formbar/declarative@0.14.2
+  - @formbar/from-schema@0.14.2
+  - @formbar/react@0.14.2
+
 ## 0.14.0
 
 ### Patch Changes
