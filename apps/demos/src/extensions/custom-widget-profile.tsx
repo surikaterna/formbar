@@ -204,6 +204,7 @@ function RangeControl({ props, suffix = "" }: { readonly props: WidgetProps; rea
 	const minimum = props.constraints.minimum;
 	const maximum = props.constraints.maximum;
 	const value = numericValue(props.value, minimum ?? 0);
+	const step = props.constraints.multipleOf ?? (props.constraints.primitive === "number" ? 0.1 : 1);
 	const liveLabel = props.props.liveLabel === true;
 	return (
 		<div className="flex items-center gap-2">
@@ -213,7 +214,7 @@ function RangeControl({ props, suffix = "" }: { readonly props: WidgetProps; rea
 				value={value}
 				{...(minimum === undefined ? {} : { min: minimum })}
 				{...(maximum === undefined ? {} : { max: maximum })}
-				{...(props.constraints.multipleOf === undefined ? {} : { step: props.constraints.multipleOf })}
+				step={step}
 				disabled={props.policy.disabled}
 				{...stateAttributes(props)}
 				onChange={(event) => !props.policy.readOnly && props.onChange(event.currentTarget.valueAsNumber)}

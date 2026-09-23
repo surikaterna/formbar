@@ -2,10 +2,11 @@
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { filtersAppliedEvent } from "../actions/search-filter-actions";
-import { richValidationDemo } from "../demos/06-rich-validation";
+import { richValidationDemo, richValidationSchema } from "../demos/06-rich-validation";
 import { searchFiltersDemo } from "../demos/11-search-filters";
 import { arbiterValidationDemo } from "../demos/20-arbiter-validation-gating";
 import type { SchemaDemoFixture } from "../demos/baseline-contracts";
+import { createJsonSchemaValidator } from "../validation/json-schema-validator";
 import {
 	button,
 	cleanupDemos,
@@ -37,9 +38,13 @@ describe("rich validation runtime", () => {
 		const age = labelled(view, "Age") as HTMLInputElement;
 		const score = labelled(view, "Satisfaction Score") as HTMLInputElement;
 		expect([age.type, age.min, age.max, age.step]).toEqual(["range", "13", "150", "1"]);
-		expect([score.type, score.min, score.max, score.step]).toEqual(["range", "0", "10", "1"]);
+		expect([score.type, score.min, score.max, score.step]).toEqual(["range", "0", "10", "0.1"]);
+		expect(age.getAttribute("aria-labelledby")).toBeTruthy();
+		expect(age.getAttribute("aria-required")).toBe("true");
+		expect(score.getAttribute("aria-labelledby")).toBeTruthy();
 		expect(age.parentElement?.querySelector("output")?.textContent).toBe("Age: 13");
 		expect(score.parentElement?.querySelector("output")?.textContent).toBe("Satisfaction Score: 0");
+		expect(score.parentElement?.querySelector("output")?.getAttribute("aria-live")).toBe("polite");
 		input(view, "Username", "x!");
 		input(view, "Email Address", "invalid");
 		input(view, "Password", "short");
@@ -58,13 +63,14 @@ describe("rich validation runtime", () => {
 		input(view, "Password", "password1");
 		input(view, "Age", "30");
 		input(view, "Website", "https://example.com");
-		input(view, "Satisfaction Score", "8");
+		input(view, "Satisfaction Score", "8.5");
 		expect(age.parentElement?.querySelector("output")?.textContent).toBe("Age: 30");
-		expect(score.parentElement?.querySelector("output")?.textContent).toBe("Satisfaction Score: 8");
+		expect(score.value).toBe("8.5");
+		expect(score.parentElement?.querySelector("output")?.textContent).toBe("Satisfaction Score: 8.5");
 		await nativeSubmit(view);
 		expect(submitted).toHaveBeenCalledOnce();
 		const successful = resultJson(view);
-		expect(JSON.parse(successful ?? "")).toMatchObject({ username: "valid_user", age: 30, score: 8 });
+		expect(JSON.parse(successful ?? "")).toMatchObject({ username: "valid_user", age: 30, score: 8.5 });
 		input(view, "Email Address", "bad");
 		await nativeSubmit(view);
 		expect(submitted).toHaveBeenCalledOnce();
@@ -72,6 +78,25 @@ describe("rich validation runtime", () => {
 		await click(button(view, "Reset"));
 		expect((labelled(view, "Username") as HTMLInputElement).value).toBe("");
 		expect(resultJson(view)).toBe(successful);
+	});
+
+	it("keeps decimal scores valid while schema bounds remain authoritative", () => {
+		const validate = createJsonSchemaValidator(richValidationSchema);
+		const valid = {
+			username: "valid_user",
+			email: "person@example.com",
+			password: "password1",
+			age: 30,
+			website: "https://example.com",
+			score: 8.5,
+		};
+		expect(validate({ data: valid, uiState: {} })).toEqual([]);
+		expect(validate({ data: { ...valid, score: 10.1 }, uiState: {} })).toMatchObject([
+			{ code: "json-schema.maximum", path: { segments: ["score"] } },
+		]);
+		expect(validate({ data: { ...valid, age: 12 }, uiState: {} })).toMatchObject([
+			{ code: "json-schema.minimum", path: { segments: ["age"] } },
+		]);
 	});
 });
 

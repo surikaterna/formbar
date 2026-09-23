@@ -5,8 +5,8 @@ import { FormRenderer } from "@formbar/react-schema";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { richValidationSchema } from "../demos/06-rich-validation";
-import { arrayItemsSchema } from "../demos/08-array-items";
+import { richValidationDemo, richValidationSchema } from "../demos/06-rich-validation";
+import { arrayItemsDemo, arrayItemsSchema } from "../demos/08-array-items";
 import { searchFiltersDefinition, searchFiltersSchema } from "../demos/11-search-filters";
 import { orderEntrySchema } from "../demos/14-order-entry";
 import { arbiterCalculatedData, arbiterCalculatedUiState } from "../demos/19-arbiter-calculated";
@@ -103,9 +103,24 @@ describe("runtime demo architecture", () => {
 		expect(Object.keys(validation.properties)).toEqual(["username", "email", "password", "age", "website", "score"]);
 		expect(validation.required).toEqual(["username", "email", "password", "age", "website"]);
 		expect(validation.properties.username).toMatchObject({ minLength: 3, maxLength: 20, pattern: "^[a-zA-Z0-9_]+$" });
-		expect(validation.properties.age).toMatchObject({ type: "integer", minimum: 13, maximum: 150, multipleOf: 1 });
+		expect(validation.properties.age).toEqual({
+			type: "integer",
+			title: "Age",
+			minimum: 13,
+			maximum: 150,
+			description: "Must be at least 13 years old",
+		});
 		expect(validation.properties.website.format).toBe("uri");
-		expect(validation.properties.score).toMatchObject({ minimum: 0, maximum: 10, multipleOf: 1 });
+		expect(validation.properties.score).toEqual({
+			type: "number",
+			title: "Satisfaction Score",
+			minimum: 0,
+			maximum: 10,
+			description: "Rate your experience from 0 to 10",
+		});
+		expect(richValidationDemo.copy).toBe(
+			"Demonstrates various JSON Schema validation constraints including min/max length, patterns, format validation, and number ranges.",
+		);
 
 		expect(Object.keys(arrayItemsSchema.properties)).toEqual([
 			"projectName",
@@ -117,12 +132,21 @@ describe("runtime demo architecture", () => {
 			"milestones",
 			"isPublic",
 		]);
-		expect(arrayItemsSchema.properties.tags).toMatchObject({ uniqueItems: true, maxItems: 2 });
-		expect(arrayItemsSchema.properties.tags.items.enum).toEqual(["frontend", "backend"]);
-		expect(arrayItemsSchema.properties.tags.items["x-formbar"].options).toEqual([
-			{ value: "frontend", title: "Front end" },
-			{ value: "backend", title: "Back end", disabled: true },
-		]);
+		expect(arrayItemsSchema.properties.tags).toEqual({
+			type: "array",
+			title: "Tags",
+			uniqueItems: true,
+			maxItems: 2,
+			items: {
+				type: "string",
+				"x-formbar": {
+					options: ["frontend", { value: "backend", title: "Back end", disabled: true }],
+				},
+			},
+		});
+		expect(arrayItemsDemo.copy).toBe(
+			"Shows how formbar handles array fields in JSON Schema. Simple arrays, object arrays, and nested structures are all supported. Array items render with schema-aware controls including enums, booleans, and text inputs.",
+		);
 		expect(arrayItemsSchema.properties.teamMembers.items.properties.role["x-formbar"].options).toEqual([
 			{ value: "lead", title: "Team lead" },
 			{ value: "developer", title: "Developer" },
@@ -205,12 +229,17 @@ describe("runtime demo architecture", () => {
 				.filter((node) => node.type === "field")
 				.map((node) => node.widget),
 		).toEqual(["text", "email", "password", "demo16.range", "url", "demo16.range"]);
-		expect(
-			nodes(definition("array-items").root)
-				.filter((node) => node.type === "field")
-				.filter((node) => ["f-tag", "f-member-role"].includes(node.id))
-				.map((node) => node.widget),
-		).toEqual(["demo16.rich-options", "demo16.rich-options"]);
+		const richFields = nodes(definition("array-items").root)
+			.filter((node) => node.type === "field")
+			.filter((node) => ["f-tag", "f-member-role"].includes(node.id));
+		expect(richFields.map((node) => node.widget)).toEqual(["demo16.rich-options", "demo16.rich-options"]);
+		expect(richFields[0]?.props?.richOptions).toEqual({
+			mode: "literal",
+			value: [
+				{ value: "frontend", title: "frontend" },
+				{ value: "backend", title: "Back end", disabled: true },
+			],
+		});
 		expect(
 			nodes(definition("order-entry").root)
 				.filter((node) => node.type === "output")

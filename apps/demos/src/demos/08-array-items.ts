@@ -2,9 +2,11 @@ import type { Binding, FormDefinition, FormNode, JsonValue } from "@formbar/decl
 import { customWidgetProfile } from "../extensions/custom-widget-profile";
 import type { SchemaDemoFixture } from "./baseline-contracts";
 
-const tagOptions = Object.freeze([
-	Object.freeze({ value: "frontend", title: "Front end" }),
-	Object.freeze({ value: "backend", title: "Back end", disabled: true }),
+const disabledBackendOption = Object.freeze({ value: "backend", title: "Back end", disabled: true });
+const tagSchemaOptions = Object.freeze(["frontend", disabledBackendOption]);
+const tagPresentationOptions = Object.freeze([
+	Object.freeze({ value: "frontend", title: "frontend" }),
+	disabledBackendOption,
 ]);
 const roleOptions = Object.freeze([
 	Object.freeze({ value: "lead", title: "Team lead" }),
@@ -83,8 +85,7 @@ export const arrayItemsSchema = {
 			maxItems: 2,
 			items: {
 				type: "string",
-				enum: ["frontend", "backend"],
-				"x-formbar": { options: tagOptions },
+				"x-formbar": { options: tagSchemaOptions },
 			},
 		},
 		teamMembers: {
@@ -155,7 +156,7 @@ export const arrayItemsDefinition = {
 				"tags",
 				"tags",
 				"Tags",
-				[richOptionsField("f-tag", scoped("tags"), "Tag", tagOptions), ...rowActions("tag", tags)],
+				[richOptionsField("f-tag", scoped("tags"), "Tag", tagPresentationOptions), ...rowActions("tag", tags)],
 				"",
 				{ maxItems: 2 },
 			),

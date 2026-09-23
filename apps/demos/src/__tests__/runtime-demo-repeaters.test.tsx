@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { arrayItemsDemo } from "../demos/08-array-items";
+import { arrayItemsDemo, arrayItemsSchema } from "../demos/08-array-items";
 import { orderEntryDemo } from "../demos/14-order-entry";
+import { createJsonSchemaValidator } from "../validation/json-schema-validator";
 import {
 	button,
 	cleanupDemos,
@@ -57,16 +58,17 @@ describe("array demo repeaters", () => {
 		await click(button(view, "Add Tags"));
 		const tagControls = [...view.container.querySelectorAll('[data-formbar-node="f-tag"] [data-widget]')];
 		expect(tagControls).toHaveLength(2);
-		for (const control of tagControls) expect(choiceLabels(control)).toEqual(["Front end", "Back end"]);
-		expect(choices(view, "Front end")).toHaveLength(2);
+		for (const control of tagControls) expect(choiceLabels(control)).toEqual(["frontend", "Back end"]);
+		expect(choices(view, "frontend")).toHaveLength(2);
 		expect(choices(view, "Back end")).toHaveLength(2);
 		expect(choices(view, "Back end").every((choice) => choice.disabled)).toBe(true);
-		expect(document.activeElement).toBe(choices(view, "Front end")[1]);
+		expect(choices(view, "frontend").every((choice) => !choice.checked)).toBe(true);
+		expect(document.activeElement).toBe(choices(view, "frontend")[1]);
 		expect(button(view, "Add Tags").disabled).toBe(true);
 		await click(choices(view, "Back end")[0]);
 		expect(choices(view, "Back end")[0].checked).toBe(false);
-		await click(choices(view, "Front end")[0]);
-		await click(choices(view, "Front end")[1]);
+		await click(choices(view, "frontend")[0]);
+		await click(choices(view, "frontend")[1]);
 		await click(button(view, "Submit"));
 		expect(submitted).not.toHaveBeenCalled();
 		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain("uniqueItems");
@@ -93,6 +95,39 @@ describe("array demo repeaters", () => {
 			tags: ["frontend"],
 			teamMembers: [{ name: "Grace", role: "qa" }],
 		});
+		const successful = resultJson(view);
+		await click(button(view, "Reset"));
+		expect((labelled(view, "Project Name") as HTMLInputElement).value).toBe("");
+		expect(view.container.querySelectorAll('[data-formbar-node="f-tag"]')).toHaveLength(0);
+		expect(inputs(view, "Name")).toHaveLength(0);
+		expect(resultJson(view)).toBe(successful);
+	});
+
+	it("submits the schema-valid empty tag seed and restores the empty array on reset", async () => {
+		const submitted = vi.fn();
+		const view = await mountDemo(arrayItemsDemo, submitted);
+		setInput(labelled(view, "Project Name") as HTMLInputElement, "Seed project");
+		await click(button(view, "Add Tags"));
+		expect(choices(view, "frontend")).toHaveLength(1);
+		expect(choices(view, "frontend")[0].checked).toBe(false);
+		await click(button(view, "Submit"));
+		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ projectName: "Seed project", tags: [""] }));
+		const successful = resultJson(view);
+		await click(button(view, "Reset"));
+		expect(view.container.querySelectorAll('[data-formbar-node="f-tag"]')).toHaveLength(0);
+		expect(resultJson(view)).toBe(successful);
+	});
+
+	it("keeps empty and non-presented tag strings schema-valid while enforcing array constraints", () => {
+		const validate = createJsonSchemaValidator(arrayItemsSchema);
+		expect(validate({ data: { projectName: "Project", tags: [""] }, uiState: {} })).toEqual([]);
+		expect(validate({ data: { projectName: "Project", tags: ["outside-ui-domain"] }, uiState: {} })).toEqual([]);
+		expect(validate({ data: { projectName: "Project", tags: ["frontend", "frontend"] }, uiState: {} })).toMatchObject([
+			{ code: "json-schema.uniqueItems", path: { segments: ["tags"] } },
+		]);
+		expect(
+			validate({ data: { projectName: "Project", tags: ["", "frontend", "backend"] }, uiState: {} }),
+		).toMatchObject([{ code: "json-schema.maxItems", path: { segments: ["tags"] } }]);
 	});
 });
 
