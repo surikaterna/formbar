@@ -2,6 +2,7 @@ import type { FormNode } from "@formbar/declarative";
 import type { DescriptorDocument, DescriptorNode, DescriptorOccurrence } from "../descriptors/contracts.js";
 import type { CompilationDiagnostic } from "../diagnostics.js";
 import { type BindingContext, binding, childBinding, repeaterItemBinding } from "./bindings.js";
+import { directTypedEnum } from "./direct-typed-enum.js";
 import { nodeId, scopeId } from "./ids.js";
 import { itemSeed } from "./item-seed.js";
 import { containerPresentationFor, presentationFor } from "./presentation.js";
@@ -71,6 +72,8 @@ function compileNode(
 	if (node.kind === "array") return compileArray(context, occurrence, node, bindingContext);
 	if (node.kind === "tuple") return compileTuple(context, occurrence, bindingContext);
 	if (node.kind === "wrapper" || node.kind === "ref") return compileTransparent(context, occurrence, bindingContext);
+	if (directTypedEnum(context.document, occurrence, node))
+		return fieldNode(context, occurrence, node, bindingContext, { ...presentation, widget: "select" });
 	if (node.kind === "union" || node.kind === "intersection")
 		return fallbackNode(
 			context,
