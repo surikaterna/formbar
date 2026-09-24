@@ -23,6 +23,8 @@ export interface CreateFieldApiParams<TData, TUi> {
 	readonly getState: () => FormState<TData, TUi>;
 	readonly setValue: (path: string, value: unknown) => FormDispatchResult;
 	readonly getIssues: (path: CanonicalPath) => readonly ValidationIssue[];
+	/** Failed candidate issues bypass draft visibility triggers for this field only. */
+	readonly getAttemptIssues?: (path: CanonicalPath) => readonly ValidationIssue[];
 	readonly getInitialValue: () => unknown;
 	readonly getFieldMeta: (pathKey: string) => FieldMetaEntry | undefined;
 	readonly markTouched: (pathKey: string, path: CanonicalPath) => void;
@@ -97,7 +99,11 @@ class FieldApiImplementation<TData, TUi> implements FieldApi<TData, TUi, string>
 			fieldMeta: this.params.getFieldMeta(this.pathKey),
 			formSubmitted: this.params.getFormSubmitted(),
 		};
-		return shouldShowIssues(this.params.config?.validationTriggers, context) ? this.params.getIssues(this.path) : [];
+		const draft = shouldShowIssues(this.params.config?.validationTriggers, context)
+			? this.params.getIssues(this.path)
+			: [];
+		const attempt = this.params.getAttemptIssues?.(this.path) ?? [];
+		return attempt.length > 0 ? [...draft, ...attempt] : draft;
 	}
 
 	ui<T = unknown>(selector: (uiState: TUi) => T): T {

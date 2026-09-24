@@ -88,6 +88,7 @@ export type { StandardSchemaLike } from "./standard-schema.js";
 export { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
 // State types (SE1.2)
 export type {
+	AttemptValidation,
 	CreateFormOptions,
 	FieldMetaEntry,
 	FormState,
@@ -96,6 +97,7 @@ export type {
 	SubmitContext,
 	ValidationIssue,
 } from "./state.js";
+export { renderableIssues, attemptCanSubmit } from "./attempt-issues.js";
 export { FormStore, type StateListener } from "./store.js";
 // Submit helpers
 export { applySubmitOutcome } from "./submit.js";

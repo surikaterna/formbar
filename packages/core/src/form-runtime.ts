@@ -1,3 +1,4 @@
+import { clearAttempt, failedAttemptIssuesForPath } from "./attempt-issues.js";
 import type {
 	FieldApi,
 	FieldConfig,
@@ -51,7 +52,6 @@ export class FormRuntime<TData, TUi> {
 	private readonly activationSubscriptions: (() => void)[] = [];
 	private readonly initializedMiddlewares: Middleware[] = [];
 	private deactivating = false;
-
 	constructor(
 		private readonly options: CreateFormOptions<TData, TUi>,
 		deferred = false,
@@ -94,7 +94,6 @@ export class FormRuntime<TData, TUi> {
 			this.initialize();
 		}
 	}
-
 	build(): FormApi<TData, TUi> {
 		return this.api;
 	}
@@ -102,11 +101,9 @@ export class FormRuntime<TData, TUi> {
 	private get activePlugins(): readonly FormPlugin<TData, TUi>[] {
 		return this.active ? this.plugins : [];
 	}
-
 	private get activeMiddlewares(): readonly Middleware[] {
 		return this.active ? (this.options.middleware ?? []) : [];
 	}
-
 	/** Commit-scoped lifecycle for React; imperative forms remain eagerly initialized. */
 	activate(): void {
 		if (this.disposal.isDisposed() || this.active || this.deactivating) return;
@@ -126,12 +123,12 @@ export class FormRuntime<TData, TUi> {
 		try {
 			this.submitHandler.reset();
 			this.coordinator.reset();
+			if (this.store.getState().attemptValidation) this.updateState(clearAttempt);
 			deactivateFormResources(this.initializedMiddlewares, this.pluginDisposers, this.activationSubscriptions);
 		} finally {
 			this.deactivating = false;
 		}
 	}
-
 	private createInitialState(): FormState<TData, TUi> {
 		return {
 			data: structuredClone(this.initialDataSnapshot),
@@ -196,6 +193,7 @@ export class FormRuntime<TData, TUi> {
 		const canonical = parsePath(rawPath);
 		const after = this.store.getState();
 		const mutated = before.data !== after.data || before.uiState !== after.uiState;
+		if (mutated && after.attemptValidation) this.updateState(clearAttempt);
 		if (mutated && canonical.namespace === "data") {
 			const dataPath = normalizeDataPath({ namespace: "data", segments: canonical.segments });
 			const pathKey = fieldMetaKey(dataPath);
@@ -216,6 +214,8 @@ export class FormRuntime<TData, TUi> {
 			plugins: this.activePlugins,
 		});
 		const after = this.store.getState();
+		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState) && after.attemptValidation)
+			this.updateState(clearAttempt);
 		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState)) this.coordinator.onMutation();
 		const error = result.error ?? result.vetoReason;
 		return error ? { ok: result.ok, error } : { ok: result.ok };
@@ -289,6 +289,7 @@ export class FormRuntime<TData, TUi> {
 			getState: () => this.store.getState(),
 			setValue: this.dispatchSetValue as unknown as (path: string, value: unknown) => FormDispatchResult,
 			getIssues: (value) => issuesForPath(this.store.getState().issues, value),
+			getAttemptIssues: (value) => failedAttemptIssuesForPath(this.store.getState(), value),
 			getInitialValue: () => this.resolveInitialValue(canonical),
 			getFieldMeta: (key) => (this.store.getState().fieldMeta as Record<string, FieldMetaEntry>)[key],
 			markTouched: this.markFieldTouched,
@@ -356,7 +357,6 @@ export class FormRuntime<TData, TUi> {
 
 	private captureState = (): FormStateCapture<TData, TUi> =>
 		createFormStateCapture(this.store.getState(), this.initialDataSnapshot, this.initialUiStateSnapshot);
-
 	private canSubmit(): boolean {
 		const state = this.store.getState();
 		return !computeIsSubmitting(state) && !state.meta.validation.validating && computeIsValid(state);
@@ -375,6 +375,7 @@ export class FormRuntime<TData, TUi> {
 		});
 		return () => {
 			this.deactivate();
+			if (this.store.getState().attemptValidation) this.updateState(clearAttempt);
 			permanent();
 		};
 	}
