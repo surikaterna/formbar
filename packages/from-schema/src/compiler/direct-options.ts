@@ -1,17 +1,43 @@
 import type { FieldNode, JsonValue } from "@formbar/declarative";
-import type { DescriptorNode, DescriptorOccurrence } from "../descriptors/contracts.js";
+import type {
+	DescriptorDocument,
+	DescriptorNode,
+	DescriptorOccurrence,
+	DescriptorValue,
+} from "../descriptors/contracts.js";
 import { jsonPresentationHint } from "../json-presentation-hints.js";
 import type { CompilationContext } from "./compile-occurrence.js";
+import { directTypedEnum } from "./direct-typed-enum.js";
 import type { CompiledPresentation } from "./presentation.js";
 
 type Scalar = string | number | boolean | null;
 type Choice = { value: Scalar; title?: string; disabled?: boolean };
 
-export function typedEnumPresentation(
+export function canonicalEnum(
+	document: DescriptorDocument,
+	occurrence: DescriptorOccurrence,
+	node: DescriptorNode,
+): readonly DescriptorValue[] | undefined {
+	if (document.source.provider !== "json-schema") return undefined;
+	if (directTypedEnum(document, occurrence, node) && node.kind === "intersection") {
+		const enumeration = document.nodes[node.operands[1].nodeId];
+		return enumeration?.kind === "enum" ? enumeration.values : undefined;
+	}
+	if (
+		node.kind !== "enum" ||
+		(node.applicators && Object.values(node.applicators).some((value) => value && Object.keys(value).length))
+	)
+		return undefined;
+	const values = node.values;
+	return values.length > 0 && new Set(values).size === values.length && values.every(scalar) ? values : undefined;
+}
+
+export function canonicalEnumPresentation(
 	context: CompilationContext,
 	occurrence: DescriptorOccurrence,
 	node: DescriptorNode,
 	presentation: CompiledPresentation,
+	canonical: readonly DescriptorValue[],
 ): CompiledPresentation {
 	const { options, ...props } = presentation.props ?? {};
 	if (options !== undefined)
@@ -20,14 +46,12 @@ export function typedEnumPresentation(
 			severity: "warning",
 			occurrenceId: occurrence.id,
 			nodeId: occurrence.nodeId,
-			message: "Typed enum select ignores x-formbar.props.options; schema enum choices are authoritative.",
+			message: "Native enum choice ignores x-formbar.props.options; schema enum choices are authoritative.",
 		});
-	const enumNode = context.document.nodes[node.kind === "intersection" ? node.operands[1].nodeId : occurrence.nodeId];
-	const canonical = enumNode?.kind === "enum" ? enumNode.values : undefined;
-	const decorated = options === undefined ? directOptions(context, occurrence, node, canonical) : undefined;
+	const decorated = directOptions(context, occurrence, node, canonical);
 	return {
 		...presentation,
-		widget: "select",
+		widget: presentation.widget,
 		props: Object.keys(props).length || decorated ? Object.freeze({ ...props, ...decorated }) : undefined,
 	};
 }

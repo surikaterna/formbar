@@ -1,7 +1,7 @@
 import type { FormPlugin } from "@formbar/core";
 // @vitest-environment jsdom
 import { act } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { change, mountForm } from "./renderer-test-utils.js";
 
 const mounted: Array<ReturnType<typeof mountForm<Record<string, unknown>>>> = [];
@@ -10,6 +10,107 @@ afterEach(() => {
 });
 
 describe("schema-only native option presentation", () => {
+	it.each([
+		{
+			schema: {
+				enum: ["lead", "qa"],
+				"x-formbar": { props: { options: ["rogue"] }, options: [{ value: "lead", title: "Team lead" }] },
+			},
+			widget: "select",
+			labels: ["Team lead", "qa"],
+			selected: "qa",
+		},
+		{
+			schema: {
+				type: "string",
+				enum: ["a", "b"],
+				"x-formbar": { widget: "radio", props: { options: ["rogue"] }, options: [{ value: "b", title: "Bee" }] },
+			},
+			widget: "radio",
+			labels: ["a", "Bee"],
+			selected: "b",
+		},
+		{
+			schema: {
+				type: "integer",
+				enum: [1, 2],
+				"x-formbar": {
+					widget: "radio",
+					props: { options: ["rogue"] },
+					options: [
+						{ value: "2", title: "Wrong type" },
+						{ value: 2, title: "Two" },
+					],
+				},
+			},
+			widget: "radio",
+			labels: ["1", "Two"],
+			selected: 2,
+		},
+		{
+			schema: {
+				type: "boolean",
+				enum: [false, true],
+				"x-formbar": { widget: "radio", props: { options: ["rogue"] }, options: [{ value: true, title: "Yes" }] },
+			},
+			widget: "radio",
+			labels: ["false", "Yes"],
+			selected: true,
+		},
+	])(
+		"does not render rogue $widget choices and submits canonical typed values",
+		async ({ schema, widget, labels, selected }) => {
+			const onSubmit = vi.fn();
+			const view = mountForm({
+				schema: { type: "object", properties: { choice: schema } },
+				data: {},
+				formOptions: { onSubmit },
+			});
+			mounted.push(view);
+			expect(view.container.textContent).not.toContain("rogue");
+			if (widget === "select") {
+				const select = view.container.querySelector("select") as HTMLSelectElement;
+				expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["", ...labels]);
+				change(select, "option-1");
+			} else {
+				const radios = view.container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+				expect(
+					Array.from(view.container.querySelectorAll('input[type="radio"] + label')).map((label) => label.textContent),
+				).toEqual(labels);
+				act(() => radios[1].click());
+			}
+			expect(view.form.getState().data.choice).toBe(selected);
+			expect(view.prepared.diagnostics.compilation).toContainEqual(
+				expect.objectContaining({
+					code: "unsupported-schema",
+					message: expect.stringContaining("schema enum choices are authoritative"),
+				}),
+			);
+			await act(async () => {
+				await view.form.submit();
+			});
+			expect(onSubmit.mock.calls[0]?.[0].payload).toEqual({ choice: selected });
+		},
+	);
+
+	it("keeps a bare enum's canonical renderer choices without decoration", () => {
+		const view = mountForm({
+			schema: {
+				type: "object",
+				properties: { choice: { enum: ["lead", "qa"], "x-formbar": { props: { options: ["rogue"] } } } },
+			},
+			data: { choice: "lead" },
+		});
+		mounted.push(view);
+		expect(Array.from(view.container.querySelectorAll("select option")).map((option) => option.textContent)).toEqual([
+			"",
+			"lead",
+			"qa",
+		]);
+		expect(view.prepared.diagnostics.compilation).toContainEqual(
+			expect.objectContaining({ code: "unsupported-schema" }),
+		);
+	});
 	it("shows labels in enum order, stores values, blocks disabled choices, and leaves validation independent", async () => {
 		const view = mountForm({
 			schema: {
