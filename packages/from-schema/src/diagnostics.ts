@@ -29,6 +29,9 @@ export type CompilationDiagnosticCode =
 	| "cyclic-schema"
 	| "invalid-extension-props"
 	| "invalid-extension-id"
+	| "invalid-option"
+	| "duplicate-option"
+	| "unmatched-option"
 	| "missing-descriptor"
 	| "opaque-schema"
 	| "unsupported-schema";
@@ -39,6 +42,7 @@ export interface CompilationDiagnostic {
 	readonly occurrenceId: string;
 	readonly nodeId: string;
 	readonly message: string;
+	readonly index?: number;
 }
 
 export interface SchemaFormDiagnostics {

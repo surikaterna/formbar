@@ -167,7 +167,12 @@ function options(node: FieldNode, evidence: NormalizedEvidence): readonly Widget
 	const resolved = optionEvidence(node, evidence);
 	if (!resolved.ok) return Object.freeze([]);
 	return Object.freeze(
-		resolved.values.map((value) => Object.freeze({ value, label: value === null ? "null" : String(value) })),
+		resolved.values.map((choice) =>
+			Object.freeze({
+				value: choice.value,
+				label: choice.title ?? (choice.value === null ? "null" : String(choice.value)),
+			}),
+		),
 	);
 }
 

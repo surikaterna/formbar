@@ -6,7 +6,7 @@ const hintKey = "formbar.json-presentation.v1";
 
 type CapturedHint =
 	| { readonly status: "valid"; readonly value: Readonly<Record<string, JsonValue>> }
-	| { readonly status: "invalid" };
+	| { readonly status: "invalid"; readonly options?: boolean };
 
 export type JsonPresentationHint = CapturedHint | { readonly status: "absent" };
 
@@ -20,7 +20,8 @@ export function withJsonPresentationHints(provider: SchemaDocumentProvider): Sch
 
 export function jsonPresentationHint(metadata: unknown): JsonPresentationHint {
 	const envelope = record(record(metadata)?.[hintKey]);
-	if (envelope?.status === "invalid") return { status: "invalid" };
+	if (envelope?.status === "invalid")
+		return { status: "invalid", ...(envelope.options === true ? { options: true } : {}) };
 	if (envelope?.status !== "valid") return { status: "absent" };
 	const value = record(envelope.value);
 	return value ? { status: "valid", value } : { status: "absent" };
@@ -61,7 +62,11 @@ function captureHint(source: unknown): CapturedHint | undefined {
 		const value = record(copied);
 		return value ? { status: "valid", value } : { status: "invalid" };
 	} catch {
-		return { status: "invalid" };
+		try {
+			return { status: "invalid", options: Object.hasOwn(descriptor.value, "options") };
+		} catch {
+			return { status: "invalid" };
+		}
 	}
 }
 

@@ -27,9 +27,14 @@ export type RendererDiagnostic =
 	| "unsupported-output-value";
 
 export type ScalarOption = string | number | boolean | null;
+export interface RenderOption {
+	readonly value: ScalarOption;
+	readonly title?: string;
+	readonly disabled?: boolean;
+}
 
 export type OptionEvidence =
-	| { readonly ok: true; readonly values: readonly ScalarOption[] }
+	| { readonly ok: true; readonly values: readonly RenderOption[] }
 	| { readonly ok: false; readonly values: readonly [] };
 
 export type FieldRenderEvidence =
@@ -47,7 +52,7 @@ export type FieldRenderEvidence =
 			readonly path: string;
 			readonly evidence: NormalizedEvidence;
 			readonly widget: "select" | "radio";
-			readonly options: readonly ScalarOption[];
+			readonly options: readonly RenderOption[];
 	  };
 
 export interface SpanOutput {
@@ -140,12 +145,12 @@ export function nativeInputType(widget: string, evidence: NormalizedEvidence): s
 export function conformingValue(
 	widget: string,
 	value: JsonValue | undefined,
-	options?: readonly ScalarOption[],
+	options?: readonly RenderOption[],
 ): boolean {
 	if (value === undefined) return true;
 	if (widget === "number") return typeof value === "number" && Number.isFinite(value);
 	if (widget === "checkbox") return typeof value === "boolean";
-	if (widget === "select" || widget === "radio") return options?.some((item) => Object.is(item, value)) === true;
+	if (widget === "select" || widget === "radio") return options?.some((item) => Object.is(item.value, value)) === true;
 	if (typeof value !== "string") return false;
 	if (widget === "date") return validDate(value);
 	if (widget === "time") return validTime(value);
@@ -163,9 +168,19 @@ export function resolveFieldEvidence(
 	const evidence = descriptorEvidence(document, state.binding, fieldDescriptorKey(node));
 	if (node.widget === "select" || node.widget === "radio") {
 		const options = optionEvidence(node, evidence);
-		if (!options.ok || !conformingValue(node.widget, state.value, options.values))
-			return { ok: false, diagnostic: "unsupported-options" };
-		return { ok: true, kind: "options", path, evidence, widget: node.widget, options: options.values };
+		if (!options.ok) return { ok: false, diagnostic: "unsupported-options" };
+		const choices = options.values;
+		if (conformingValue(node.widget, state.value, choices))
+			return { ok: true, kind: "options", path, evidence, widget: node.widget, options: choices };
+		if (evidence.enum || !scalar(state.value)) return { ok: false, diagnostic: "unsupported-options" };
+		return {
+			ok: true,
+			kind: "options",
+			path,
+			evidence,
+			widget: node.widget,
+			options: [...choices, { value: state.value, disabled: true }],
+		};
 	}
 	const widget = nativeInputType(node.widget, evidence);
 	if (!conformingValue(widget, state.value)) return { ok: false, diagnostic: "unsupported-widget" };
@@ -200,17 +215,34 @@ export function spanOutput(span: ResponsiveSpan | undefined): SpanOutput | undef
 }
 
 function scalarOptions(value: JsonValue | readonly JsonValue[]): OptionEvidence {
-	if (!Array.isArray(value)) return scalar(value) ? { ok: true, values: [value] } : { ok: false, values: [] };
+	if (!Array.isArray(value)) return scalar(value) ? { ok: true, values: [{ value }] } : { ok: false, values: [] };
 	if (value.length === 0) return { ok: false, values: [] };
-	const options: ScalarOption[] = [];
+	const options: RenderOption[] = [];
 	for (const item of value) {
-		if (!scalar(item)) return { ok: false, values: [] };
-		options.push(item);
+		if (scalar(item)) {
+			options.push({ value: item });
+			continue;
+		}
+		const candidate = record(item);
+		if (
+			!candidate ||
+			!Object.keys(candidate).every((key) => ["value", "title", "disabled"].includes(key)) ||
+			!Object.hasOwn(candidate, "value") ||
+			!scalar(candidate.value) ||
+			(candidate.title !== undefined && typeof candidate.title !== "string") ||
+			(candidate.disabled !== undefined && typeof candidate.disabled !== "boolean")
+		)
+			return { ok: false, values: [] };
+		options.push({
+			value: candidate.value,
+			...(typeof candidate.title === "string" ? { title: candidate.title } : {}),
+			...(candidate.disabled === true ? { disabled: true } : {}),
+		});
 	}
 	return { ok: true, values: Object.freeze(options) };
 }
 
-function scalar(value: JsonValue): value is ScalarOption {
+function scalar(value: unknown): value is ScalarOption {
 	return (
 		value === null ||
 		typeof value === "string" ||

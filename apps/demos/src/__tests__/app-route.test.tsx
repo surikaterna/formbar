@@ -119,7 +119,7 @@ describe("App registry-derived routes", () => {
 		await traverseHistory(() => window.history.back());
 		expect(window.location.search).toBe("?mode=demo&demo=basic-contact");
 		await traverseHistory(() => window.history.forward());
-		expect(window.location.search).toBe("?mode=playground&demo=basic-contact");
+		expect(window.location.search).toBe("?mode=playground&demo=basic-contact&preset=default");
 	});
 
 	it("retains the exact live form, data, and successful result across invalid schema apply, then recovers", async () => {

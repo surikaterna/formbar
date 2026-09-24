@@ -45,10 +45,11 @@ const expectedRoutes: readonly ExpectedRoute[] = [
 	{ demoId: "arbiter-validation-gating", preset: "default", definitionId: "arbiter-validation-gating" },
 	{ demoId: "arbiter-dynamic-sections", preset: "default", definitionId: "arbiter-dynamic-sections" },
 	{ demoId: "schema-compilation", preset: "default", definitionId: "schema-json-schema-input-form" },
+	{ demoId: "basic-contact", preset: "schema-options", definitionId: "schema-json-schema-input-form" },
 ];
 
 const expectedSelectors = [
-	["basic-contact", ["default"]],
+	["basic-contact", ["default", "schema-options"]],
 	["user-profile", ["default"]],
 	["nested-address", ["default"]],
 	["settings-panel", ["default"]],
@@ -120,7 +121,7 @@ async function interactWithExpectedMarker(page: Page, route: ExpectedRoute): Pro
 		if (tag === "SELECT") {
 			const options = await control.locator("option").count();
 			expect(options).toBeGreaterThan(1);
-			await control.selectOption({ index: 1 });
+			await control.selectOption({ index: route.preset === "schema-options" ? 2 : 1 });
 		} else if (type === "checkbox") {
 			if (await control.isChecked()) await control.uncheck();
 			else await control.check();
@@ -156,12 +157,12 @@ test("selector cardinality and order match the independent route fixture", async
 	}
 });
 
-test("all 27 independent deep links select and interact with their expected production definition", async ({
+test("all 28 independent deep links select and interact with their expected production definition", async ({
 	page,
 }) => {
 	test.setTimeout(60_000);
 	const failures = observeFailures(page);
-	expect(expectedRoutes).toHaveLength(27);
+	expect(expectedRoutes).toHaveLength(28);
 	for (const route of expectedRoutes) {
 		await page.goto(routeUrl(route));
 		const current = new URL(page.url());
