@@ -70,6 +70,40 @@ function compare(original: Json, projected: Json, path: Path, deleted: string[])
 	if (!same(original, projected)) invalid();
 }
 
+function verifyAnchorRows(anchor: Plan["rowAnchors"][number], original: Json, projected: Json, final: Json): void {
+	const rows = at(projected, anchor.array).value;
+	const before = at(original, anchor.array).value;
+	const after = at(final, anchor.array).value;
+	if (
+		!Array.isArray(rows) ||
+		!Array.isArray(before) ||
+		!Array.isArray(after) ||
+		rows.length !== after.length ||
+		rows.length !== before.length
+	)
+		invalid();
+	const identities = new Set<string>();
+	for (let i = 0; i < (rows as Json[]).length; i++) {
+		const path = [...anchor.array, { kind: "index" as const, index: i }, ...anchor.key];
+		const a = at(original, path);
+		const b = at(projected, path);
+		const c = at(final, path);
+		const identity = JSON.stringify(b.value);
+		if (
+			!a.exists ||
+			!b.exists ||
+			!c.exists ||
+			b.value === null ||
+			typeof b.value === "object" ||
+			!same(a.value, b.value) ||
+			!same(b.value, c.value) ||
+			identities.has(identity)
+		)
+			invalid();
+		identities.add(identity);
+	}
+}
+
 function verifyAnchors(plan: Plan, original: Json, projected: Json, final: Json): void {
 	const arrays = new Set<string>();
 	for (const omitted of plan.omitted) {
@@ -89,37 +123,7 @@ function verifyAnchors(plan: Plan, original: Json, projected: Json, final: Json)
 		const key = id(anchor.array);
 		if (!arrays.has(key) || declared.has(key) || anchor.key.some((s) => s.kind !== "key")) invalid();
 		declared.add(key);
-		const rows = at(projected, anchor.array).value;
-		const before = at(original, anchor.array).value;
-		const after = at(final, anchor.array).value;
-		if (
-			!Array.isArray(rows) ||
-			!Array.isArray(before) ||
-			!Array.isArray(after) ||
-			rows.length !== after.length ||
-			rows.length !== before.length
-		)
-			invalid();
-		const identities = new Set<string>();
-		for (let i = 0; i < (rows as Json[]).length; i++) {
-			const path = [...anchor.array, { kind: "index" as const, index: i }, ...anchor.key];
-			const a = at(original, path);
-			const b = at(projected, path);
-			const c = at(final, path);
-			const identity = JSON.stringify(b.value);
-			if (
-				!a.exists ||
-				!b.exists ||
-				!c.exists ||
-				b.value === null ||
-				typeof b.value === "object" ||
-				!same(a.value, b.value) ||
-				!same(b.value, c.value) ||
-				identities.has(identity)
-			)
-				invalid();
-			identities.add(identity);
-		}
+		verifyAnchorRows(anchor, original, projected, final);
 	}
 	if (declared.size !== arrays.size) invalid();
 }

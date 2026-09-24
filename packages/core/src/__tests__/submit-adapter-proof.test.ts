@@ -21,6 +21,24 @@ const failure = (result: unknown) => {
 	expect(result).toMatchObject({ ok: false, code: expect.stringMatching(/^(invalid_witness|unsafe_candidate)$/) });
 	expect(JSON.stringify(result)).not.toContain("secret");
 };
+const nestedRows = () => ({
+	rows: [
+		{
+			id: "a",
+			cells: [
+				{ id: "a1", private: 1, label: "A1" },
+				{ id: "a2", private: 2, label: "A2" },
+			],
+		},
+		{ id: "b", cells: [{ id: "b1", private: 3, label: "B1" }] },
+	],
+});
+const omitNestedCells = (source: ReturnType<typeof nestedRows>) => ({
+	rows: source.rows.map((row) => ({
+		...row,
+		cells: row.cells.map(({ private: _private, ...cell }, i) => (i === 0 ? cell : { ...cell, private: _private })),
+	})),
+});
 
 describe("submit adapter final structural proof (mock ownership, not privacy)", () => {
 	it("accepts explicit no-omission and included edits, without invoking a runtime option", () => {
@@ -165,9 +183,56 @@ describe("submit adapter final structural proof (mock ownership, not privacy)", 
 		);
 	});
 
-	it("never freezes or changes retained plain store identity; rejects detectable aliases/mutation", () => {
+	it("preserves both nested repeater index layers while permitting included cell edits", () => {
+		const before = nestedRows();
+		const after = omitNestedCells(before);
+		const witness = plan({
+			omitted: [
+				[key("rows"), index(0), key("cells"), index(0), key("private")],
+				[key("rows"), index(1), key("cells"), index(0), key("private")],
+			],
+			protected: [],
+			rowAnchors: [
+				{ array: [key("rows")], key: [key("id")] },
+				{ array: [key("rows"), index(0), key("cells")], key: [key("id")] },
+				{ array: [key("rows"), index(1), key("cells")], key: [key("id")] },
+			],
+		});
+		const edited = structuredClone(after);
+		const first = edited.rows[0]?.cells[0];
+		if (!first) throw new Error("fixture");
+		first.label = "edited";
+		expect(checkSubmitAdapterProof(before, after, () => witness, edited)).toEqual({ ok: true, data: edited });
+		const shiftedOuter = structuredClone(edited);
+		shiftedOuter.rows.reverse();
+		failure(checkSubmitAdapterProof(before, after, () => witness, shiftedOuter));
+		const shiftedInner = structuredClone(edited);
+		shiftedInner.rows[0]?.cells.reverse();
+		failure(checkSubmitAdapterProof(before, after, () => witness, shiftedInner));
+		const duplicate = structuredClone(after);
+		const second = duplicate.rows[0]?.cells[1];
+		if (!second) throw new Error("fixture");
+		second.id = "a1";
+		failure(checkSubmitAdapterProof(before, duplicate, () => witness, structuredClone(duplicate)));
+		const duplicateBefore = structuredClone(before);
+		const duplicateSource = duplicateBefore.rows[0]?.cells[1];
+		if (!duplicateSource) throw new Error("fixture");
+		duplicateSource.id = "a1";
+		const duplicateAfter = omitNestedCells(duplicateBefore);
+		failure(checkSubmitAdapterProof(duplicateBefore, duplicateAfter, () => witness, structuredClone(duplicateAfter)));
+		const missingAnchor = plan({ ...witness, rowAnchors: witness.rowAnchors.slice(0, 2) });
+		failure(checkSubmitAdapterProof(before, after, () => missingAnchor, edited));
+		const duplicateAnchor = plan({
+			...witness,
+			rowAnchors: [...witness.rowAnchors, witness.rowAnchors[1] ?? witness.rowAnchors[0]],
+		});
+		failure(checkSubmitAdapterProof(before, after, () => duplicateAnchor, edited));
+	});
+
+	it("preserves retained plain store values and identity on success and nonmutating rejection", () => {
+		const retained = { private: "secret", shared: "keep", public: "Ada" };
 		const store = new FormStore({
-			data: original,
+			data: retained,
 			uiState: {},
 			meta: { validation: {} },
 			fieldMeta: {},
@@ -175,6 +240,7 @@ describe("submit adapter final structural proof (mock ownership, not privacy)", 
 			issues: [],
 		});
 		const state = store.getState();
+		const expected = structuredClone(state.data);
 		const accepted = checkSubmitAdapterProof(state.data, projected, () => plan(), structuredClone(projected));
 		expect(accepted.ok).toBe(true);
 		if (accepted.ok) {
@@ -183,6 +249,25 @@ describe("submit adapter final structural proof (mock ownership, not privacy)", 
 		}
 		failure(checkSubmitAdapterProof(state.data, state.data, () => plan(), projected));
 		failure(checkSubmitAdapterProof(state.data, projected, () => plan(), projected));
+		failure(checkSubmitAdapterProof(state.data, projected, () => plan(), { ...projected, private: "returned" }));
+		expect(store.getState()).toBe(state);
+		expect(state.data).toBe(retained);
+		expect(state.data).toEqual(expected);
+		expect(Object.isFrozen(state.data)).toBe(false);
+		expect(Object.isFrozen(state.uiState)).toBe(false);
+	});
+
+	it("detects a trusted same-realm callback mutation without promising to undo it", () => {
+		const retained = { private: "secret", shared: "keep", public: "Ada" };
+		const store = new FormStore({
+			data: retained,
+			uiState: {},
+			meta: { validation: {} },
+			fieldMeta: {},
+			fieldPolicy: [],
+			issues: [],
+		});
+		const state = store.getState();
 		failure(
 			checkSubmitAdapterProof(
 				state.data,
@@ -191,11 +276,12 @@ describe("submit adapter final structural proof (mock ownership, not privacy)", 
 					state.data.public = "tampered";
 					return plan();
 				},
-				projected,
+				structuredClone(projected),
 			),
 		);
 		expect(store.getState()).toBe(state);
-		expect(state.data).toBe(original);
+		expect(state.data).toBe(retained);
+		expect(state.data.public).toBe("tampered");
 		expect(Object.isFrozen(state.data)).toBe(false);
 		expect(Object.isFrozen(state.uiState)).toBe(false);
 	});
