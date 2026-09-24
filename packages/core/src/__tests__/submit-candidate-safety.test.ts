@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FormStore } from "../store.js";
 import { createSubmitCandidate } from "../submit-candidate-safety.js";
 
 function fixture() {
@@ -10,7 +11,24 @@ function fixture() {
 
 describe("detached submit candidate", () => {
 	it("never freezes or changes retained store nodes on success or failure", () => {
-		const state = fixture();
+		const source = fixture();
+		const store = new FormStore({
+			data: source.data,
+			uiState: source.uiState,
+			issues: [
+				{
+					code: "retained",
+					message: "retained",
+					severity: "error" as const,
+					path: { namespace: "data" as const, segments: ["visible"] },
+					source: { origin: "submit" as const, validatorId: "fixture" },
+				},
+			],
+			meta: { validation: {} },
+			fieldMeta: {},
+			fieldPolicy: [],
+		});
+		const state = store.getState();
 		const original = structuredClone(state);
 		const visible = state.data.visible;
 		const issues = state.issues;
@@ -27,6 +45,7 @@ describe("detached submit candidate", () => {
 		expect(state).toEqual(original);
 		expect(state.data.visible).toBe(visible);
 		expect(state.issues).toBe(issues);
+		expect(store.getState()).toBe(state);
 		expect(Object.isFrozen(visible)).toBe(false);
 		expect(Object.isFrozen(state.uiState.view)).toBe(false);
 		expect(Object.isFrozen(issues)).toBe(false);
