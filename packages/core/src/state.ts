@@ -44,6 +44,14 @@ export interface FieldMetaEntry {
 	readonly listenerTriggered: boolean;
 }
 
+/** Candidate validation for one submit attempt; never replaces retained draft issues. */
+export interface AttemptValidation {
+	readonly submitId: string;
+	readonly revision: number;
+	readonly status: "running" | "failed" | "succeeded";
+	readonly issues: readonly ValidationIssue[];
+}
+
 /** ADR section 1.1 — FormState */
 export interface FormState<TData, TUi> {
 	readonly data: TData;
@@ -66,6 +74,8 @@ export interface FormState<TData, TUi> {
 	readonly fieldMeta: Readonly<Record<string, FieldMetaEntry>>;
 	readonly fieldPolicy: readonly FieldPolicyContribution[];
 	readonly issues: readonly ValidationIssue[];
+	/** Present only when an isolated candidate attempt has been started. */
+	readonly attemptValidation?: AttemptValidation;
 }
 
 /** One coherent current-state capture with private-baseline lifecycle queries. */
