@@ -58,6 +58,11 @@ function Playground(props: PlaygroundPageProps & { readonly example: PlaygroundE
 	return (
 		<main className="flex min-h-screen flex-col bg-background">
 			<Header {...props} />
+			{props.example.display.description ? (
+				<p className="border-b border-border bg-info-background px-4 py-3 text-sm text-foreground">
+					{props.example.display.description}
+				</p>
+			) : null}
 			<Toolbar
 				onApply={apply}
 				onFormat={() => formatActive(session, active, setSession, setStatus)}

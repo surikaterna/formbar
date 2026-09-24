@@ -24,6 +24,7 @@ export function SchemaDemoHost({ fixture, onSubmit }: SchemaDemoHostProps) {
 				{fixture.sources.length > 1 ? (
 					<SourceChooser fixture={fixture} value={source.key} onChange={setSourceKey} />
 				) : null}
+				{source.description ? <p className="mt-3 text-sm text-muted-foreground">{source.description}</p> : null}
 			</header>
 			<PreparedDemo key={`${fixture.id}:${source.key}`} fixture={fixture} source={source} onSubmit={onSubmit} />
 		</main>

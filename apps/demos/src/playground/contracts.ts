@@ -39,6 +39,7 @@ export interface PlaygroundExample {
 	readonly display: {
 		readonly demoTitle: string;
 		readonly sourceLabel: string;
+		readonly description?: string;
 		readonly definitionLabel?: string;
 	};
 	readonly document: PlaygroundDocument;

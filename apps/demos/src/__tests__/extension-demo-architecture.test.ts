@@ -201,9 +201,8 @@ describe("extension demo architecture", () => {
 			maximum: 100,
 			multipleOf: 1,
 		});
-		expect(customRenderersDemo.copy).toBe(
-			"Demonstrates custom field renderers using x-formbar metadata extensions. Star ratings, color pickers, checkbox groups, and progress bars — all driven by schema metadata.",
-		);
+		expect(customRenderersDemo.copy).toContain("Star ratings, color pickers, checkbox groups, and progress bars");
+		expect(customRenderersDemo.copy).toContain("intentionally shows two missing extensions, not interactive inputs");
 		expect(customRenderersDemo.sources.map((source) => source.key)).toEqual([
 			"schema-hints",
 			"authored-overrides",

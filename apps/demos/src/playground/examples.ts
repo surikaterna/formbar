@@ -126,6 +126,7 @@ function createExample(
 		display: {
 			demoTitle: registration.title,
 			sourceLabel: source.label,
+			...(source.description ? { description: source.description } : {}),
 			...(definitionLabel ? { definitionLabel } : {}),
 		},
 		document: {

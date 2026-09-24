@@ -112,6 +112,56 @@ describe("App registry-derived routes", () => {
 		expect(view.textContent).toContain("16. Custom Renderers");
 	});
 
+	it("explains the opt-in missing extensions without treating fallbacks as validation errors", async () => {
+		const view = mount("/?mode=playground&demo=custom-renderers&preset=schema-hints");
+		const select = [...view.querySelectorAll("select")].find((item) =>
+			item.parentElement?.textContent?.includes("Example"),
+		);
+		if (!select) throw new Error("Missing example selector");
+		expect(select.textContent).toContain("intentional missing IDs");
+		expect(view.querySelector("[data-formbar-diagnostic]")).toBeNull();
+		act(() => {
+			select.value = "extension-diagnostics";
+			select.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(view.textContent).toContain("Intentional diagnostic example");
+		expect(view.textContent).toContain("Editing JSON cannot register extensions");
+		const preview = view.querySelector('[aria-label="Running preview"]');
+		expect(preview?.querySelectorAll('[data-formbar-diagnostic="missing-extension"]')).toHaveLength(2);
+		expect(
+			preview?.querySelector('[data-formbar-node="missing-widget"] [data-formbar-diagnostic="missing-extension"]'),
+		).not.toBeNull();
+		expect(
+			preview?.querySelector('[data-formbar-node="missing-node"][data-formbar-extension="demo16.missing-node"]'),
+		).not.toBeNull();
+		expect(preview?.querySelector("input, select, textarea")).toBeNull();
+		expect(JSON.parse(panel(view, "Preparation diagnostics").querySelector("pre")?.textContent ?? "null")).toEqual({
+			validation: [],
+			source: [],
+			projection: [],
+			compilation: [],
+			definition: [],
+		});
+		expect(view.querySelector('[aria-label="Core validation issues and submission status"] pre')?.textContent).toBe(
+			"[]",
+		);
+		await act(async () => {
+			button(preview as HTMLElement, "Submit").click();
+			await Promise.resolve();
+		});
+		expect(JSON.parse(panel(view, "Last successful submission").querySelector("pre")?.textContent ?? "null")).toEqual({
+			missingWidget: "",
+		});
+		act(() => {
+			const current = [...view.querySelectorAll("select")].find((item) => item.value === "extension-diagnostics");
+			if (!(current instanceof HTMLSelectElement)) throw new Error("Missing current example selector");
+			current.value = "authored-overrides";
+			current.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(view.querySelector("[data-formbar-diagnostic]")).toBeNull();
+		expect(view.querySelector('[data-widget="demo16.rating"]')).not.toBeNull();
+	});
+
 	it("keeps playground navigation in browser back and forward history", async () => {
 		const view = mount("/?mode=demo&demo=basic-contact");
 		act(() => button(view, "Open in Playground").click());
