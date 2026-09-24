@@ -88,6 +88,15 @@ export type { StandardSchemaLike } from "./standard-schema.js";
 export { createStandardSchemaValidator, isStandardSchemaLike } from "./standard-schema.js";
 // State types (SE1.2)
 export type {
+	SubmitAdapterCapture,
+	SubmitAdapterProjection,
+	SubmitDataPath,
+	SubmitDataSegment,
+	SubmitDefinitionAdapter,
+	SubmitJson,
+	SubmitStructuralWitness,
+} from "./submit-adapter-contract.js";
+export type {
 	AttemptValidation,
 	CreateFormOptions,
 	FieldMetaEntry,

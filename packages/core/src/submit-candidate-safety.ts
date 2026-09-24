@@ -24,7 +24,7 @@ export type CandidateResult =
 	| { readonly ok: true; readonly data: Json; readonly uiState: Json }
 	| { readonly ok: false; readonly code: "unsafe_candidate" };
 
-class Boundary {
+export class Boundary {
 	readonly seen = new Set<object>();
 	readonly refs = new Set<object>();
 	private nodes = 0;
@@ -94,7 +94,7 @@ function clone(value: unknown, forbidden?: ReadonlySet<object>): { value: Json; 
 	return { value: boundary.copy(value, forbidden), refs: boundary.refs };
 }
 
-function freeze<T extends Json>(value: T): T {
+export function freeze<T extends Json>(value: T): T {
 	if (value && typeof value === "object") {
 		for (const child of Object.values(value)) freeze(child);
 		Object.freeze(value);
@@ -106,7 +106,7 @@ function add(target: Set<object>, refs: ReadonlySet<object>): void {
 	for (const ref of refs) target.add(ref);
 }
 
-function unchanged(value: unknown, baseline: Json): boolean {
+export function unchanged(value: unknown, baseline: Json): boolean {
 	return JSON.stringify(clone(value).value) === JSON.stringify(baseline);
 }
 
