@@ -1,0 +1,163 @@
+/* These direct root branches are the only owners of the demo array toolbars. */
+.schema-demo-form[data-repeater-demo="array-items"]
+	> form[data-formbar-definition="array-items"]
+	> fieldset[data-formbar-node="root"],
+.schema-demo-form[data-repeater-demo="order-entry"]
+	> form[data-formbar-definition="order-entry"]
+	> fieldset[data-formbar-node="root"]
+	> section[data-formbar-node="payment"] {
+	> fieldset:is(
+			[data-formbar-node="tags"],
+			[data-formbar-node="team-members"],
+			[data-formbar-node="addresses"],
+			[data-formbar-node="milestones"],
+			[data-formbar-node="line-items"]
+		) {
+		> [data-formbar-repeater-status] {
+			grid-column: 1 / -1;
+			color: var(--muted-foreground);
+			font-size: 0.875rem;
+		}
+
+		> ol {
+			grid-column: 1 / -1;
+			min-width: 0;
+			list-style: none;
+			padding: 0;
+			margin: 0;
+			display: grid;
+			gap: 0.75rem;
+
+			> li {
+				min-width: 0;
+
+				> fieldset {
+					display: grid;
+					grid-template-columns: repeat(12, minmax(0, 1fr));
+					gap: 0.75rem;
+					min-width: 0;
+					padding: 0.75rem;
+					border: 1px solid var(--border);
+					border-radius: var(--radius);
+
+					> [data-formbar-node]:not([data-formbar-action]) {
+						grid-column: 1 / -1;
+						min-width: 0;
+					}
+
+					> [data-formbar-action] {
+						grid-column: span 4;
+						min-width: 0;
+						> button {
+							width: 100%;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	> :is(
+			[data-formbar-node="tags-add"],
+			[data-formbar-node="team-members-add"],
+			[data-formbar-node="addresses-add"],
+			[data-formbar-node="milestones-add"],
+			[data-formbar-node="line-add"]
+		)[data-formbar-action="array.append"] {
+		grid-column: 1 / -1;
+		min-width: 0;
+
+		> button {
+			width: auto;
+			min-width: min(100%, 10rem);
+		}
+	}
+
+	/* Only direct native wrappers, never actions inside a nested row or repeater. */
+	> fieldset:is(
+			[data-formbar-node="tags"],
+			[data-formbar-node="team-members"],
+			[data-formbar-node="addresses"],
+			[data-formbar-node="milestones"],
+			[data-formbar-node="line-items"]
+		)
+		> ol
+		> li
+		> fieldset
+		> [data-formbar-action^="array."]
+		> button,
+	> :is(
+			[data-formbar-node="tags-add"],
+			[data-formbar-node="team-members-add"],
+			[data-formbar-node="addresses-add"],
+			[data-formbar-node="milestones-add"],
+			[data-formbar-node="line-add"]
+		)[data-formbar-action="array.append"]
+		> button {
+		min-height: 44px;
+		padding: 0.55rem 0.75rem;
+		border-radius: var(--radius-sm);
+		font-weight: 600;
+		white-space: normal;
+		text-align: center;
+		&:focus-visible {
+			outline: 2px solid var(--ring);
+			outline-offset: 2px;
+		}
+		&:is(:disabled, [aria-disabled="true"]) {
+			background: var(--muted);
+			color: var(--muted-foreground);
+			border: 1px solid var(--border-alt);
+			cursor: not-allowed;
+		}
+	}
+
+	@media (max-width: 640px) {
+		> fieldset:is(
+				[data-formbar-node="tags"],
+				[data-formbar-node="team-members"],
+				[data-formbar-node="addresses"],
+				[data-formbar-node="milestones"],
+				[data-formbar-node="line-items"]
+			)
+			> ol
+			> li
+			> fieldset {
+			> [data-formbar-action="array.move"] {
+				grid-column: span 6;
+			}
+			> [data-formbar-action="array.remove"] {
+				grid-column: span 12;
+			}
+		}
+	}
+
+	/* A move cannot succeed for the only direct row; hide its wrapper and status. */
+	> fieldset[data-formbar-node="tags"]
+		> ol
+		> li:only-child
+		> fieldset
+		> :is([data-formbar-node="tag-up"], [data-formbar-node="tag-down"]),
+	> fieldset[data-formbar-node="team-members"]
+		> ol
+		> li:only-child
+		> fieldset
+		> :is([data-formbar-node="member-up"], [data-formbar-node="member-down"]),
+	> fieldset[data-formbar-node="addresses"]
+		> ol
+		> li:only-child
+		> fieldset
+		> :is([data-formbar-node="address-up"], [data-formbar-node="address-down"]),
+	> fieldset[data-formbar-node="milestones"]
+		> ol
+		> li:only-child
+		> fieldset
+		> :is([data-formbar-node="milestone-up"], [data-formbar-node="milestone-down"]),
+	> fieldset[data-formbar-node="line-items"]
+		> ol
+		> li:only-child
+		> fieldset
+		> :is([data-formbar-node="line-up"], [data-formbar-node="line-down"]) {
+		display: none;
+	}
+}

@@ -40,7 +40,48 @@ function repeaterButton(view: Awaited<ReturnType<typeof mountDemo>>, id: string,
 	return found;
 }
 
+function rowActions(view: Awaited<ReturnType<typeof mountDemo>>, id: string): HTMLButtonElement[][] {
+	return [...view.container.querySelectorAll(`fieldset[data-formbar-node="${id}"] > ol > li > fieldset`)].map((row) => [
+		...row.querySelectorAll<HTMLButtonElement>(":scope > [data-formbar-action] > button"),
+	]);
+}
+
+const arrayRepeaters = [
+	["tags", "tag", "Add Tags"],
+	["team-members", "member", "Add Team Members"],
+	["addresses", "address", "Add Office Locations"],
+	["milestones", "milestone", "Add Milestones"],
+] as const;
+
 describe("array demo repeaters", () => {
+	it("keeps exact row move IDs and preflight states for every demo 8 repeater", async () => {
+		const view = await mountDemo(arrayItemsDemo);
+		for (const [id, prefix, add] of arrayRepeaters) {
+			expect(rowActions(view, id)).toHaveLength(0);
+			await click(button(view, add));
+			expect(rowActions(view, id)).toHaveLength(1);
+			for (const direction of ["up", "down"]) {
+				expect(
+					rowActions(view, id)[0].some((control) => control.dataset.formbarActionNode === `${prefix}-${direction}`),
+				).toBe(true);
+				expect(repeaterButton(view, id, `Move ${direction}, item 1`).getAttribute("aria-disabled")).toBe("true");
+			}
+			await click(button(view, add));
+			expect(rowActions(view, id)).toHaveLength(2);
+			expect(repeaterButton(view, id, "Move up, item 1").getAttribute("aria-disabled")).toBe("true");
+			expect(repeaterButton(view, id, "Move down, item 1").getAttribute("aria-disabled")).toBeNull();
+			expect(repeaterButton(view, id, "Move up, item 2").getAttribute("aria-disabled")).toBeNull();
+			expect(repeaterButton(view, id, "Move down, item 2").getAttribute("aria-disabled")).toBe("true");
+			await click(repeaterButton(view, id, "Move up, item 2"));
+			expect(document.activeElement).toBe(repeaterButton(view, id, "Move up, item 1"));
+			await click(repeaterButton(view, id, "Remove, item 2"));
+			expect(rowActions(view, id)).toHaveLength(1);
+			expect(document.activeElement?.closest('[data-formbar-node^="f-"]')).not.toBeNull();
+			await click(repeaterButton(view, id, "Remove, item 1"));
+			expect(rowActions(view, id)).toHaveLength(0);
+			expect(document.activeElement).toBe(button(view, add));
+		}
+	});
 	it("adds, edits, moves, removes, enforces tag constraints, and submits core arrays", async () => {
 		const submitted = vi.fn();
 		const view = await mountDemo(arrayItemsDemo, submitted, true);
@@ -175,6 +216,27 @@ describe("array demo repeaters", () => {
 });
 
 describe("order line-item repeater", () => {
+	it("retains the minimum, singleton action IDs, move focus and reset semantics", async () => {
+		const view = await mountDemo(orderEntryDemo);
+		expect(rowActions(view, "line-items")).toHaveLength(0);
+		await click(button(view, "Add Line Item"));
+		expect(rowActions(view, "line-items")[0].map((control) => control.dataset.formbarActionNode)).toEqual([
+			"line-up",
+			"line-down",
+			"line-remove",
+		]);
+		expect(button(view, "Move up, item 1").getAttribute("aria-disabled")).toBe("true");
+		expect(button(view, "Move down, item 1").getAttribute("aria-disabled")).toBe("true");
+		expect(button(view, "Remove, item 1").disabled).toBe(true);
+		await click(button(view, "Add Line Item"));
+		await click(button(view, "Move down, item 1"));
+		expect(document.activeElement).toBe(button(view, "Move down, item 2"));
+		await click(button(view, "Remove, item 2"));
+		expect(rowActions(view, "line-items")).toHaveLength(1);
+		expect(document.activeElement).toBe(inputs(view, "Description")[0]);
+		await click(button(view, "Reset"));
+		expect(rowActions(view, "line-items")).toHaveLength(0);
+	});
 	it("uses date controls, nested validation, focus-safe operations, and payloads without totals", async () => {
 		const submitted = vi.fn();
 		const view = await mountDemo(orderEntryDemo, submitted);
