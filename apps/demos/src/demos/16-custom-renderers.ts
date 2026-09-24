@@ -171,7 +171,7 @@ export const customRenderersDemo: SchemaDemoFixture = Object.freeze({
 	id: "custom-renderers",
 	title: "16. Custom Renderers",
 	subtitle: "Trusted widgets selected by serializable IDs",
-	copy: "Demonstrates custom field renderers using x-formbar metadata extensions. Star ratings, color pickers, checkbox groups, and progress bars — all driven by schema metadata.",
+	copy: "Demonstrates custom field renderers using x-formbar metadata extensions. Star ratings, color pickers, checkbox groups, and progress bars — all driven by schema metadata. Schema hints and authored overrides use working host-registered widgets; the opt-in Extension diagnostics source intentionally shows two missing extensions, not interactive inputs.",
 	category: "sources",
 	runtimeProfileIds: ["demo16.trusted-widgets.v1"] as const,
 	sources: Object.freeze([
@@ -190,7 +190,9 @@ export const customRenderersDemo: SchemaDemoFixture = Object.freeze({
 		}),
 		Object.freeze({
 			key: "extension-diagnostics",
-			label: "Extension diagnostics (opt-in)",
+			label: "Extension diagnostics (intentional missing IDs)",
+			description:
+				"Intentional diagnostic example: demo16.missing-widget and demo16.missing-node are not registered by the trusted host profile. Both show inline renderer fallbacks, not preparation or core validation issues; there are no inputs here. The stored empty string for missingWidget can still submit. Choose Schema hints or Authored overrides for working widgets. Editing JSON cannot register extensions.",
 			schema: Object.freeze({
 				type: "object",
 				properties: { missingWidget: { type: "string", title: "Missing widget" } },

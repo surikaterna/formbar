@@ -161,15 +161,46 @@ describe("demo 16 trusted custom widgets", () => {
 	});
 
 	it("isolates both missing-ID fallbacks in the opt-in diagnostic source", async () => {
-		const view = await mountDemo(customRenderersDemo);
+		const onSubmit = vi.fn();
+		const view = await mountDemo(customRenderersDemo, onSubmit);
+		expect(selector(view, "JSON Schema source").textContent).toContain("intentional missing IDs");
+		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
 		setSelect(selector(view, "JSON Schema source"), "extension-diagnostics");
+		expect(view.container.textContent).toContain("Intentional diagnostic example");
+		expect(view.container.textContent).toContain("not preparation or core validation issues");
+		expect(view.container.textContent).toContain("Editing JSON cannot register extensions");
 		const diagnostics = [...view.container.querySelectorAll('[data-formbar-diagnostic="missing-extension"]')];
 		expect(diagnostics).toHaveLength(2);
 		expect(diagnostics.map((item) => item.textContent)).toEqual([
 			"This form item cannot be rendered.",
 			"This form item cannot be rendered.",
 		]);
+		expect(
+			view.container.querySelector(
+				'[data-formbar-node="missing-widget"] [data-formbar-diagnostic="missing-extension"]',
+			),
+		).not.toBeNull();
+		expect(
+			view.container.querySelector('[data-formbar-node="missing-node"][data-formbar-extension="demo16.missing-node"]'),
+		).not.toBeNull();
+		expect(view.container.querySelector("form input, form select, form textarea")).toBeNull();
+		expect(
+			view.container.querySelector("[aria-label='Core validation issues and submission status'] pre")?.textContent,
+		).toBe("[]");
+		expect(
+			JSON.parse(
+				[...view.container.querySelectorAll("h2")]
+					.find((heading) => heading.textContent === "Preparation diagnostics")
+					?.parentElement?.querySelector("pre")?.textContent ?? "null",
+			),
+		).toEqual({ validation: [], source: [], projection: [], compilation: [], definition: [] });
 		expect(view.container.querySelector("form")).not.toBeNull();
+		await submit(view);
+		expect(onSubmit).toHaveBeenCalledWith({ missingWidget: "" });
+		expect(JSON.parse(resultJson(view) ?? "null")).toEqual({ missingWidget: "" });
+		setSelect(selector(view, "JSON Schema source"), "schema-hints");
+		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
+		expect(button(view, "Quality Rating: 1")).toBeDefined();
 	});
 
 	it("honors required, busy, issue, disabled, and read-only state without bypassing callbacks", async () => {

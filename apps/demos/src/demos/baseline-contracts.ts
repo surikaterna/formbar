@@ -23,6 +23,7 @@ interface SchemaDemoSourceBase {
 	readonly label: string;
 	readonly schema: Readonly<Record<string, unknown>>;
 	readonly initialData: Readonly<Record<string, unknown>>;
+	readonly description?: string;
 	readonly initialUiState?: Readonly<Record<string, unknown>>;
 	/** Immutable JSON-serializable module constant; structural changes replace this reference. */
 	readonly arbiterRules?: NonNullable<ArbiterPluginOptions["rules"]>;
