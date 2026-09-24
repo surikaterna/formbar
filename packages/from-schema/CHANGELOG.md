@@ -1,5 +1,11 @@
 # @formbar/from-schema
 
+## 0.15.2
+
+### Patch Changes
+
+- eb6b681: Compile direct primitive JSON Schema typed enums into selectable native fields without interpreting composed branches.
+
 ## 0.15.0
 
 ### Patch Changes
