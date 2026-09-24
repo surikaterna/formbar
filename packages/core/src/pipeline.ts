@@ -11,7 +11,7 @@ import { setImmutablePath } from "./immutable-path.js";
 import { runNotifyHooksSync, runVetoHooksSync } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
 import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
-import type { CreateFormOptions, FieldMetaEntry, SubmitContext, ValidationIssue } from "./state.js";
+import type { CreateFormOptions, FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import type { FormStore } from "./store.js";
 import type { Transaction } from "./transaction.js";
 import type { TransformDefinition } from "./transforms.js";
@@ -46,6 +46,22 @@ export interface PipelineResult {
 	readonly vetoed?: boolean;
 	readonly vetoReason?: string;
 	readonly issues?: readonly ValidationIssue[];
+}
+
+/** Internal handoff only. #233 must check its coordinator revision after recording committed writes. */
+export type SubmitPreparation =
+	| { readonly stage: "rejected"; readonly result: PipelineResult }
+	| { readonly stage: "prepared"; readonly snapshot: FormState<unknown, unknown>; readonly revision: number };
+
+export interface SubmitPreparationGuard {
+	readonly signal: AbortSignal;
+	readonly expectedRevision: number;
+	readonly revision: () => number;
+}
+
+function preparationFailure(guard: SubmitPreparationGuard): PipelineResult | undefined {
+	if (guard.signal.aborted) return { ok: false, error: "Submit preparation aborted" };
+	if (guard.revision() !== guard.expectedRevision) return { ok: false, error: "Submit preparation superseded" };
 }
 
 /** Resolve TransformDefinitions from options.transforms (duck-type check) */
@@ -245,7 +261,9 @@ function executeTransaction(
 	ctx: PipelineContext,
 	tx: Transaction<unknown, unknown>,
 	previousPolicy: import("./state.js").FormState<unknown, unknown>["fieldPolicy"],
+	guard?: SubmitPreparationGuard,
 ): PipelineResult {
+	const deferValidation = guard !== undefined;
 	const middlewares = (ctx.options.middleware ?? []) as readonly Middleware[];
 	const before = runVetoHooksSync(middlewares, "beforeAction", { action: ctx.action, state: tx.prevState });
 	if (before.action === "veto") return { ok: false, vetoed: true, vetoReason: before.reason };
@@ -253,13 +271,19 @@ function executeTransaction(
 	runNotifyHooksSync(middlewares, "beforeEvaluate", { action: ctx.action, state: tx.draftState });
 	const fieldPolicy = runPluginPhase(ctx, tx, previousPolicy);
 	runNotifyHooksSync(middlewares, "afterEvaluate", { action: ctx.action, state: tx.draftState });
-	const issues = runValidationPhase(ctx, tx, middlewares);
+	const issues = deferValidation ? [] : runValidationPhase(ctx, tx, middlewares);
 	const vetoReason = submitVeto(ctx, tx, middlewares);
 	if (vetoReason) return { ok: false, vetoed: true, vetoReason };
+	if (guard) {
+		const failure = preparationFailure(guard);
+		if (failure) return failure;
+	}
 	tx.mutate((draft) => ({
 		...draft,
 		fieldPolicy,
-		issues: mergePipelineIssues(draft.issues, issues, Boolean(ctx.options.validators?.length)),
+		issues: deferValidation
+			? draft.issues
+			: mergePipelineIssues(draft.issues, issues, Boolean(ctx.options.validators?.length)),
 	}));
 	ctx.store.commitTransaction(tx);
 	runNotifyHooksSync(middlewares, "afterAction", {
@@ -267,6 +291,11 @@ function executeTransaction(
 		prevState: tx.prevState,
 		nextState: ctx.store.getState(),
 	});
+	// A synchronous afterAction listener may reset or cancel after the commit; never advance its candidate.
+	if (guard) {
+		const failure = preparationFailure(guard);
+		if (failure) return failure;
+	}
 	return { ok: true, issues: ctx.store.getState().issues };
 }
 
@@ -282,19 +311,41 @@ function rollback(store: FormStore<unknown, unknown>, tx: Transaction<unknown, u
  * Executes the 18-step transactional pipeline for a form action.
  * All-or-nothing semantics: partial commits never occur.
  */
-export function executePipeline(ctx: PipelineContext): PipelineResult {
+function runPipeline(ctx: PipelineContext, guard?: SubmitPreparationGuard): PipelineResult {
 	let tx: Transaction<unknown, unknown> | undefined;
 	try {
+		if (guard) {
+			const failure = preparationFailure(guard);
+			if (failure) return failure;
+		}
 		if (ctx.action.path !== undefined) {
 			parsePath(ctx.action.path);
 		}
 		const previousPolicy = ctx.store.getState().fieldPolicy;
 		tx = ctx.store.beginTransaction();
-		const result = executeTransaction(ctx, tx, previousPolicy);
+		const result = executeTransaction(ctx, tx, previousPolicy, guard);
 		if (!result.ok) rollback(ctx.store, tx);
 		return result;
 	} catch (err) {
 		if (tx) rollback(ctx.store, tx);
 		return { ok: false, error: err instanceof Error ? err.message : String(err) };
 	}
+}
+
+/** Internal preparation stage; never wired to createForm until the guarded #233 adapter exists. */
+export function executeSubmitPreparation(ctx: PipelineContext, guard: SubmitPreparationGuard): SubmitPreparation {
+	if (!ctx.isSubmit || !ctx.submitContext || ctx.action.type !== "submit") {
+		return {
+			stage: "rejected",
+			result: { ok: false, error: "Submit preparation requires a submit action and context" },
+		};
+	}
+	const result = runPipeline(ctx, guard);
+	return result.ok
+		? { stage: "prepared", snapshot: ctx.store.getState(), revision: guard.revision() }
+		: { stage: "rejected", result };
+}
+
+export function executePipeline(ctx: PipelineContext): PipelineResult {
+	return runPipeline(ctx);
 }
