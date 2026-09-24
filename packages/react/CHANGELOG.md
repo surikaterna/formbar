@@ -1,5 +1,12 @@
 # @formbar/react
 
+## 0.17.0
+
+### Patch Changes
+
+- Updated dependencies [6cfe157]
+  - @formbar/core@0.17.0
+
 ## 0.15.0
 
 ### Minor Changes
