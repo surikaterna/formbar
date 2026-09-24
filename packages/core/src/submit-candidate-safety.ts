@@ -1,4 +1,4 @@
-/** Internal, bounded JSON boundary for a future submit path; not wired to submit. */
+/** Internal bounded JSON boundary for a future submit path; not a sandbox or hidden-data guarantee. */
 const MAX_DEPTH = 32;
 const MAX_NODES = 10_000;
 const MAX_BYTES = 1_000_000;
@@ -127,16 +127,32 @@ function applyEgress(
 	for (const transform of transforms) {
 		const inputValue = clone(current).value;
 		const inputSnapshot = clone(inputValue).value;
+		if (!check()) throw new Error("mutation");
 		const output = transform(inputValue, context);
 		if (!unchanged(inputValue, inputSnapshot) || !check()) throw new Error("mutation");
 		const blocked = new Set(protectedRefs);
 		if (output !== inputValue) add(blocked, clone(inputValue).refs);
 		current = clone(output, blocked).value;
+		if (!check()) throw new Error("mutation");
 	}
 	return current;
 }
 
-/** Rechecks callback-visible inputs and retained roots after every synchronous callback. */
+function makeContext(projection: Json, ui: Json, refs: Set<object>) {
+	const context: CandidateEgressContext = Object.freeze({
+		phase: "egress",
+		data: freeze(clone(projection).value),
+		uiState: freeze(clone(ui).value),
+	});
+	const snapshot = clone(context).value;
+	add(refs, clone(context).refs);
+	refs.add(context);
+	return { context, snapshot };
+}
+
+/** Detectable aliases/mutations only. A transparent Proxy of retained data hides its target identity.
+ * Arbitrary callback closures/proxy traps remain trusted; #210 decides that trust, not this helper.
+ * This is not an enforceable hidden-payload confidentiality boundary. */
 export function createSubmitCandidate(
 	state: { readonly data: unknown; readonly uiState: unknown },
 	project: CandidateProject,
@@ -150,6 +166,7 @@ export function createSubmitCandidate(
 		const retained = new Boundary();
 		const data = retained.copy(dataDescriptor.value);
 		const ui = retained.copy(uiDescriptor.value);
+		if (!retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui)) throw new Error("mutation");
 		const input: CandidateInput = { data: freeze(data), uiState: freeze(ui) };
 		Object.freeze(input);
 		const protectedRefs = new Set(retained.refs);
@@ -163,27 +180,19 @@ export function createSubmitCandidate(
 		)
 			throw new Error("mutation");
 		const projection = clone(projected, protectedRefs);
+		if (!retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui)) throw new Error("mutation");
 		add(protectedRefs, projection.refs);
-		const context: CandidateEgressContext = Object.freeze({
-			phase: "egress",
-			data: freeze(clone(projection.value).value),
-			uiState: freeze(clone(ui).value),
-		});
-		const contextSnapshot = clone(context).value;
-		add(protectedRefs, clone(context).refs);
-		protectedRefs.add(context);
-		const current = applyEgress(
-			projection.value,
-			context,
-			transforms,
-			protectedRefs,
-			() =>
-				unchanged(context, contextSnapshot) &&
-				retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui) &&
-				unchanged(input, { data, uiState: ui }) &&
-				unchanged(projected, projection.value),
-		);
-		return { ok: true, data: freeze(clone(current).value), uiState: freeze(clone(ui).value) };
+		const { context, snapshot } = makeContext(projection.value, ui, protectedRefs);
+		const check = () =>
+			unchanged(context, snapshot) &&
+			unchanged(input, { data, uiState: ui }) &&
+			unchanged(projected, projection.value) &&
+			retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui);
+		if (!check()) throw new Error("mutation");
+		const current = applyEgress(projection.value, context, transforms, protectedRefs, check);
+		const result: CandidateResult = { ok: true, data: freeze(clone(current).value), uiState: freeze(clone(ui).value) };
+		if (!check()) throw new Error("mutation");
+		return result;
 	} catch {
 		return { ok: false, code: "unsafe_candidate" };
 	}

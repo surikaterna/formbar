@@ -137,6 +137,85 @@ describe("detached submit candidate", () => {
 		expect(called).toBe(false);
 	});
 
+	it("rejects projected descriptor traps that mutate retained data during cloning", () => {
+		const state = fixture();
+		const value = new Proxy(
+			{ name: "Ada" },
+			{
+				getOwnPropertyDescriptor(target, key) {
+					state.data.visible.name = "tampered";
+					return Reflect.getOwnPropertyDescriptor(target, key);
+				},
+			},
+		);
+		expect(createSubmitCandidate(state, () => value)).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(state.data.visible.name).toBe("tampered");
+		expect(Object.isFrozen(state.data.visible)).toBe(false);
+	});
+
+	it("rejects egress descriptor traps that mutate retained UI during cloning", () => {
+		const state = fixture();
+		const result = createSubmitCandidate(state, () => ({ name: "Ada" }), [
+			() =>
+				new Proxy(
+					{ name: "Ada" },
+					{
+						getOwnPropertyDescriptor(target, key) {
+							state.uiState.view.tab = 99;
+							return Reflect.getOwnPropertyDescriptor(target, key);
+						},
+					},
+				),
+		]);
+		expect(result).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(state.uiState.view.tab).toBe(99);
+		expect(Object.isFrozen(state.uiState.view)).toBe(false);
+	});
+
+	it("fails closed on a descriptor trap throw without mutating retained state", () => {
+		const state = fixture();
+		const before = structuredClone(state);
+		const result = createSubmitCandidate(
+			state,
+			() =>
+				new Proxy(
+					{ name: "Ada" },
+					{
+						getOwnPropertyDescriptor() {
+							throw new Error("secret");
+						},
+					},
+				),
+		);
+		expect(result).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(
+			createSubmitCandidate(state, () => ({ name: "Ada" }), [
+				() =>
+					new Proxy(
+						{ name: "Ada" },
+						{
+							getOwnPropertyDescriptor() {
+								throw new Error("secret");
+							},
+						},
+					),
+			]),
+		).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(state).toEqual(before);
+		expect(Object.isFrozen(state.data.visible)).toBe(false);
+	});
+
+	it("documents opaque transparent proxies without claiming target alias detection", () => {
+		const state = { data: { name: "Ada" }, uiState: { tab: 1 } };
+		const result = createSubmitCandidate(state, () => new Proxy(state.data, {}));
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data).not.toBe(state.data);
+		expect(result.data).toEqual(state.data);
+		expect(Object.isFrozen(state.data)).toBe(false);
+		expect(state.data.name).toBe("Ada");
+	});
+
 	it("egress sees only disjoint candidate data/UI, and unchanged input can be returned", () => {
 		const state = fixture();
 		let captured: unknown;
