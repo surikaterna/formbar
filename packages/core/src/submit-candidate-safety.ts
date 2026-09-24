@@ -110,12 +110,6 @@ function unchanged(value: unknown, baseline: Json): boolean {
 	return JSON.stringify(clone(value).value) === JSON.stringify(baseline);
 }
 
-function retainedUnchanged(state: object, dataRef: unknown, uiRef: unknown, data: Json, ui: Json): boolean {
-	const dataNow = Object.getOwnPropertyDescriptor(state, "data");
-	const uiNow = Object.getOwnPropertyDescriptor(state, "uiState");
-	return dataNow?.value === dataRef && uiNow?.value === uiRef && unchanged(dataRef, data) && unchanged(uiRef, ui);
-}
-
 function applyEgress(
 	initial: Json,
 	context: CandidateEgressContext,
@@ -150,8 +144,8 @@ function makeContext(projection: Json, ui: Json, refs: Set<object>) {
 	return { context, snapshot };
 }
 
-/** Detectable aliases/mutations only. A transparent Proxy of retained data hides its target identity.
- * Arbitrary callback closures/proxy traps remain trusted; #210 decides that trust, not this helper.
+/** Trusted host (#210): state and callbacks must not mutate retained data or use hostile traps.
+ * A transparent Proxy hides its target identity; callback/trap side effects cannot be rolled back.
  * This is not an enforceable hidden-payload confidentiality boundary. */
 export function createSubmitCandidate(
 	state: { readonly data: unknown; readonly uiState: unknown },
@@ -166,7 +160,6 @@ export function createSubmitCandidate(
 		const retained = new Boundary();
 		const data = retained.copy(dataDescriptor.value);
 		const ui = retained.copy(uiDescriptor.value);
-		if (!retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui)) throw new Error("mutation");
 		const input: CandidateInput = { data: freeze(data), uiState: freeze(ui) };
 		Object.freeze(input);
 		const protectedRefs = new Set(retained.refs);
@@ -174,20 +167,12 @@ export function createSubmitCandidate(
 		add(protectedRefs, clone(input).refs);
 		protectedRefs.add(input);
 		const projected = project(input);
-		if (
-			!retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui) ||
-			!unchanged(input, { data, uiState: ui })
-		)
-			throw new Error("mutation");
+		if (!unchanged(input, { data, uiState: ui })) throw new Error("mutation");
 		const projection = clone(projected, protectedRefs);
-		if (!retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui)) throw new Error("mutation");
 		add(protectedRefs, projection.refs);
 		const { context, snapshot } = makeContext(projection.value, ui, protectedRefs);
 		const check = () =>
-			unchanged(context, snapshot) &&
-			unchanged(input, { data, uiState: ui }) &&
-			unchanged(projected, projection.value) &&
-			retainedUnchanged(state, dataDescriptor.value, uiDescriptor.value, data, ui);
+			unchanged(context, snapshot) && unchanged(input, { data, uiState: ui }) && unchanged(projected, projection.value);
 		if (!check()) throw new Error("mutation");
 		const current = applyEgress(projection.value, context, transforms, protectedRefs, check);
 		const result: CandidateResult = { ok: true, data: freeze(clone(current).value), uiState: freeze(clone(ui).value) };

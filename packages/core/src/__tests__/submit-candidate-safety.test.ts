@@ -84,17 +84,17 @@ describe("detached submit candidate", () => {
 			[() => adapterCapture],
 		);
 		fail(() => ({ ok: true }), [(value, context) => ({ ...(value as object), ui: context.uiState })]);
-		fail(
-			() => ({ ok: true }),
-			[
-				() => {
-					state.uiState.view.tab = 3;
-					return { ok: true };
-				},
-			],
-		);
+		let projected: { ok: boolean };
+		fail(() => {
+			projected = { ok: true };
+			return projected;
+		}, [
+			() => {
+				projected.ok = false;
+				return { ok: true };
+			},
+		]);
 		expect(Object.isFrozen(state.uiState.view)).toBe(false);
-		state.uiState.view.tab = 1;
 		const shared = {};
 		fail(() => ({ a: shared, b: shared }));
 		const cycle: { self?: unknown } = {};
@@ -137,7 +137,7 @@ describe("detached submit candidate", () => {
 		expect(called).toBe(false);
 	});
 
-	it("rejects projected descriptor traps that mutate retained data during cloning", () => {
+	it("documents trusted-host boundary: projected descriptor traps can mutate retained data", () => {
 		const state = fixture();
 		const value = new Proxy(
 			{ name: "Ada" },
@@ -148,12 +148,16 @@ describe("detached submit candidate", () => {
 				},
 			},
 		);
-		expect(createSubmitCandidate(state, () => value)).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(createSubmitCandidate(state, () => value)).toEqual({
+			ok: true,
+			data: { name: "Ada" },
+			uiState: { view: { tab: 1 } },
+		});
 		expect(state.data.visible.name).toBe("tampered");
 		expect(Object.isFrozen(state.data.visible)).toBe(false);
 	});
 
-	it("rejects egress descriptor traps that mutate retained UI during cloning", () => {
+	it("documents trusted-host boundary: egress descriptor traps can mutate retained UI", () => {
 		const state = fixture();
 		const result = createSubmitCandidate(state, () => ({ name: "Ada" }), [
 			() =>
@@ -167,7 +171,7 @@ describe("detached submit candidate", () => {
 					},
 				),
 		]);
-		expect(result).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(result).toEqual({ ok: true, data: { name: "Ada" }, uiState: { view: { tab: 1 } } });
 		expect(state.uiState.view.tab).toBe(99);
 		expect(Object.isFrozen(state.uiState.view)).toBe(false);
 	});
@@ -214,6 +218,53 @@ describe("detached submit candidate", () => {
 		expect(result.data).toEqual(state.data);
 		expect(Object.isFrozen(state.data)).toBe(false);
 		expect(state.data.name).toBe("Ada");
+	});
+
+	it("does not rescan a trusted retained UI proxy after taking the owned capture", () => {
+		let reads = 0;
+		const state = {
+			data: { x: 1 },
+			uiState: new Proxy(
+				{ tab: 1 },
+				{
+					getOwnPropertyDescriptor(target, key) {
+						reads++;
+						// Auditor n=6 repro at ef43d5b: a final retained read mutated data after its last check.
+						if (reads === 6) state.data.x = 99;
+						return Reflect.getOwnPropertyDescriptor(target, key);
+					},
+				},
+			),
+		};
+		const result = createSubmitCandidate(state, () => ({ ok: true }));
+		expect(result).toEqual({ ok: true, data: { ok: true }, uiState: { tab: 1 } });
+		expect(reads).toBe(1);
+		expect(state.data.x).toBe(1);
+	});
+
+	it("accepts null-root UI and rejects owned projection mutation with code-only failure", () => {
+		const state = { data: { name: "Ada" }, uiState: null };
+		let projected: { name: string };
+		const result = createSubmitCandidate(
+			state,
+			() => {
+				projected = { name: "Ada" };
+				return projected;
+			},
+			[
+				() => {
+					projected.name = "changed";
+					return { name: "Grace" };
+				},
+			],
+		);
+		expect(result).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(state.data.name).toBe("Ada");
+		expect(createSubmitCandidate(state, () => ({ name: "Grace" }))).toEqual({
+			ok: true,
+			data: { name: "Grace" },
+			uiState: null,
+		});
 	});
 
 	it("egress sees only disjoint candidate data/UI, and unchanged input can be returned", () => {
