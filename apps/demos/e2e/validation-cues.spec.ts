@@ -192,4 +192,37 @@ for (const mode of ["demo", "playground"] as const) {
 		await expect(income).toHaveValue("-1");
 		await invalidCue(page, income);
 	});
+
+	test(`${mode}: survey hidden invalid email still blocks full-data schema submission`, async ({ page }) => {
+		await page.goto(`?mode=${mode}&demo=survey&preset=default`);
+		await expect(form(page)).toBeVisible();
+		await page.getByLabel("Very Satisfied", { exact: true }).check();
+		await page.getByLabel("Definitely", { exact: true }).check();
+		const contact = page.getByLabel("May We Contact You?");
+		await contact.check();
+		const emailField = field(page, "f-email");
+		const email = emailField.locator("input");
+		await requiredCue(email, emailField.locator("label"));
+		await email.fill("valid@example.com");
+		await submit(page).click();
+		await expect(form(page).locator("[data-formbar-status]")).toContainText("Form submitted.");
+		const successful = page.getByText("Last successful submission", { exact: true }).locator("..");
+		await expect(successful).toContainText('"email": "valid@example.com"');
+		await email.fill("not-email");
+		await invalidCue(page, email);
+		await contact.uncheck();
+		await expect(emailField).toHaveCount(0);
+		await expect(form(page).locator('ul[id$="-error"]')).toHaveCount(0);
+		await submit(page).click();
+		const summary = form(page).locator("[data-formbar-error-summary]");
+		await legibleText(summary.locator("p"));
+		await legibleText(summary.locator("li").first());
+		await expect(summary).toBeFocused();
+		await expect(summary.locator("a")).toHaveCount(0);
+		await expect(successful).toContainText('"email": "valid@example.com"');
+		await contact.check();
+		await expect(email).toHaveValue("not-email");
+		await requiredCue(email, emailField.locator("label"));
+		await invalidCue(page, email);
+	});
 }
