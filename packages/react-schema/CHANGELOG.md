@@ -1,5 +1,13 @@
 # @formbar/react-schema
 
+## 0.15.3
+
+### Patch Changes
+
+- afc7725: Restore direct JSON Schema option titles and disabled state in generated native choice controls without changing schema validation.
+- Updated dependencies [afc7725]
+  - @formbar/from-schema@0.15.3
+
 ## 0.15.0
 
 ### Patch Changes
