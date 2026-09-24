@@ -50,6 +50,8 @@ export interface AttemptValidation {
 	readonly revision: number;
 	readonly status: "running" | "failed" | "succeeded";
 	readonly issues: readonly ValidationIssue[];
+	/** Store-derived projection for stable snapshot reads; includes retained issues. */
+	readonly renderableIssues: readonly ValidationIssue[];
 }
 
 /** ADR section 1.1 — FormState */

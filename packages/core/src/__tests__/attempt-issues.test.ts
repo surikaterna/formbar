@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { attemptCanSubmit, beginAttempt, clearAttempt, completeAttempt, renderableIssues } from "../attempt-issues.js";
 import { createForm } from "../create-form.js";
+import { FormRuntime } from "../form-runtime.js";
 import { issuesForPath } from "../path-relations.js";
 import type { FormState, ValidationIssue } from "../state.js";
 import { FormStore } from "../store.js";
@@ -102,6 +103,51 @@ describe("isolated attempt issue lane", () => {
 		expect(state.attemptValidation?.issues.map((entry) => entry.code)).toEqual(["remote", "visible-candidate"]);
 		expect(state.attemptValidation?.status).toBe("failed");
 		coordinator.dispose();
+	});
+
+	it("shows a failed candidate on untouched real fields without exposing gated draft issues", () => {
+		const runtime = new FormRuntime({ initialData: { visible: "" } });
+		const form = runtime.build();
+		// Exercise internal attempt transitions before the opt-in submit path is activated.
+		const store = Reflect.get(runtime, "store") as FormStore<{ visible: string }, unknown>;
+		const update = (
+			fn: (state: FormState<{ visible: string }, unknown>) => FormState<{ visible: string }, unknown>,
+		) => {
+			const tx = store.beginTransaction();
+			tx.mutate(fn);
+			store.commitTransaction(tx);
+		};
+		const defaultField = form.fieldDynamic("visible");
+		const blurField = form.fieldDynamic("visible", { validationTriggers: { onBlur: true } });
+		const submitField = form.fieldDynamic("visible", { validationTriggers: { onSubmit: true } });
+		update((state) => ({ ...state, issues: [draft] }));
+		expect(defaultField.issues()).toEqual([]);
+		expect(blurField.issues()).toEqual([]);
+		expect(submitField.issues()).toEqual([]);
+		update((state) => beginAttempt(state, "first", 1));
+		update((state) => completeAttempt(state, "first", 1, completed([candidate])));
+		for (const field of [defaultField, blurField, submitField]) expect(field.issues()).toEqual([candidate]);
+		const snapshot = form.getState();
+		expect(renderableIssues(snapshot)).toBe(renderableIssues(snapshot));
+		expect(renderableIssues(snapshot)).toEqual([draft, candidate]);
+		update((state) => ({ ...state, issues: [draft, issue("middleware", "new-gate")] }));
+		expect(renderableIssues(form.getState()).map((entry) => entry.code)).toEqual([
+			"hidden-draft",
+			"new-gate",
+			"visible-candidate",
+		]);
+		expect(defaultField.issues()).toEqual([candidate]);
+		update((state) => beginAttempt(state, "retry", 2));
+		expect(defaultField.issues()).toEqual([]);
+		update((state) => completeAttempt(state, "first", 1, completed([candidate])));
+		expect(defaultField.issues()).toEqual([]);
+		blurField.markTouched();
+		expect(blurField.issues().map((entry) => entry.code)).toEqual(["hidden-draft", "new-gate"]);
+		expect(defaultField.issues()).toEqual([]);
+		form.reset();
+		expect(defaultField.issues()).toEqual([]);
+		expect(form.getState().attemptValidation).toBeUndefined();
+		form.dispose();
 	});
 
 	it("leaves default submit, isValid, field errors and metadata unchanged", async () => {

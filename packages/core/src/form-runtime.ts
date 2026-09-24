@@ -1,4 +1,4 @@
-import { clearAttempt, renderableIssues } from "./attempt-issues.js";
+import { clearAttempt, failedAttemptIssuesForPath } from "./attempt-issues.js";
 import type {
 	FieldApi,
 	FieldConfig,
@@ -104,7 +104,6 @@ export class FormRuntime<TData, TUi> {
 	private get activeMiddlewares(): readonly Middleware[] {
 		return this.active ? (this.options.middleware ?? []) : [];
 	}
-
 	/** Commit-scoped lifecycle for React; imperative forms remain eagerly initialized. */
 	activate(): void {
 		if (this.disposal.isDisposed() || this.active || this.deactivating) return;
@@ -289,7 +288,8 @@ export class FormRuntime<TData, TUi> {
 			rawPath: path,
 			getState: () => this.store.getState(),
 			setValue: this.dispatchSetValue as unknown as (path: string, value: unknown) => FormDispatchResult,
-			getIssues: (value) => issuesForPath(renderableIssues(this.store.getState()), value),
+			getIssues: (value) => issuesForPath(this.store.getState().issues, value),
+			getAttemptIssues: (value) => failedAttemptIssuesForPath(this.store.getState(), value),
 			getInitialValue: () => this.resolveInitialValue(canonical),
 			getFieldMeta: (key) => (this.store.getState().fieldMeta as Record<string, FieldMetaEntry>)[key],
 			markTouched: this.markFieldTouched,

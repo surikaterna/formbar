@@ -1,3 +1,4 @@
+import { rebaseAttemptIssues } from "./attempt-issues.js";
 import { structuredEqual } from "./equality.js";
 import type { FormState } from "./state.js";
 import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.js";
@@ -46,7 +47,7 @@ export class FormStore<TData, TUi> {
 			return;
 		}
 
-		this._state = nextState;
+		this._state = rebaseAttemptIssues(nextState);
 		this._notifyListeners();
 	}
 
