@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.18.0
+
+### Minor Changes
+
+- 5faa6a5: Expose separately attributed submit-attempt validation metadata and renderable issue/eligibility selectors without changing legacy submit behavior.
+
 ## 0.17.0
 
 ### Minor Changes
