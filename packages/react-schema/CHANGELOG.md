@@ -1,5 +1,11 @@
 # @formbar/react-schema
 
+## 0.16.1
+
+### Patch Changes
+
+- 10214c6: Restore safe shallow JSON Schema default initialization in the core form before its first render.
+
 ## 0.16.0
 
 ### Patch Changes
