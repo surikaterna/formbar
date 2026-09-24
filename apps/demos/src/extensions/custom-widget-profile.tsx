@@ -51,20 +51,21 @@ export function RatingWidget(props: WidgetProps) {
 			<div className="flex flex-wrap items-center gap-1">
 				{ratingValues(props).map((rating, index) => {
 					const nameId = `${props.a11y.controlId}-rating-${index}`;
+					const selected = current >= rating;
 					return (
 						<button
 							key={rating}
 							{...(index === 0 ? { id: props.a11y.controlId } : {})}
 							type="button"
-							className="text-xl"
+							className={`rounded px-1 text-xl leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${selected ? "bg-foreground font-bold text-background" : "text-foreground"}`}
 							aria-label={`${props.metadata.label}: ${rating}`}
-							aria-pressed={current >= rating}
+							aria-pressed={selected}
 							disabled={props.policy.disabled}
 							{...stateAttributes(props, `${props.a11y.labelId} ${nameId}`)}
 							onClick={() => !props.policy.readOnly && props.onChange(rating)}
 							onBlur={props.onBlur}
 						>
-							{icon}
+							<span aria-hidden="true">{selected ? icon : icon === "★" ? "☆" : "♡"}</span>
 							<span id={nameId} className="sr-only">
 								{rating}
 							</span>
@@ -86,20 +87,29 @@ export function ColorWidget(props: WidgetProps) {
 				{props.options.map((option, index) => {
 					const color = String(option.value);
 					const nameId = `${props.a11y.controlId}-color-${index}`;
+					const selected = props.value === option.value;
 					return (
 						<button
 							key={color}
 							{...(index === 0 ? { id: props.a11y.controlId } : {})}
 							type="button"
-							className="h-8 w-8 rounded-full border-2"
+							className={`relative m-1 h-8 w-8 rounded-full border-2 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring ${selected ? "border-foreground ring-2 ring-foreground ring-offset-2 ring-offset-background" : "border-foreground/60"}`}
 							style={{ backgroundColor: color }}
 							aria-label={`${props.metadata.label}: ${option.label}`}
-							aria-pressed={props.value === option.value}
+							aria-pressed={selected}
 							disabled={props.policy.disabled}
 							{...stateAttributes(props, `${props.a11y.labelId} ${nameId}`)}
 							onClick={() => !props.policy.readOnly && props.onChange(option.value)}
 							onBlur={props.onBlur}
 						>
+							{selected ? (
+								<span
+									aria-hidden="true"
+									className="absolute -bottom-1 -right-1 rounded-full bg-foreground px-1 text-xs font-bold leading-4 text-background"
+								>
+									✓
+								</span>
+							) : null}
 							<span id={nameId} className="sr-only">
 								{option.label}
 							</span>
