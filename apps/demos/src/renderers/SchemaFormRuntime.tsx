@@ -90,6 +90,11 @@ function RuntimeForm(
 			<section
 				className="schema-demo-form mt-6 rounded-lg border border-border bg-card p-5"
 				aria-label="Interactive form"
+				data-repeater-demo={
+					props.document.definition?.id === "array-items" || props.document.definition?.id === "order-entry"
+						? props.document.definition.id
+						: undefined
+				}
 			>
 				<h2 className="mb-4 font-semibold">Interactive form and runtime diagnostics</h2>
 				<FormRenderer {...prepared} extensions={props.extensions} actions={props.actions} />
