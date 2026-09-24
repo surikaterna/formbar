@@ -59,6 +59,10 @@ function compileNode(
 	bindingContext: BindingContext,
 ): FormNode {
 	const presentation = presentationFor(node, context.document.source.provider);
+	if (presentation.explicitWidget && presentation.widget !== "select")
+		return fieldNode(context, occurrence, node, bindingContext, presentation);
+	if (directTypedEnum(context.document, occurrence, node))
+		return typedEnumField(context, occurrence, node, bindingContext, presentation);
 	if (presentation.explicitWidget) return fieldNode(context, occurrence, node, bindingContext, presentation);
 	if (hasApplicators(node) && node.kind !== "object")
 		return fallbackNode(
@@ -72,8 +76,6 @@ function compileNode(
 	if (node.kind === "array") return compileArray(context, occurrence, node, bindingContext);
 	if (node.kind === "tuple") return compileTuple(context, occurrence, bindingContext);
 	if (node.kind === "wrapper" || node.kind === "ref") return compileTransparent(context, occurrence, bindingContext);
-	if (directTypedEnum(context.document, occurrence, node))
-		return fieldNode(context, occurrence, node, bindingContext, { ...presentation, widget: "select" });
 	if (node.kind === "union" || node.kind === "intersection")
 		return fallbackNode(
 			context,
@@ -99,6 +101,28 @@ function compileNode(
 			`${node.kind === "primitive" ? node.type : node.kind} schema evidence requires authored presentation.`,
 		);
 	return fieldNode(context, occurrence, node, bindingContext);
+}
+
+function typedEnumField(
+	context: CompilationContext,
+	occurrence: DescriptorOccurrence,
+	node: DescriptorNode,
+	bindingContext: BindingContext,
+	presentation: ReturnType<typeof presentationFor>,
+): FormNode {
+	const { options, ...props } = presentation.props ?? {};
+	if (options !== undefined)
+		addDiagnostic(
+			context,
+			occurrence,
+			"unsupported-schema",
+			"Typed enum select ignores x-formbar.props.options; schema enum choices are authoritative.",
+		);
+	return fieldNode(context, occurrence, node, bindingContext, {
+		...presentation,
+		widget: "select",
+		props: Object.keys(props).length ? Object.freeze(props) : undefined,
+	});
 }
 
 function compileObject(

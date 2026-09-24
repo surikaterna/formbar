@@ -72,6 +72,60 @@ describe("direct JSON Schema typed enum compilation", () => {
 	});
 
 	it.each([
+		["string", ["allowed"], ["forbidden"]],
+		["integer", [1], ["1", 2]],
+		["string", ["allowed"], [{ value: "forbidden", title: "Forbidden", disabled: true }]],
+		["string", ["allowed", "later"], ["later", "allowed"]],
+	] as const)("keeps %s enum authoritative over extension options %#", (type, values, options) => {
+		const result = prepare({ type, enum: values, "x-formbar": { props: { options, placeholder: "Choose" } } });
+		expect(result.definition.root).toMatchObject({
+			widget: "select",
+			props: {
+				placeholder: { mode: "literal", value: "Choose" },
+			},
+		});
+		expect(result.definition.root).not.toHaveProperty("props.options");
+		expect(result.diagnostics.compilation).toEqual([
+			expect.objectContaining({
+				code: "unsupported-schema",
+				message: expect.stringContaining("schema enum choices are authoritative"),
+			}),
+		]);
+	});
+
+	it("preserves explicit custom widget options and options-only non-enum behavior", () => {
+		const custom = prepare({
+			type: "string",
+			enum: ["allowed"],
+			"x-formbar": {
+				widget: "demo.custom",
+				props: { options: ["forbidden"] },
+			},
+		});
+		expect(custom.definition.root).toMatchObject({
+			widget: "demo.custom",
+			props: {
+				options: { mode: "literal", value: ["forbidden"] },
+			},
+		});
+		expect(custom.diagnostics.compilation).toEqual([]);
+		const optionsOnly = prepare({
+			type: "string",
+			"x-formbar": {
+				widget: "select",
+				props: { options: ["free"] },
+			},
+		});
+		expect(optionsOnly.definition.root).toMatchObject({
+			widget: "select",
+			props: {
+				options: { mode: "literal", value: ["free"] },
+			},
+		});
+		expect(optionsOnly.diagnostics.compilation).toEqual([]);
+	});
+
+	it.each([
 		{ type: "string", enum: [] },
 		{ type: "string", enum: ["a", "a"] },
 		{ type: "string", enum: ["a", null] },
