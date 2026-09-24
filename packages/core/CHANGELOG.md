@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.19.0
+
+### Minor Changes
+
+- 8bb23bd: Expose a type-only definition-backed submit adapter and structural omission witness for future opt-in integration.
+
 ## 0.18.0
 
 ### Minor Changes
