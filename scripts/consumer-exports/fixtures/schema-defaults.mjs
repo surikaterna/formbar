@@ -9,8 +9,13 @@ const schema = {
 	required: ["name", "address"],
 	properties: {
 		name: { type: "string", default: "Ada" },
-		address: { type: "object", default: { city: "Paris", zip: "750" }, properties: { city: { type: "string" } } },
+		address: {
+			type: "object",
+			default: { city: "Paris", details: { $type: "undefined", value: 9 } },
+			properties: { city: { type: "string" } },
+		},
 		tags: { type: "array", default: ["a"], items: { type: "string" } },
+		metadata: { type: "object", default: { $type: "literal", value: 7 } },
 	},
 };
 const provider = jsonSchemaProvider();
@@ -19,7 +24,7 @@ async function check(initialData, expected, valid) {
 	const submissions = [];
 	let form;
 	function Hook() {
-		form = useSchemaForm(schema, {
+		const prepared = useSchemaForm(schema, {
 			provider,
 			side: "input",
 			initialData,
@@ -27,7 +32,9 @@ async function check(initialData, expected, valid) {
 				submissions.push(payload);
 				return { ok: true, submitId: "packed" };
 			},
-		}).form;
+		});
+		assert.equal(prepared.warnings.filter((warning) => warning.channel === "initialization").length, 0);
+		form = prepared.form;
 		return null;
 	}
 	renderToString(React.createElement(Hook));
@@ -42,11 +49,20 @@ async function check(initialData, expected, valid) {
 	form.dispose();
 }
 
-await check(undefined, { name: "Ada", address: { city: "Paris", zip: "750" }, tags: ["a"] }, true);
+const literals = { metadata: { $type: "literal", value: 7 } };
 await check(
-	{ name: "Grace", address: { city: "Lyon" }, tags: [] },
-	{ name: "Grace", address: { city: "Lyon" }, tags: [] },
+	undefined,
+	{ name: "Ada", address: { city: "Paris", details: { $type: "undefined", value: 9 } }, tags: ["a"], ...literals },
 	true,
 );
-await check({ name: undefined, address: null, tags: [] }, { name: undefined, address: null, tags: [] }, false);
+await check(
+	{ name: "Grace", address: { city: "Lyon" }, tags: [] },
+	{ name: "Grace", address: { city: "Lyon" }, tags: [], ...literals },
+	true,
+);
+await check(
+	{ name: undefined, address: null, tags: [] },
+	{ name: undefined, address: null, tags: [], ...literals },
+	false,
+);
 console.log("SCHEMA_DEFAULTS packed SSR data/submit/reset/validation passed");

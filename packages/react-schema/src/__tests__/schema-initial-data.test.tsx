@@ -98,6 +98,30 @@ describe("historical shallow schema initialization", () => {
 		dotted.form.dispose();
 	});
 
+	it("preserves literal $type keys in direct and nested JSON defaults through submit and reset", async () => {
+		const original = {
+			metadata: { $type: "literal", value: 7 },
+			address: { city: "Paris", details: { $type: "undefined", value: 9 } },
+		};
+		const { form, warnings, onSubmit } = mount({
+			type: "object",
+			required: ["metadata", "address"],
+			properties: {
+				metadata: { type: "object", default: original.metadata },
+				address: { type: "object", default: original.address },
+			},
+		});
+		expect(warnings.filter((warning) => warning.channel === "initialization")).toEqual([]);
+		expect(form.getState().data).toEqual(original);
+		expect(form.validate()).toEqual([]);
+		expect(await form.submit()).toMatchObject({ ok: true });
+		expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ payload: original });
+		form.setValue("metadata", { $type: "edited" });
+		form.reset();
+		expect(form.getState().data).toEqual(original);
+		form.dispose();
+	});
+
 	it("does not reapply a changed schema default to a mounted form", async () => {
 		globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 		const container = document.createElement("div");

@@ -16,6 +16,7 @@ function copyJson(
 	budget = { count: 0 },
 	depth = 0,
 	allowUndefined = false,
+	allowTypeKey = false,
 ): unknown {
 	if (++budget.count > maxEntries || depth > maxDepth) throw new TypeError("JSON value exceeds initialization limits");
 	if (allowUndefined && value === undefined) return undefined;
@@ -30,14 +31,14 @@ function copyJson(
 	const result: Record<string, unknown> | unknown[] = array ? [] : Object.create(null);
 	const keys = Reflect.ownKeys(value);
 	for (const key of keys) {
-		if (typeof key !== "string" || forbidden.has(key) || (!allowUndefined && key === "$type"))
+		if (typeof key !== "string" || forbidden.has(key) || (!allowUndefined && !allowTypeKey && key === "$type"))
 			throw new TypeError("Unsafe JSON key");
 		if (array && key === "length") continue;
 		const descriptor = Object.getOwnPropertyDescriptor(value, key);
 		if (!descriptor || !("value" in descriptor)) throw new TypeError("JSON accessor is not allowed");
 		if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length))
 			throw new TypeError("Non-index array property");
-		const copied = copyJson(descriptor.value, seen, budget, depth + 1, allowUndefined);
+		const copied = copyJson(descriptor.value, seen, budget, depth + 1, allowUndefined, allowTypeKey);
 		Object.defineProperty(result, key, {
 			value: copied,
 			enumerable: descriptor.enumerable,
@@ -87,7 +88,57 @@ function candidate(
 	return { present: false };
 }
 
-export function schemaInitialData(document: DescriptorDocument): {
+function ownData(value: unknown, key: string): unknown {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("Not a schema record");
+	if (![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+		throw new TypeError("Not a plain schema record");
+	const entry = Object.getOwnPropertyDescriptor(value, key);
+	if (!entry || !("value" in entry)) throw new TypeError("Missing or accessor schema property");
+	return entry.value;
+}
+
+function localReference(root: unknown, reference: string): unknown {
+	if (reference === "#") return root;
+	if (!reference.startsWith("#/")) throw new TypeError("Not a local reference");
+	let current = root;
+	const segments = reference.slice(2).split("/");
+	if (segments.length > maxDepth) throw new TypeError("Reference depth exceeded");
+	for (const segment of segments) {
+		const key = segment.replace(/~1/g, "/").replace(/~0/g, "~");
+		if (forbidden.has(key)) throw new TypeError("Unsafe reference");
+		current = ownData(current, key);
+	}
+	return current;
+}
+
+function referencedSchema(schema: unknown, root: unknown): unknown {
+	const seen = new Set<object>();
+	let current = schema;
+	for (let depth = 0; depth < maxDepth; depth++) {
+		if (typeof current !== "object" || current === null || seen.has(current))
+			throw new TypeError("Cyclic or non-object schema");
+		seen.add(current);
+		const reference = Object.getOwnPropertyDescriptor(current, "$ref");
+		if (!reference) return current;
+		if (!("value" in reference) || typeof reference.value !== "string") throw new TypeError("Invalid reference");
+		current = localReference(root, reference.value);
+	}
+	throw new TypeError("Reference depth exceeded");
+}
+
+function rawDefault(schema: unknown, property: string): unknown {
+	const root = referencedSchema(schema, schema);
+	const properties = ownData(root, "properties");
+	const field = ownData(properties, property);
+	const direct = Object.getOwnPropertyDescriptor(field, "default");
+	if (direct) return ownData(field, "default");
+	return ownData(referencedSchema(field, schema), "default");
+}
+
+export function schemaInitialData(
+	document: DescriptorDocument,
+	schema: unknown,
+): {
 	readonly defaults: Record<string, unknown>;
 	readonly warnings: readonly InitialDataWarning[];
 } {
@@ -99,7 +150,13 @@ export function schemaInitialData(document: DescriptorDocument): {
 		if (!annotation.present) continue;
 		try {
 			if (forbidden.has(property.key)) throw new TypeError("Unsafe property name");
-			defaults[property.key] = copyJson(annotation.value);
+			try {
+				defaults[property.key] = copyJson(annotation.value);
+			} catch {
+				// Descriptor encoding may represent non-JSON values with $type; verify against the original annotation.
+				if (document.source.provider !== "json-schema") throw new TypeError("Unsafe descriptor default");
+				defaults[property.key] = copyJson(rawDefault(schema, property.key), new Set(), { count: 0 }, 0, false, true);
+			}
 		} catch {
 			warnings.push({
 				channel: "initialization",
