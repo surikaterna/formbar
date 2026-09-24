@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Middleware, ValidatorFn } from "../contracts.js";
 import { createForm } from "../create-form.js";
+import { executeSubmitPreparation } from "../pipeline.js";
+import type { FormPlugin } from "../plugin-types.js";
 import type { ValidationIssue } from "../state.js";
+import { FormStore } from "../store.js";
 import type { TransformDefinition } from "../transforms.js";
 
 function createTracingMiddleware(log: string[]): Middleware {
@@ -252,6 +255,38 @@ describe("pipeline — 18-step engine", () => {
 		expect(log).toContain("afterSubmit:ok=true");
 	});
 
+	it("preserves the exact default submit hook and validator order", async () => {
+		const log: string[] = [];
+		const form = createForm({
+			initialData: { value: 1 },
+			middleware: [createTracingMiddleware(log)],
+			validators: [
+				() => {
+					log.push("validator");
+					return [];
+				},
+			],
+			onSubmit: async () => {
+				log.push("handler");
+				return { ok: true, submitId: "done" };
+			},
+		});
+		log.length = 0;
+		await form.submit({ requestId: "trace" });
+		expect(log).toEqual([
+			"beforeAction:submit",
+			"beforeEvaluate:submit",
+			"afterEvaluate:submit",
+			"beforeValidate:none",
+			"validator",
+			"afterValidate:issues=0",
+			"beforeSubmit:trace",
+			"afterAction:submit",
+			"handler",
+			"afterSubmit:ok=true",
+		]);
+	});
+
 	it("validator issues block submit", async () => {
 		const validator: ValidatorFn = () => [
 			{
@@ -296,6 +331,192 @@ describe("pipeline — 18-step engine", () => {
 		});
 
 		expect(() => form.validate()).toThrow("returned a Promise in synchronous validate");
+	});
+});
+
+describe("internal submit preparation (not reachable via createForm)", () => {
+	const retained: ValidationIssue = {
+		code: "RETAINED",
+		message: "Keep",
+		severity: "error",
+		path: { namespace: "data", segments: ["value"] },
+		source: { origin: "function-validator", validatorId: "old" },
+	};
+
+	function setup(log: string[], middleware: Middleware[] = []) {
+		const seed = createForm({ initialData: { value: 1, computed: 0 } });
+		const store = new FormStore(seed.getState());
+		const tx = store.beginTransaction();
+		tx.mutate((state) => ({ ...state, issues: [retained] }));
+		store.commitTransaction(tx);
+		seed.dispose();
+		const plugins: FormPlugin[] = [
+			{
+				id: "compute",
+				evaluate: () => {
+					log.push("evaluate");
+					return { writes: [{ path: "computed", value: 42, mode: "set" }] };
+				},
+			},
+		];
+		const validators: ValidatorFn[] = [
+			() => {
+				log.push("validator");
+				return [];
+			},
+		];
+		const ctx = {
+			action: { type: "submit" as const },
+			store,
+			isSubmit: true,
+			submitContext: { requestId: "trace", at: "now" },
+			options: { middleware, validators },
+			plugins,
+		};
+		return { store, ctx };
+	}
+
+	function guard(signal = new AbortController().signal, revision = () => 0) {
+		return { signal, expectedRevision: 0, revision };
+	}
+
+	it("commits evaluate writes, preserves draft issues, and defers sync validation hooks", () => {
+		const log: string[] = [];
+		const { store, ctx } = setup(log, [createTracingMiddleware(log)]);
+		const result = executeSubmitPreparation(ctx, guard());
+		expect(result.stage).toBe("prepared");
+		if (result.stage !== "prepared") return;
+		expect(result.snapshot).toBe(store.getState());
+		expect(result.revision).toBe(0);
+		expect(result.snapshot.data).toEqual({ value: 1, computed: 42 });
+		expect(result.snapshot.issues).toEqual([retained]);
+		expect(log).toEqual([
+			"beforeAction:submit",
+			"beforeEvaluate:submit",
+			"evaluate",
+			"afterEvaluate:submit",
+			"beforeSubmit:trace",
+			"afterAction:submit",
+		]);
+	});
+
+	it.each(["beforeAction", "beforeSubmit"] as const)(
+		"%s veto rolls back plugin writes and skips candidate stage",
+		(hook) => {
+			const log: string[] = [];
+			const middleware: Middleware = { id: "stop", [hook]: () => ({ action: "veto", reason: "stop" }) };
+			const { store, ctx } = setup(log, [middleware, createTracingMiddleware(log)]);
+			const before = store.getState();
+			const result = executeSubmitPreparation(ctx, guard());
+			expect(result).toEqual({ stage: "rejected", result: { ok: false, vetoed: true, vetoReason: "stop" } });
+			expect(store.getState()).toBe(before);
+			expect(log).not.toContain("validator");
+			expect(log).not.toContain("afterAction:submit");
+		},
+	);
+
+	it("plugin exception rolls back; subsequent preparation can commit", () => {
+		const log: string[] = [];
+		const { store, ctx } = setup(log);
+		const before = store.getState();
+		const failing = {
+			...ctx,
+			plugins: [
+				{
+					id: "fail",
+					evaluate: () => {
+						throw new Error("plugin failed");
+					},
+				},
+			],
+		};
+		expect(executeSubmitPreparation(failing, guard())).toEqual({
+			stage: "rejected",
+			result: { ok: false, error: "plugin failed" },
+		});
+		expect(store.getState()).toBe(before);
+		expect(executeSubmitPreparation(ctx, guard()).stage).toBe("prepared");
+	});
+
+	it("rejects missing submit context and leaves the store untouched", () => {
+		const log: string[] = [];
+		const { store, ctx } = setup(log);
+		const before = store.getState();
+		expect(executeSubmitPreparation({ ...ctx, submitContext: undefined }, guard()).stage).toBe("rejected");
+		expect(store.getState()).toBe(before);
+		expect(log).toEqual([]);
+	});
+
+	it("abort or reset revision before entry returns without evaluating", () => {
+		const log: string[] = [];
+		const { store, ctx } = setup(log);
+		const before = store.getState();
+		const controller = new AbortController();
+		controller.abort();
+		expect(executeSubmitPreparation(ctx, guard(controller.signal))).toEqual({
+			stage: "rejected",
+			result: { ok: false, error: "Submit preparation aborted" },
+		});
+		expect(
+			executeSubmitPreparation(
+				ctx,
+				guard(undefined, () => 1),
+			),
+		).toEqual({
+			stage: "rejected",
+			result: { ok: false, error: "Submit preparation superseded" },
+		});
+		expect(store.getState()).toBe(before);
+		expect(log).toEqual([]);
+	});
+
+	it("abort and reset during evaluation roll back all plugin writes and skip afterAction", () => {
+		for (const mode of ["abort", "reset"] as const) {
+			const log: string[] = [];
+			const controller = new AbortController();
+			let revision = 0;
+			const { store, ctx } = setup(log, [
+				{
+					id: "interrupt",
+					beforeSubmit: () => {
+						if (mode === "abort") controller.abort();
+						else revision++;
+						return { action: "continue" };
+					},
+				},
+				createTracingMiddleware(log),
+			]);
+			const before = store.getState();
+			const result = executeSubmitPreparation(
+				ctx,
+				guard(controller.signal, () => revision),
+			);
+			expect(result.stage).toBe("rejected");
+			expect(store.getState()).toBe(before);
+			expect(log).toContain("evaluate");
+			expect(log).not.toContain("validator");
+			expect(log).not.toContain("afterAction:submit");
+		}
+	});
+
+	it("reset from afterAction rejects the handoff after the committed notification", () => {
+		const log: string[] = [];
+		let revision = 0;
+		const { store, ctx } = setup(log, [
+			{
+				id: "reset",
+				afterAction: () => {
+					revision++;
+				},
+			},
+		]);
+		const result = executeSubmitPreparation(
+			ctx,
+			guard(undefined, () => revision),
+		);
+		expect(result).toEqual({ stage: "rejected", result: { ok: false, error: "Submit preparation superseded" } });
+		expect(store.getState().data).toEqual({ value: 1, computed: 42 });
+		expect(store.getState().issues).toEqual([retained]);
 	});
 });
 

@@ -3,6 +3,64 @@ import { createForm } from "../create-form.js";
 import type { FormPlugin } from "../plugin-types.js";
 
 describe("submit plugin gating", () => {
+	it("keeps plugin beforeSubmit after middleware validation and afterAction, without skipping later plugins", async () => {
+		const trace: string[] = [];
+		const form = createForm({
+			initialData: { value: 1 },
+			middleware: [
+				{
+					id: "trace",
+					beforeValidate: () => {
+						trace.push("beforeValidate");
+					},
+					afterValidate: () => {
+						trace.push("afterValidate");
+					},
+					beforeSubmit: () => {
+						trace.push("middlewareSubmit");
+						return { action: "continue" };
+					},
+					afterAction: () => {
+						trace.push("afterAction");
+					},
+				},
+			],
+			plugins: [
+				{
+					id: "first",
+					beforeSubmit: () => {
+						trace.push("first");
+						return [
+							{
+								code: "STOP",
+								message: "stop",
+								severity: "error",
+								path: { namespace: "data", segments: ["value"] },
+								source: { origin: "submit", validatorId: "first" },
+							},
+						];
+					},
+				},
+				{
+					id: "second",
+					beforeSubmit: () => {
+						trace.push("second");
+						return [];
+					},
+				},
+			],
+			onSubmit: () => {
+				trace.push("handler");
+				return { ok: true, submitId: "done" };
+			},
+		});
+		trace.length = 0;
+		const result = await form.submit();
+		expect(result.reason).toBe("validation-failed");
+		expect(trace).toEqual(["beforeValidate", "afterValidate", "middlewareSubmit", "afterAction", "first", "second"]);
+		expect(form.getState().issues.map((issue) => issue.code)).toEqual(["STOP"]);
+	});
+
 	it("passes typed data and UI state to beforeSubmit and blocks on returned issues", async () => {
 		type Data = { email: string };
 		type Ui = { confirmed: boolean };
