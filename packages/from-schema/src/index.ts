@@ -10,12 +10,13 @@ export type {
 	ZodProviderOptions,
 } from "@scheman/core";
 export {
-	jsonSchemaProvider,
 	standardJsonSchemaProvider,
 	standardSchemaProvider,
 	zod3Provider,
 } from "@scheman/core";
 export { zod4Provider } from "./providers/zod4.js";
+export { jsonSchemaProvider } from "./providers/json-schema-provider.js";
+export { createJsonSchemaValidator, preflightJsonSchema } from "./json-schema-validator.js";
 export type {
 	CompileDefaultFormDefinitionOptions,
 	CompileDefaultFormDefinitionResult,
@@ -34,6 +35,7 @@ export type {
 	ProjectionDiagnosticCode,
 	SchemaFormDiagnostics,
 	SourceDiagnostic,
+	ValidationDiagnostic,
 } from "./diagnostics.js";
 export type * from "./descriptors/contracts.js";
 export type { ProjectionLimitOptions, ProjectionLimits } from "./descriptors/limits.js";

@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "formbar",
@@ -23,8 +22,6 @@
         "@formbar/from-schema": "workspace:*",
         "@formbar/react": "workspace:*",
         "@formbar/react-schema": "workspace:*",
-        "ajv": "^8.17.1",
-        "ajv-formats": "^3.0.1",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
       },
@@ -40,10 +37,10 @@
     },
     "packages/arbiter": {
       "name": "@formbar/arbiter",
-      "version": "0.14.2",
+      "version": "0.15.0",
       "dependencies": {
-        "@formbar/core": "^0.14.2",
-        "@formbar/expressions": "^0.14.2",
+        "@formbar/core": "^0.15.0",
+        "@formbar/expressions": "^0.14.3",
       },
       "devDependencies": {
         "@arbitre/core": "^0.3.1",
@@ -56,34 +53,36 @@
     },
     "packages/core": {
       "name": "@formbar/core",
-      "version": "0.14.2",
+      "version": "0.15.0",
       "dependencies": {
-        "@formbar/expressions": "^0.14.2",
+        "@formbar/expressions": "^0.14.3",
       },
     },
     "packages/declarative": {
       "name": "@formbar/declarative",
-      "version": "0.14.2",
+      "version": "0.15.1",
       "dependencies": {
-        "@formbar/core": "^0.8.0",
-        "@formbar/expressions": "^0.4.0",
+        "@formbar/core": "^0.15.0",
+        "@formbar/expressions": "^0.14.3",
       },
     },
     "packages/expressions": {
       "name": "@formbar/expressions",
-      "version": "0.14.2",
+      "version": "0.14.3",
       "dependencies": {
         "kuery": "^2.1.1",
       },
     },
     "packages/from-schema": {
       "name": "@formbar/from-schema",
-      "version": "0.14.2",
+      "version": "0.15.3",
       "dependencies": {
-        "@formbar/core": "^0.8.0",
-        "@formbar/declarative": "^0.8.0",
-        "@formbar/expressions": "^0.4.0",
+        "@formbar/core": "^0.15.0",
+        "@formbar/declarative": "^0.15.0",
+        "@formbar/expressions": "^0.14.3",
         "@scheman/core": "^2.0.0",
+        "ajv": "^8.17.1",
+        "ajv-formats": "^3.0.1",
       },
       "devDependencies": {
         "zod": "^4.0.0",
@@ -101,10 +100,10 @@
     },
     "packages/react": {
       "name": "@formbar/react",
-      "version": "0.14.2",
+      "version": "0.15.0",
       "dependencies": {
-        "@formbar/core": "^0.8.0",
-        "@formbar/expressions": "^0.4.0",
+        "@formbar/core": "^0.15.0",
+        "@formbar/expressions": "^0.14.3",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -119,12 +118,12 @@
     },
     "packages/react-schema": {
       "name": "@formbar/react-schema",
-      "version": "0.14.2",
+      "version": "0.15.3",
       "dependencies": {
-        "@formbar/core": "^0.8.0",
-        "@formbar/declarative": "^0.8.0",
-        "@formbar/from-schema": "^0.8.0",
-        "@formbar/react": "^0.9.0",
+        "@formbar/core": "^0.15.0",
+        "@formbar/declarative": "^0.15.0",
+        "@formbar/from-schema": "^0.15.3",
+        "@formbar/react": "^0.15.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",

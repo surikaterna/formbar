@@ -62,7 +62,26 @@ The supported peer range is Zod `>=3.24 <4` and `>=4 <5`; fixtures exercise 3.24
 
 ## Diagnostics and validation
 
-`SchemaFormResult.diagnostics` keeps `source`, `projection`, `compilation`, and declarative `definition` diagnostics separate and deterministically ordered. The optional source Standard validator handle is returned as `sourceValidator`; caller-provided core validators remain in `validators`. Structural availability is not a validation promise.
+`SchemaFormResult.diagnostics` keeps `validation`, `source`, `projection`, `compilation`, and declarative `definition` diagnostics separate. The optional Standard Schema validator handle is returned as `sourceValidator`; plain JSON Schema validation precedes caller-provided core validators in `validators`. Structural availability is not a validation promise.
+
+## Automatic JSON Schema validation
+
+`createSchemaForm` and `useSchemaForm` automatically validate the complete stored data when
+using `jsonSchemaProvider()` (default or `draft-2020-12`). Validation runs before caller
+validators; Standard Schema continues using its independent source validator. Presentation
+metadata (`x-formbar`, titles, disabled options) does not add JSON Schema constraints.
+JSON Schema combinators validate stored data even where composed UI presentation is unavailable.
+
+Only locally trusted, synchronous Draft 2020-12 schemas are supported. Supported formats are
+`date`, `email`, and `uri`; refs must be local (including `$defs` and local anchors).
+Unknown formats, remote refs, unsupported dialects and vocabularies, async schemas, invalid
+schemas and malformed sources fail closed with `diagnostics.validation` and a root data issue.
+No remote loading, data coercion, default assignment or stored-data pruning occurs. Schemas
+are snapshotted via own data properties before compilation (262144 UTF-8 bytes of names and
+values, 8192 nodes, depth 64); reported validation errors are limited to 100 plus a root
+truncation issue. Cache entries are reused only for matching schema identity *and* serialized
+snapshot. JavaScript regex evaluation in-process cannot guarantee a CPU timeout: do not use
+attacker-controlled schemas without an isolated execution boundary.
 
 ## Greenfield migration
 
