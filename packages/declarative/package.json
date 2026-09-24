@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/declarative",
-	"version": "0.15.1",
+	"version": "0.17.0",
 	"type": "module",
 	"description": "Framework-neutral serialized form definition contracts",
 	"license": "MIT",
@@ -32,7 +32,7 @@
 		"test": "vitest run --root ../.. packages/declarative/src/__tests__"
 	},
 	"dependencies": {
-		"@formbar/core": "^0.15.0",
+		"@formbar/core": "^0.17.0",
 		"@formbar/expressions": "^0.14.3"
 	}
 }

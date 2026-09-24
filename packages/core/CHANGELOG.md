@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.17.0
+
+### Minor Changes
+
+- 6cfe157: Allow internal candidate-only async validation with optional stage and context, without replacing retained draft issues.
+
 ## 0.15.0
 
 ### Minor Changes
