@@ -37,7 +37,7 @@ describe("useSchemaForm preparation-only API", () => {
 		const validator = vi.fn(() => []);
 		useSchemaForm({ type: "string" }, { provider: jsonSchemaProvider(), side: "input", validators: [validator] });
 		const options = vi.mocked(useForm).mock.calls[0]?.[0];
-		expect(options?.validators).toEqual([validator]);
+		expect(options?.validators).toEqual([expect.any(Function), validator]);
 		expect(options).not.toHaveProperty("schema");
 	});
 
@@ -68,7 +68,7 @@ describe("useSchemaForm preparation-only API", () => {
 				expect.objectContaining({ channel: "compilation", code: "duplicate-option" }),
 			]),
 		);
-		expect(vi.mocked(useForm).mock.calls[0]?.[0].validators).toBeUndefined();
+		expect(vi.mocked(useForm).mock.calls[0]?.[0].validators).toHaveLength(1);
 	});
 
 	it("installs the retained source validator through the executable validators path", () => {
@@ -92,5 +92,31 @@ describe("useSchemaForm preparation-only API", () => {
 		const options = vi.mocked(useForm).mock.calls[0]?.[0];
 		expect(options?.validators?.[0]).toBe(schema);
 		expect(options).not.toHaveProperty("schema");
+	});
+
+	it("automatically blocks plain JSON submission, composes caller validators and resets current data", async () => {
+		vi.mocked(useForm).mockImplementation((options) => createForm(options) as never);
+		const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "saved" }));
+		const caller = vi.fn(() => []);
+		const result = useSchemaForm(
+			{ type: "object", required: ["name"] },
+			{
+				provider: jsonSchemaProvider(),
+				side: "input",
+				initialData: {},
+				validators: [caller],
+				onSubmit,
+			},
+		);
+		expect(result.form.validate().map((issue) => issue.code)).toContain("json-schema.required");
+		expect(await result.form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
+		expect(caller).toHaveBeenCalled();
+		expect(onSubmit).not.toHaveBeenCalled();
+		result.form.setValue("name", "Ada");
+		await result.form.submit();
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		result.form.reset();
+		expect(result.form.validate().map((issue) => issue.code)).toContain("json-schema.required");
+		result.form.dispose();
 	});
 });

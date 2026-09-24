@@ -7,7 +7,6 @@ import { useEffect, useId, useMemo, useState } from "react";
 import type { TrustedRuntimeProfileId } from "../demos/baseline-contracts";
 import type { PlaygroundDocument, PlaygroundExample } from "../playground/contracts";
 import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
-import { createJsonSchemaValidators } from "../validation/json-schema-validator";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 const noPlugins: readonly FormPlugin<Record<string, unknown>, Record<string, unknown>>[] = [];
@@ -79,7 +78,6 @@ function RuntimeForm(
 		initialData: props.document.initialData,
 		initialUiState: props.initialUiState ?? {},
 		plugins: props.plugins,
-		validators: createJsonSchemaValidators(props.document.schema),
 		onSubmit: async ({ payload }: SubmitExecutionContext<Record<string, unknown>, Record<string, unknown>>) => {
 			const snapshot = immutableSnapshot(payload);
 			setLastSubmission(snapshot);

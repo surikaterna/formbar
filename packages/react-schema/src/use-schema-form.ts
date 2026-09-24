@@ -54,7 +54,7 @@ export function useSchemaForm<TData, TUi>(
 ): UseSchemaFormResult<TData, TUi> {
 	const prepared = usePreparedSchema(schema, options);
 	const sourceValidator = prepared.sourceValidator as SchemaValidator<TData, TUi> | undefined;
-	const validators = [...(sourceValidator ? [sourceValidator] : []), ...(options.validators ?? [])];
+	const validators = [...(sourceValidator ? [sourceValidator] : []), ...prepared.validators];
 	const form = useForm<TData, TUi>({
 		...formOptions(options),
 		...(validators.length > 0 ? { validators } : {}),

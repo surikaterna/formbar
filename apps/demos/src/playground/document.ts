@@ -1,6 +1,5 @@
 import { validateFormDefinition } from "@formbar/declarative";
-import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
-import { preflightJsonSchema } from "../validation/json-schema-validator";
+import { createSchemaForm, jsonSchemaProvider, preflightJsonSchema } from "@formbar/from-schema";
 import {
 	PLAYGROUND_DOCUMENT_VERSION,
 	type PlaygroundDocument,

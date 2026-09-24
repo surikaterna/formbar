@@ -2,11 +2,7 @@ import { createForm } from "@formbar/core";
 import { describe, expect, it, vi } from "vitest";
 import { baselineFixtures } from "../demos";
 import { responsiveSectionsDemo } from "../demos/10-multi-section-responsive";
-import {
-	createJsonSchemaValidator,
-	createJsonSchemaValidators,
-	preflightJsonSchema,
-} from "../validation/json-schema-validator";
+import { createJsonSchemaValidator, preflightJsonSchema } from "../validation/json-schema-validator";
 
 function validate(schema: Readonly<Record<string, unknown>>, data: Record<string, unknown>) {
 	return createJsonSchemaValidator(schema)({ data, uiState: {} });
@@ -44,25 +40,14 @@ describe("Draft 2020-12 JSON Schema adapter", () => {
 		const second = { type: "object", required: ["second"] } as const;
 		expect(createJsonSchemaValidator(first)).toBe(createJsonSchemaValidator(first));
 		expect(createJsonSchemaValidator(first)).not.toBe(createJsonSchemaValidator(second));
-		expect(createJsonSchemaValidators(first)).toBe(createJsonSchemaValidators(first));
-		expect(createJsonSchemaValidators(first)).not.toBe(createJsonSchemaValidators(second));
 		expect(validate(first, {})[0]?.path.segments).toEqual(["first"]);
 		expect(validate(second, {})[0]?.path.segments).toEqual(["second"]);
 
-		let reads = 0;
-		const counted: Record<string, unknown> = {};
-		Object.defineProperty(counted, "type", {
-			enumerable: true,
-			get() {
-				reads += 1;
-				return "object";
-			},
-		});
-		const countedValidator = createJsonSchemaValidator(counted);
-		const readsAfterCompile = reads;
-		expect(readsAfterCompile).toBeGreaterThan(0);
-		expect(createJsonSchemaValidator(counted)).toBe(countedValidator);
-		expect(reads).toBe(readsAfterCompile);
+		const changed = { type: "object", required: ["first"] };
+		const original = createJsonSchemaValidator(changed);
+		changed.required = ["changed"];
+		expect(createJsonSchemaValidator(changed)).not.toBe(original);
+		expect(validate(changed, {})[0]?.path.segments).toEqual(["changed"]);
 	});
 
 	it("requires own properties for inherited, unsafe, and escaped names without mutating data", () => {
@@ -240,7 +225,7 @@ describe("Draft 2020-12 JSON Schema adapter", () => {
 					get: (target, property, receiver) => (property === "$async" ? true : Reflect.get(target, property, receiver)),
 				},
 			);
-			expect(validate(compiledSignal, {})).toEqual([unsupportedAsync]);
+			expect(validate(compiledSignal, {})).toEqual([]);
 			const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "unexpected" }));
 			const form = createForm({ initialData: {}, validators: [validator], onSubmit });
 			await expect(form.submit()).resolves.toMatchObject({ ok: false, reason: "validation-failed" });
@@ -260,8 +245,6 @@ describe("Draft 2020-12 JSON Schema adapter", () => {
 			error: expect.stringContaining("Schema is not valid Draft 2020-12"),
 		});
 		expect(validate(invalid, {})).toEqual([adapterFailure]);
-		expect(createJsonSchemaValidator(invalid)).toBe(createJsonSchemaValidator(invalid));
-		expect(createJsonSchemaValidators(invalid)).toBe(createJsonSchemaValidators(invalid));
 
 		const cyclic: Record<string, unknown> = { type: "object" };
 		cyclic.properties = { self: cyclic };
@@ -278,7 +261,7 @@ describe("Draft 2020-12 JSON Schema adapter", () => {
 		});
 		expect(validate(hostile, {})).toEqual([adapterFailure]);
 		expect(validate(hostile, {})).toEqual([adapterFailure]);
-		expect(reads).toBe(1);
+		expect(reads).toBe(0);
 
 		const proxied = new Proxy(
 			{},

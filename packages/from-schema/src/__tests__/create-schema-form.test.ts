@@ -5,8 +5,8 @@ describe("createSchemaForm", () => {
 	it("returns validated preparation artifacts with separate deterministic diagnostics", () => {
 		const result = createSchemaForm({ type: "string" }, { provider: jsonSchemaProvider(), side: "input" });
 		expect(result.definition.version).toBe(1);
-		expect(result.diagnostics).toEqual({ source: [], projection: [], compilation: [], definition: [] });
-		expect(result.validators).toEqual([]);
+		expect(result.diagnostics).toEqual({ validation: [], source: [], projection: [], compilation: [], definition: [] });
+		expect(result.validators).toHaveLength(1);
 	});
 
 	it("requires authored definition and generation options to be mutually exclusive", () => {

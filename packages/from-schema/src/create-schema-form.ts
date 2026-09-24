@@ -15,6 +15,8 @@ import {
 import type { DescriptorDocument, DescriptorSide } from "./descriptors/contracts.js";
 import type { ProjectionLimitOptions } from "./descriptors/limits.js";
 import type { SchemaFormDiagnostics } from "./diagnostics.js";
+import { prepareJsonSchema } from "./json-schema-validator.js";
+import { isJsonProvider, isSupportedJsonProvider } from "./providers/json-schema-provider.js";
 import { adaptRuntimeFieldBaseline } from "./runtime-baseline.js";
 import { projectSchema } from "./schema-source.js";
 
@@ -49,12 +51,24 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	if (options.definition && options.generation) {
 		throw new TypeError("definition and generation are mutually exclusive.");
 	}
-	const projected = projectSchema(schema, {
+	const validation = isJsonProvider(options.provider)
+		? prepareJsonSchema(schema, isSupportedJsonProvider(options.provider))
+		: undefined;
+	const projectionOptions = {
 		provider: options.provider,
 		side: options.side,
 		...(options.limits ? { limits: options.limits } : {}),
 		...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
-	});
+	};
+	const unsafeProjection =
+		validation?.diagnostics[0]?.code === "non-plain-schema" || validation?.diagnostics[0]?.code === "schema-limit";
+	let projected: ReturnType<typeof projectSchema>;
+	try {
+		projected = projectSchema(unsafeProjection ? {} : schema, projectionOptions);
+	} catch (error) {
+		if (!validation?.diagnostics.length) throw error;
+		projected = projectSchema({}, projectionOptions);
+	}
 	const prepared = options.definition
 		? validateAuthoredDefinition(options.definition, projected.descriptors)
 		: compileDefaultFormDefinition(projected.descriptors, options.generation);
@@ -65,8 +79,12 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		baseline: prepared.baseline,
 		repeaterBaseline: prepared.repeaterBaseline,
 		...(projected.validator ? { sourceValidator: projected.validator } : {}),
-		validators: Object.freeze([...(options.validators ?? [])]),
+		validators: Object.freeze([
+			...(validation ? [validation.validator as SchemaValidator<TData, TUi>] : []),
+			...(options.validators ?? []),
+		]),
 		diagnostics: Object.freeze({
+			validation: validation?.diagnostics ?? Object.freeze([]),
 			source: projected.descriptors.sourceDiagnostics,
 			projection: projected.descriptors.projectionDiagnostics,
 			compilation: prepared.diagnostics,

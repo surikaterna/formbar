@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createArbiterPlugin } from "@formbar/arbiter";
 import { createDeferredForm, createForm } from "@formbar/core";
-import { jsonSchemaProvider } from "@formbar/from-schema";
+import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer, useSchemaForm } from "@formbar/react-schema";
 import { JSDOM } from "jsdom";
 import React, { StrictMode, act } from "react";
@@ -11,8 +11,16 @@ import { renderToString } from "react-dom/server";
 const require = createRequire(import.meta.url);
 const { createRoot, hydrateRoot } = await import("react-dom/client");
 const version = require("react/package.json").version;
-const schema = { type: "object", properties: { name: { type: "string", title: "Name" } } };
+const schema = { type: "object", required: ["name"], properties: { name: { type: "string", title: "Name" } } };
 const provider = jsonSchemaProvider();
+const prepared = createSchemaForm(schema, { provider, side: "input" });
+assert.equal(prepared.validators.length, 1);
+const packedForm = createForm({ initialData: {}, validators: prepared.validators });
+assert.deepEqual(
+	packedForm.validate().map((issue) => issue.code),
+	["json-schema.required"],
+);
+packedForm.dispose();
 const counters = { init: 0, dispose: 0, active: 0, maxActive: 0, middleware: 0 };
 const plugin = {
 	id: "audit",
@@ -56,6 +64,7 @@ eager.dispose();
 assert.equal(counters.dispose, 1);
 const html = renderToString(React.createElement(App));
 assert.match(html, /Ada/);
+assert.match(html, /noValidate/i);
 assert.equal(counters.init, 1);
 assert.equal(counters.middleware, 0);
 assert.deepEqual(seen.pop().getState().fieldPolicy, []);

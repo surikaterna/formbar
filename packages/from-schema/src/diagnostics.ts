@@ -46,10 +46,17 @@ export interface CompilationDiagnostic {
 }
 
 export interface SchemaFormDiagnostics {
+	readonly validation: readonly ValidationDiagnostic[];
 	readonly source: readonly SourceDiagnostic[];
 	readonly projection: readonly ProjectionDiagnostic[];
 	readonly compilation: readonly CompilationDiagnostic[];
 	readonly definition: readonly DefinitionDiagnostic[];
+}
+
+export interface ValidationDiagnostic {
+	readonly code: string;
+	readonly severity: "error";
+	readonly message: string;
 }
 
 export function sortProjectionDiagnostics(
