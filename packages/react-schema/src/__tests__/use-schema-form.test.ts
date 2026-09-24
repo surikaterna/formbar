@@ -41,6 +41,36 @@ describe("useSchemaForm preparation-only API", () => {
 		expect(options).not.toHaveProperty("schema");
 	});
 
+	it("exposes option preparation warnings separately from validation issues", () => {
+		const result = useSchemaForm(
+			{
+				type: "string",
+				enum: ["a"],
+				"x-formbar": {
+					options: [
+						{ value: "missing", title: "Missing" },
+						{ value: "a", title: "Alpha" },
+						{ value: "a", title: "Again" },
+					],
+				},
+			},
+			{ provider: jsonSchemaProvider(), side: "input" },
+		);
+		expect(result.diagnostics.compilation).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "unmatched-option", index: 0 }),
+				expect.objectContaining({ code: "duplicate-option", index: 2 }),
+			]),
+		);
+		expect(result.warnings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ channel: "compilation", code: "unmatched-option" }),
+				expect.objectContaining({ channel: "compilation", code: "duplicate-option" }),
+			]),
+		);
+		expect(vi.mocked(useForm).mock.calls[0]?.[0].validators).toBeUndefined();
+	});
+
 	it("installs the retained source validator through the executable validators path", () => {
 		vi.mocked(useForm).mockImplementation((options) => createForm(options) as never);
 		const schema = {

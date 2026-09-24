@@ -14,8 +14,48 @@ import {
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 let projected: readonly PlaygroundExample[] | undefined;
 
+const schemaOptionsExample: PlaygroundExample = {
+	key: "basic-contact:schema-options",
+	demoId: "basic-contact",
+	number: 1,
+	sourceKey: "schema-options",
+	display: { demoTitle: "1. Basic Contact Form", sourceLabel: "Schema-only titled choices" },
+	document: {
+		version: PLAYGROUND_DOCUMENT_VERSION,
+		schema: {
+			type: "object",
+			properties: {
+				role: {
+					type: "string",
+					enum: ["lead", "developer", "qa"],
+					"x-formbar": {
+						options: [
+							{ value: "lead", title: "Team lead" },
+							{ value: "qa", title: "Quality assurance", disabled: true },
+						],
+					},
+				},
+			},
+		},
+		definition: null,
+		initialData: { role: "lead" },
+	},
+	runtime: {
+		profileIds: ["formbar.standard.v1"],
+		capabilities: [
+			{ kind: "action", id: "submit" },
+			{ kind: "action", id: "reset" },
+			{ kind: "action-controls", id: "host" },
+		],
+		initialUiState: {},
+		actionControls: "host",
+		editable: ["schema", "definition", "initialData"],
+		fixed: ["profileIds", "capabilities", "initialUiState", "actionControls"],
+	},
+};
+
 export function getPlaygroundExamples(): readonly PlaygroundExample[] {
-	projected ??= deepFreeze(demos.flatMap(projectRegistration));
+	projected ??= deepFreeze([...demos.flatMap(projectRegistration), schemaOptionsExample]);
 	return projected;
 }
 
@@ -39,11 +79,14 @@ export function getPlaygroundCompatibility(): readonly DemoCompatibility[] {
 		...(registration.playground.support === "unsupported" ? { reason: registration.playground.reason } : {}),
 		presets:
 			registration.playground.support === "full"
-				? registration.fixture.sources.flatMap((source) =>
-						(source.definitionVariants ?? [undefined]).map((variant) => ({
-							variant: [source.key, variant?.key].filter(Boolean).join(":"),
-						})),
-					)
+				? [
+						...registration.fixture.sources.flatMap((source) =>
+							(source.definitionVariants ?? [undefined]).map((variant) => ({
+								variant: [source.key, variant?.key].filter(Boolean).join(":"),
+							})),
+						),
+						...(registration.id === schemaOptionsExample.demoId ? [{ variant: "schema-options" }] : []),
+					]
 				: [],
 	}));
 }
@@ -66,7 +109,7 @@ function projectSource(registration: DemoRegistration, source: SchemaDemoSource)
 function createExample(
 	registration: DemoRegistration,
 	source: SchemaDemoSource,
-	definition: PlaygroundExample["document"]["definition"],
+	definition: NonNullable<PlaygroundExample["document"]["definition"]>,
 	definitionKey?: string,
 	definitionLabel?: string,
 ): PlaygroundExample {
@@ -114,7 +157,7 @@ function createExample(
 }
 
 function actionCapabilities(
-	definition: PlaygroundExample["document"]["definition"],
+	definition: NonNullable<PlaygroundExample["document"]["definition"]>,
 	actionControls: "host" | "definition",
 ): RuntimeCapabilityDeclaration[] {
 	const definitionActions = allNodes(definition.root).flatMap((node) =>

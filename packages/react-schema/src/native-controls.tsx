@@ -2,7 +2,7 @@ import type { FieldNode, ResolvedFieldState } from "@formbar/declarative";
 import type { NormalizedEvidence } from "@formbar/from-schema";
 import type { ChangeEvent, ReactElement } from "react";
 import { literalProp } from "./renderer-evidence.js";
-import type { FieldRenderEvidence, ScalarOption } from "./renderer-evidence.js";
+import type { FieldRenderEvidence, RenderOption } from "./renderer-evidence.js";
 import type { RendererEnvironment } from "./renderer-types.js";
 
 interface Wiring {
@@ -84,7 +84,7 @@ function textareaControl(
 function selectControl(
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	options: readonly ScalarOption[],
+	options: readonly RenderOption[],
 	wiring: Wiring,
 	path: string,
 ): ReactElement {
@@ -96,12 +96,16 @@ function selectControl(
 			disabled={state.disabled || state.readOnly}
 			aria-readonly={state.readOnly || undefined}
 			required={state.required}
-			onChange={(event) => field.handleChange(optionValue(options, event.currentTarget.value) as never)}
+			onChange={(event) => {
+				const option = optionValue(options, event.currentTarget.value);
+				if (state.disabled || state.readOnly || option?.disabled) return;
+				field.handleChange(option?.value as never);
+			}}
 			onBlur={() => field.handleBlur()}
 		>
 			<option value="" />
 			{options.map((option, index) => (
-				<option key={optionKey(option, index)} value={`option-${index}`}>
+				<option key={optionKey(option.value, index)} value={`option-${index}`} disabled={option.disabled}>
 					{optionLabel(option)}
 				</option>
 			))}
@@ -113,7 +117,7 @@ function radioControl(
 	node: FieldNode,
 	state: ResolvedFieldState,
 	environment: RendererEnvironment,
-	options: readonly ScalarOption[],
+	options: readonly RenderOption[],
 	wiring: Wiring,
 	path: string,
 ): ReactElement {
@@ -129,14 +133,17 @@ function radioControl(
 			{options.map((option, index) => {
 				const id = index ? `${wiring.controlId}-option-${index}` : wiring.controlId;
 				return (
-					<div key={optionKey(option, index)}>
+					<div key={optionKey(option.value, index)}>
 						<input
 							{...controlA11y(state, { ...wiring, controlId: id })}
 							type="radio"
 							name={wiring.controlId}
-							checked={Object.is(state.value, option)}
+							checked={Object.is(state.value, option.value)}
+							disabled={option.disabled}
 							required={state.required}
-							onChange={() => field.handleChange(option as never)}
+							onChange={() => {
+								if (!state.disabled && !state.readOnly && !option.disabled) field.handleChange(option.value as never);
+							}}
 							onBlur={() => field.handleBlur()}
 						/>
 						<label htmlFor={id}>{optionLabel(option)}</label>
@@ -187,20 +194,20 @@ function inputControlValue(value: ResolvedFieldState["value"]): string | number 
 	return typeof value === "string" || typeof value === "number" ? value : "";
 }
 
-function optionToken(options: readonly ScalarOption[], value: unknown): string {
-	const index = options.findIndex((option) => Object.is(option, value));
+function optionToken(options: readonly RenderOption[], value: unknown): string {
+	const index = options.findIndex((option) => Object.is(option.value, value));
 	return index < 0 ? "" : `option-${index}`;
 }
 
-function optionValue(options: readonly ScalarOption[], token: string): ScalarOption | undefined {
-	return token ? options[Number(token.slice("option-".length))] : undefined;
+function optionValue(options: readonly RenderOption[], token: string): RenderOption | undefined {
+	return /^option-(?:0|[1-9]\d*)$/.test(token) ? options[Number(token.slice("option-".length))] : undefined;
 }
 
-function optionLabel(value: ScalarOption): string {
-	return value === null ? "null" : String(value);
+function optionLabel(option: RenderOption): string {
+	return option.title ?? (option.value === null ? "null" : String(option.value));
 }
 
-function optionKey(value: ScalarOption, index: number): string {
+function optionKey(value: RenderOption["value"], index: number): string {
 	return `${typeof value}:${String(value)}:${index}`;
 }
 

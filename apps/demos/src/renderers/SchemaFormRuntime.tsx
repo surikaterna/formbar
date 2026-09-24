@@ -75,7 +75,7 @@ function RuntimeForm(
 	const prepared = useSchemaForm<Record<string, unknown>, Record<string, unknown>>(props.document.schema, {
 		provider,
 		side: "input",
-		definition: props.document.definition,
+		...(props.document.definition === null ? {} : { definition: props.document.definition }),
 		initialData: props.document.initialData,
 		initialUiState: props.initialUiState ?? {},
 		plugins: props.plugins,

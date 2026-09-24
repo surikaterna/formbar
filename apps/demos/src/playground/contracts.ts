@@ -11,7 +11,7 @@ export type SourceKey = (typeof SOURCE_KEYS)[number];
 export interface PlaygroundDocument {
 	readonly version: typeof PLAYGROUND_DOCUMENT_VERSION;
 	readonly schema: Record<string, unknown>;
-	readonly definition: FormDefinition;
+	readonly definition: FormDefinition | null;
 	readonly initialData: Record<string, unknown>;
 }
 

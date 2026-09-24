@@ -31,10 +31,11 @@ const expectedMatrix = [
 	"arbiter-validation-gating:default",
 	"arbiter-dynamic-sections:default",
 	"schema-compilation:default",
+	"basic-contact:schema-options",
 ] as const;
 
 describe("registry-derived playground projection", () => {
-	it("is total, ordered, unique, and exactly 26 numbered plus compilation", () => {
+	it("is total, ordered, unique, and includes the schema-only preset", () => {
 		assertValidRegistry(demos);
 		expect(demos.filter(({ number }) => number !== undefined).map(({ number }) => number)).toEqual(
 			Array.from({ length: 21 }, (_, index) => index + 1),
@@ -46,8 +47,8 @@ describe("registry-derived playground projection", () => {
 				[demoId, sourceKey, definitionKey].filter(Boolean).join(":"),
 			),
 		).toEqual(expectedMatrix);
-		expect(examples.filter(({ number }) => number !== undefined)).toHaveLength(26);
-		expect(new Set(examples.map(({ key }) => key)).size).toBe(27);
+		expect(examples.filter(({ number }) => number !== undefined)).toHaveLength(27);
+		expect(new Set(examples.map(({ key }) => key)).size).toBe(28);
 	});
 
 	it("materializes deep-frozen serializable definitions and preflights every example", () => {

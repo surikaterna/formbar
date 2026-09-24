@@ -2,7 +2,7 @@ import type { FormNode } from "@formbar/declarative";
 import type { DescriptorDocument, DescriptorNode, DescriptorOccurrence } from "../descriptors/contracts.js";
 import type { CompilationDiagnostic } from "../diagnostics.js";
 import { type BindingContext, binding, childBinding, repeaterItemBinding } from "./bindings.js";
-import { directTypedEnum } from "./direct-typed-enum.js";
+import { canonicalEnum, canonicalEnumPresentation, directOptions, warnUnsafeOptions } from "./direct-options.js";
 import { nodeId, scopeId } from "./ids.js";
 import { itemSeed } from "./item-seed.js";
 import { containerPresentationFor, presentationFor } from "./presentation.js";
@@ -59,10 +59,8 @@ function compileNode(
 	bindingContext: BindingContext,
 ): FormNode {
 	const presentation = presentationFor(node, context.document.source.provider);
-	if (presentation.explicitWidget && presentation.widget !== "select")
-		return fieldNode(context, occurrence, node, bindingContext, presentation);
-	if (directTypedEnum(context.document, occurrence, node))
-		return typedEnumField(context, occurrence, node, bindingContext, presentation);
+	const directChoice = compileDirectChoice(context, occurrence, node, bindingContext, presentation);
+	if (directChoice) return directChoice;
 	if (presentation.explicitWidget) return fieldNode(context, occurrence, node, bindingContext, presentation);
 	if (hasApplicators(node) && node.kind !== "object")
 		return fallbackNode(
@@ -103,26 +101,41 @@ function compileNode(
 	return fieldNode(context, occurrence, node, bindingContext);
 }
 
-function typedEnumField(
+function compileDirectChoice(
 	context: CompilationContext,
 	occurrence: DescriptorOccurrence,
 	node: DescriptorNode,
 	bindingContext: BindingContext,
 	presentation: ReturnType<typeof presentationFor>,
-): FormNode {
-	const { options, ...props } = presentation.props ?? {};
-	if (options !== undefined)
-		addDiagnostic(
+): FormNode | undefined {
+	const canonical = canonicalEnum(context.document, occurrence, node);
+	const choiceWidget =
+		canonical && node.kind === "intersection" && !presentation.explicitWidget ? "select" : presentation.widget;
+	if (canonical && (choiceWidget === "select" || choiceWidget === "radio"))
+		return fieldNode(
 			context,
 			occurrence,
-			"unsupported-schema",
-			"Typed enum select ignores x-formbar.props.options; schema enum choices are authoritative.",
+			node,
+			bindingContext,
+			canonicalEnumPresentation(context, occurrence, node, { ...presentation, widget: choiceWidget }, canonical),
 		);
-	return fieldNode(context, occurrence, node, bindingContext, {
-		...presentation,
-		widget: "select",
-		props: Object.keys(props).length ? Object.freeze(props) : undefined,
-	});
+	if (presentation.explicitWidget && presentation.widget !== "select")
+		return fieldNode(context, occurrence, node, bindingContext, presentation);
+	if (
+		node.kind === "primitive" &&
+		!unsupportedPrimitive(node) &&
+		!hasApplicators(node) &&
+		!presentation.explicitWidget
+	) {
+		const options = directOptions(context, occurrence, node);
+		if (options)
+			return fieldNode(context, occurrence, node, bindingContext, {
+				...presentation,
+				widget: "select",
+				props: { ...options, ...presentation.props },
+			});
+	}
+	return undefined;
 }
 
 function compileObject(
@@ -279,6 +292,15 @@ function fieldNode(
 	compiled?: ReturnType<typeof presentationFor>,
 ): FormNode {
 	const presentation = compiled ?? presentationFor(node, context.document.source.provider);
+	warnUnsafeOptions(context, occurrence, node);
+	const choices =
+		node.kind === "primitive" &&
+		!unsupportedPrimitive(node) &&
+		!hasApplicators(node) &&
+		(presentation.widget === "select" || presentation.widget === "radio") &&
+		presentation.props?.options === undefined
+			? directOptions(context, occurrence, node)
+			: undefined;
 	if (presentation.invalidProps)
 		addDiagnostic(
 			context,
@@ -296,7 +318,7 @@ function fieldNode(
 		widget: invalidExtension ? "unsupported" : presentation.widget,
 		...(presentation.label === undefined ? {} : { label: presentation.label }),
 		...(presentation.presentation ? { presentation: presentation.presentation } : {}),
-		...(!invalidExtension && presentation.props ? { props: presentation.props } : {}),
+		...(!invalidExtension && (presentation.props || choices) ? { props: { ...presentation.props, ...choices } } : {}),
 	});
 }
 
