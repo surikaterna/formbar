@@ -109,6 +109,39 @@ describe("demo 16 trusted custom widgets", () => {
 		expect(resultJson(view)).toBe(successful);
 	});
 
+	it("shows per-option pressed styling and shape markers through selection, reset, and source change", async () => {
+		const view = await mountDemo(customRenderersDemo);
+		const rating = (value: number) => button(view, `Quality Rating: ${value}`);
+		const color = (value: string) => button(view, `Brand Color: ${value}`);
+		expect(rating(2).textContent).toContain("☆");
+		expect(color("#3B82F6").querySelector('[aria-hidden="true"]')).toBeNull();
+		await click(rating(3));
+		await click(color("#3B82F6"));
+		expect(rating(2).getAttribute("aria-pressed")).toBe("true");
+		expect(rating(3).className).toContain("bg-foreground");
+		expect(rating(3).textContent).toContain("★");
+		expect(rating(4).className).not.toContain("bg-foreground");
+		expect(rating(4).textContent).toContain("☆");
+		expect(color("#3B82F6").className).toContain("ring-foreground");
+		expect(color("#3B82F6").querySelector('[aria-hidden="true"]')?.textContent).toBe("✓");
+		await click(rating(1));
+		await click(color("#EF4444"));
+		expect(rating(2).getAttribute("aria-pressed")).toBe("false");
+		expect(rating(2).textContent).toContain("☆");
+		expect(color("#3B82F6").querySelector('[aria-hidden="true"]')).toBeNull();
+		expect(color("#EF4444").querySelector('[aria-hidden="true"]')?.textContent).toBe("✓");
+		await click(button(view, "Reset"));
+		expect(rating(1).className).not.toContain("bg-foreground");
+		expect(color("#EF4444").querySelector('[aria-hidden="true"]')).toBeNull();
+		setSelect(selector(view, "JSON Schema source"), "authored-overrides");
+		await act(async () => {
+			await Promise.resolve();
+		});
+		await click(rating(2));
+		expect(rating(2).textContent).toContain("♥");
+		expect(rating(3).textContent).toContain("♡");
+	});
+
 	it("uses authored IDs over conflicting hints, keeps constraints, and remounts source history", async () => {
 		const view = await mountDemo(customRenderersDemo);
 		await chooseValidColorsAndTags(view);
@@ -119,7 +152,7 @@ describe("demo 16 trusted custom widgets", () => {
 		const qualityNode = view.container.querySelector('[data-formbar-node="f-quality-rating"]');
 		expect(qualityNode?.querySelector('[data-widget="demo16.rating"]')).not.toBeNull();
 		expect(qualityNode?.querySelector('[data-widget="demo16.color"]')).toBeNull();
-		expect(qualityNode?.textContent).toContain("♥");
+		expect(qualityNode?.textContent).toContain("♡");
 		const completion = labelled(view, "Completion Rate") as HTMLInputElement;
 		expect([completion.type, completion.min, completion.max, completion.step]).toEqual(["range", "0", "100", "1"]);
 		expect(view.container.querySelector('[data-widget="demo16.range"]')).not.toBeNull();
