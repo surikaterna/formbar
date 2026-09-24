@@ -34,6 +34,12 @@ describe("demo 17 advanced layout profile", () => {
 		const view = await mountDemo(customLayoutTypesDemo);
 		expect(view.container.querySelectorAll('[data-extension-node="inspection-panel"]')).toHaveLength(1);
 		expect(view.container.querySelectorAll('[data-extension-node="field-grid"]')).toHaveLength(5);
+		expect(
+			[...view.container.querySelectorAll('[data-extension-node="field-grid"]')].map((grid) =>
+				grid.getAttribute("data-columns"),
+			),
+		).toEqual(["2", "2", "2", "2", "2"]);
+		expect(view.container.querySelector('[data-extension-node="field-grid"]')?.getAttribute("style")).toBeNull();
 		expect(view.container.querySelectorAll('form [data-formbar-node^="f-"]')).toHaveLength(14);
 		expect([...view.container.querySelectorAll("form h2")].map((heading) => heading.textContent)).toEqual([
 			"Vessel Inspection",
