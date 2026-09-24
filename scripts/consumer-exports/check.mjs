@@ -182,6 +182,9 @@ try {
 			compile(directory, fixture, moduleKind, resolution, extension);
 		compile(directory, "upstream.cts", "NodeNext", "NodeNext", "cts");
 		runtime(directory);
+		const defaultsFixture = resolve(directory, "schema-defaults.mjs");
+		writeFileSync(defaultsFixture, readFileSync(resolve(fixtures, "schema-defaults.mjs")));
+		console.log(execFileSync(process.execPath, [defaultsFixture], { cwd: directory, encoding: "utf8" }).trim());
 		const lifecycleFixture = resolve(directory, "strict-lifecycle.mjs");
 		writeFileSync(lifecycleFixture, readFileSync(resolve(fixtures, "strict-lifecycle.mjs")));
 		console.log(execFileSync(process.execPath, [lifecycleFixture], { cwd: directory, encoding: "utf8" }).trim());

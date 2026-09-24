@@ -17,6 +17,7 @@ import type {
 import { createSchemaForm } from "@formbar/from-schema";
 import { type UseFormOptions, useForm } from "@formbar/react";
 import { useMemo } from "react";
+import { mergeInitialData, schemaInitialData } from "./schema-initial-data.js";
 
 interface SchemaPreparationOptions {
 	readonly provider: SchemaDocumentProvider;
@@ -33,7 +34,7 @@ export type UseSchemaFormOptions<TData, TUi> = Omit<UseFormOptions<TData, TUi>, 
 	};
 
 export interface SchemaPreparationWarning {
-	readonly channel: "source" | "projection" | "compilation";
+	readonly channel: "source" | "projection" | "compilation" | "initialization";
 	readonly code: string;
 	readonly message: string;
 }
@@ -53,10 +54,14 @@ export function useSchemaForm<TData, TUi>(
 	options: UseSchemaFormOptions<TData, TUi>,
 ): UseSchemaFormResult<TData, TUi> {
 	const prepared = usePreparedSchema(schema, options);
+	const initial = schemaInitialData(prepared.descriptors);
 	const sourceValidator = prepared.sourceValidator as SchemaValidator<TData, TUi> | undefined;
 	const validators = [...(sourceValidator ? [sourceValidator] : []), ...prepared.validators];
+	const baseOptions = formOptions(options);
+	const initialData = mergeInitialData(initial.defaults, baseOptions.initialData);
 	const form = useForm<TData, TUi>({
-		...formOptions(options),
+		...baseOptions,
+		...(Object.keys(initial.defaults).length > 0 ? { initialData: initialData as TData } : {}),
 		...(validators.length > 0 ? { validators } : {}),
 	});
 	return Object.freeze({
@@ -66,7 +71,7 @@ export function useSchemaForm<TData, TUi>(
 		baseline: prepared.baseline,
 		repeaterBaseline: prepared.repeaterBaseline,
 		diagnostics: prepared.diagnostics,
-		warnings: warnings(prepared.diagnostics),
+		warnings: [...warnings(prepared.diagnostics), ...initial.warnings],
 	});
 }
 
