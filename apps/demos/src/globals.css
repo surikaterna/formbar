@@ -168,6 +168,16 @@
 	color: var(--primary-foreground);
 }
 
+.schema-demo-host [data-widget="demo16.rating"] button {
+	background: transparent;
+	color: var(--foreground);
+}
+
+.schema-demo-host [data-widget="demo16.rating"] button[aria-pressed="true"] {
+	background: var(--foreground);
+	color: var(--background);
+}
+
 .schema-demo-form form > [data-formbar-node],
 .schema-demo-form fieldset[data-formbar-node],
 .schema-demo-form section {

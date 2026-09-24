@@ -1,5 +1,18 @@
 import { type Locator, expect, test } from "@playwright/test";
 
+async function ratingSurface(selected: Locator, unselected: Locator) {
+	const surface = (button: Locator) =>
+		button.evaluate((node) => {
+			const style = getComputedStyle(node);
+			return { background: style.backgroundColor, foreground: style.color, weight: style.fontWeight };
+		});
+	const active = await surface(selected);
+	const inactive = await surface(unselected);
+	expect(active.background).not.toBe(inactive.background);
+	expect(active.foreground).not.toBe(inactive.foreground);
+	expect(Number(active.weight)).toBeGreaterThan(Number(inactive.weight));
+}
+
 async function selectedAppearance(selected: Locator, unselected: Locator, marker: string) {
 	await expect(selected).toHaveAttribute("aria-pressed", "true");
 	await expect(unselected).toHaveAttribute("aria-pressed", "false");
@@ -13,6 +26,33 @@ async function selectedAppearance(selected: Locator, unselected: Locator, marker
 		return [style.backgroundColor, style.color, style.boxShadow, style.fontWeight];
 	});
 	expect(selectedStyle).not.toEqual(unselectedStyle);
+}
+
+for (const route of [
+	"?mode=demo&demo=custom-renderers",
+	"?mode=playground&demo=custom-renderers&preset=schema-hints",
+	"?mode=playground&demo=custom-renderers&preset=authored-overrides",
+]) {
+	for (const width of [390, 1280]) {
+		test(`rating surface contrasts at ${width}: ${route}`, async ({ page }) => {
+			await page.setViewportSize({ width, height: 800 });
+			await page.goto(route);
+			const form = page.locator("form[data-formbar-definition]");
+			await expect(form).toBeVisible();
+			const rating = (value: number) => form.locator(`button[aria-label="Quality Rating: ${value}"]`);
+			await rating(3).focus();
+			await rating(3).press("Space");
+			await expect(rating(3)).toHaveAttribute("aria-pressed", "true");
+			await expect(rating(4)).toHaveAttribute("aria-pressed", "false");
+			await expect(rating(3)).toHaveCSS("outline-style", "solid");
+			await expect(rating(3).locator('[aria-hidden="true"]')).toContainText(route.includes("authored") ? "♥" : "★");
+			await ratingSurface(rating(3), rating(4));
+			await page.getByRole("button", { name: "Reset", exact: true }).click();
+			await expect(rating(3)).toHaveAttribute("aria-pressed", "false");
+			await rating(1).click();
+			await ratingSurface(rating(1), rating(3));
+		});
+	}
 }
 
 for (const route of [
