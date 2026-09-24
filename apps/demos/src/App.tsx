@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import "./globals.css";
 import "./demo17.css";
 import { demos } from "./demos/index";
@@ -71,12 +71,25 @@ export function App() {
 
 function DemoNavigation(props: { readonly activeDemo: number; readonly onSelect: (demoId: string) => void }) {
 	const [open, setOpen] = useState(false);
+	const disclosure = useRef<HTMLButtonElement>(null);
+	const restoreFocus = useRef(false);
+	useEffect(() => {
+		if (open || !restoreFocus.current) return;
+		restoreFocus.current = false;
+		if (disclosure.current?.getClientRects().length) disclosure.current.focus();
+	}, [open]);
+	const select = (demoId: string) => {
+		restoreFocus.current = open;
+		props.onSelect(demoId);
+		setOpen(false);
+	};
 	return (
 		<aside className="flex w-full shrink-0 flex-col border-b border-border bg-card md:w-72 md:border-b-0 md:border-r">
 			<div className="border-b border-border p-4">
 				<h1 className="text-lg font-bold text-foreground">Formbar Demos</h1>
 				<p className="mt-1 text-xs text-muted-foreground">JSON Schema → validated FormDefinition</p>
 				<button
+					ref={disclosure}
 					type="button"
 					className="mt-3 w-full rounded-md border border-border px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring md:hidden"
 					aria-controls="demo-navigation-list"
@@ -87,35 +100,38 @@ function DemoNavigation(props: { readonly activeDemo: number; readonly onSelect:
 				</button>
 			</div>
 			<ScrollArea className={cn("max-h-[50vh] md:max-h-none md:min-h-0 md:flex-1", !open && "hidden md:block")}>
-				<nav id="demo-navigation-list" aria-label="Demo navigation" className="flex flex-col gap-1 p-2">
-					{demos.map((demo, index) => (
-						<Fragment key={demo.id}>
-							{(index === 0 || demos[index - 1].category !== demo.category) && (
-								<div className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-									{demo.category}
-								</div>
-							)}
-							<button
-								type="button"
-								aria-current={index === props.activeDemo ? "page" : undefined}
-								onClick={() => {
-									props.onSelect(demo.id);
-									setOpen(false);
-								}}
-								className={cn(
-									"rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-									index === props.activeDemo
-										? "bg-accent text-accent-foreground"
-										: "text-muted-foreground hover:bg-accent/50",
-								)}
-							>
-								<div className="font-medium">{demo.title}</div>
-								<div className="mt-0.5 text-xs opacity-70">{demo.subtitle}</div>
-							</button>
-						</Fragment>
-					))}
-				</nav>
+				<DemoLinks activeDemo={props.activeDemo} onSelect={select} />
 			</ScrollArea>
 		</aside>
+	);
+}
+
+function DemoLinks(props: { readonly activeDemo: number; readonly onSelect: (demoId: string) => void }) {
+	return (
+		<nav id="demo-navigation-list" aria-label="Demo navigation" className="flex flex-col gap-1 p-2">
+			{demos.map((demo, index) => (
+				<Fragment key={demo.id}>
+					{(index === 0 || demos[index - 1].category !== demo.category) && (
+						<div className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+							{demo.category}
+						</div>
+					)}
+					<button
+						type="button"
+						aria-current={index === props.activeDemo ? "page" : undefined}
+						onClick={() => props.onSelect(demo.id)}
+						className={cn(
+							"rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+							index === props.activeDemo
+								? "bg-accent text-accent-foreground"
+								: "text-muted-foreground hover:bg-accent/50",
+						)}
+					>
+						<div className="font-medium">{demo.title}</div>
+						<div className="mt-0.5 text-xs opacity-70">{demo.subtitle}</div>
+					</button>
+				</Fragment>
+			))}
+		</nav>
 	);
 }

@@ -3,6 +3,44 @@ import { type Locator, type Page, expect, test } from "@playwright/test";
 const variants = ["sections", "tabs", "accordion"] as const;
 const routes = ["demo", "playground"] as const;
 
+test("direct route selection never strands keyboard focus in the collapsed list", async ({ page }, info) => {
+	const narrow = info.project.name === "chromium-narrow";
+	await page.setViewportSize({ width: narrow ? 390 : 1280, height: 900 });
+	await page.goto("?mode=demo&demo=custom-layout-types");
+	const disclosure = page.getByRole("button", { name: /Browse demos/ });
+	if (narrow) {
+		await disclosure.focus();
+		await disclosure.press("Enter");
+		await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+	}
+	await expect(page.getByRole("navigation", { name: "Demo navigation" })).toBeVisible();
+	const destination = page.locator("#demo-navigation-list button").filter({ hasText: "16. Custom Renderers" });
+	await destination.focus();
+	await destination.press("Enter");
+	await expect(page).toHaveURL(/mode=demo&demo=custom-renderers/);
+	await expect(page.getByRole("heading", { name: "16. Custom Renderers" }).last()).toBeVisible();
+	await expect(destination).toHaveAttribute("aria-current", "page");
+	if (narrow) {
+		await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+		await expect(disclosure).toBeFocused();
+		const bounds = await page.evaluate(() => document.activeElement?.getBoundingClientRect().toJSON());
+		expect(bounds?.width).toBeGreaterThan(0);
+		expect(bounds?.height).toBeGreaterThan(0);
+		await page.keyboard.press("Shift+Tab");
+		await expect(destination).not.toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(disclosure).toBeFocused();
+	} else {
+		await expect(destination).toBeFocused();
+		await page.keyboard.press("Shift+Tab");
+		await expect(
+			page.getByRole("navigation", { name: "Demo navigation" }).getByRole("button", {
+				name: /15\. Kitchen Sink/,
+			}),
+		).toBeFocused();
+	}
+});
+
 async function checkNavigation(page: Page) {
 	const disclosure = page.getByRole("button", { name: /Browse demos/ });
 	await expect(disclosure).toHaveAttribute("aria-expanded", "false");
