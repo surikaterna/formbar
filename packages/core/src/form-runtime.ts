@@ -72,6 +72,7 @@ export class FormRuntime<TData, TUi> {
 		}) as CreateFormOptions<unknown, unknown>;
 		this.coordinator = createValidationCoordinator({
 			validators: options.asyncValidators ?? [],
+			...(options.timeouts?.validator === undefined ? {} : { validatorTimeout: options.timeouts.validator }),
 			getState: () => this.store.getState(),
 			updateState: (updater) => this.updateState(updater),
 		});

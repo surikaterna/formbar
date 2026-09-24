@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AsyncValidatorConfig } from "../contracts.js";
 import { createForm } from "../create-form.js";
+import type { FormState } from "../state.js";
 import type { ValidationIssue } from "../state.js";
+import { createValidationCoordinator } from "../validation-coordinator.js";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -22,6 +24,185 @@ function issue(code: string, path = "name"): ValidationIssue {
 		source: { origin: "rule", validatorId: "untrusted" },
 	};
 }
+
+function candidateHarness(
+	validators: readonly AsyncValidatorConfig<{ name: string }, { step: number }>[],
+	timeout?: number,
+) {
+	const form = createForm({ initialData: { name: "draft" }, initialUiState: { step: 1 } });
+	let state: FormState<{ name: string }, { step: number }> = {
+		...form.getState(),
+		issues: [issue("retained")],
+	};
+	const coordinator = createValidationCoordinator({
+		validators,
+		validatorTimeout: timeout,
+		getState: () => state,
+		updateState: (update) => {
+			state = update(state);
+		},
+	});
+	return {
+		coordinator,
+		getState: () => state,
+		resetState: () => {
+			state = {
+				...state,
+				meta: { ...state.meta, validation: { ...state.meta.validation, validating: false } },
+				fieldMeta: {},
+			};
+		},
+	};
+}
+
+describe("candidate-only foreground async validation", () => {
+	it("runs every validator on the candidate with stage/context, normalizes results, and preserves draft issues", async () => {
+		const inputs: unknown[] = [];
+		const validators: AsyncValidatorConfig<{ name: string }, { step: number }>[] = [
+			{
+				id: "blur",
+				trigger: "onBlur",
+				fields: ["name"],
+				validate: async ({ data, uiState, stage, context }) => {
+					inputs.push({ data, uiState, stage, context });
+					return [issue("candidate")];
+				},
+			},
+			{ id: "form", validate: async () => [issue("second")] },
+		];
+		const { coordinator, getState } = candidateHarness(validators);
+		const before = getState().issues;
+		const context = { requestId: "request", at: "2026-09-24T00:00:00Z" };
+		const result = await coordinator.validateCandidate(
+			{ data: { name: "outgoing" }, uiState: { step: 2 } },
+			coordinator.revision(),
+			undefined,
+			{ stage: "submit", context },
+		);
+		expect(inputs).toEqual([{ data: { name: "outgoing" }, uiState: { step: 2 }, stage: "submit", context }]);
+		expect(result.status).toBe("completed");
+		expect(result.issues.map((entry) => entry.source)).toEqual([
+			{ origin: "async-validator", validatorId: "blur" },
+			{ origin: "async-validator", validatorId: "form" },
+		]);
+		expect(getState().issues).toBe(before);
+		expect(getState().meta.validation.validating).toBe(false);
+	});
+
+	it("contains exceptions without replacing the retained lane", async () => {
+		const { coordinator, getState } = candidateHarness([
+			{
+				id: "broken",
+				validate: async () => {
+					throw new Error("broken");
+				},
+			},
+		]);
+		const result = await coordinator.validateCandidate({ data: { name: "x" }, uiState: { step: 1 } }, 0);
+		expect(result.issues).toMatchObject([{ code: "ASYNC_VALIDATOR_EXCEPTION", message: "broken" }]);
+		expect(getState().issues.map((entry) => entry.code)).toEqual(["retained"]);
+	});
+
+	it("leaves legacy foreground publishing and validator input defaults unchanged", async () => {
+		const inputs: unknown[] = [];
+		const { coordinator, getState } = candidateHarness([
+			{
+				id: "legacy",
+				validate: async (input) => {
+					inputs.push(input);
+					return [issue("legacy")];
+				},
+			},
+		]);
+		const result = await coordinator.validateSnapshot({ data: { name: "draft" }, uiState: { step: 1 } }, 0);
+		expect(result.issues[0]?.code).toBe("legacy");
+		expect(getState().issues.map((entry) => entry.code)).toEqual(["legacy", "retained"]);
+		expect(inputs).toMatchObject([{ data: { name: "draft" }, uiState: { step: 1 } }]);
+		expect(Object.keys(inputs[0] as object)).toEqual(["data", "uiState", "signal"]);
+	});
+
+	it("bounds ignored signals and ignores late completions after timeout", async () => {
+		vi.useFakeTimers();
+		try {
+			const pending = deferred<readonly ValidationIssue[]>();
+			let validatorSignal: AbortSignal | undefined;
+			const { coordinator, getState } = candidateHarness(
+				[
+					{
+						id: "slow",
+						fields: ["name"],
+						validate: ({ signal }) => {
+							validatorSignal = signal;
+							return pending.promise;
+						},
+					},
+				],
+				20,
+			);
+			const run = coordinator.validateCandidate({ data: { name: "x" }, uiState: { step: 1 } }, 0);
+			expect(getState().meta.validation.validating).toBe(true);
+			expect(getState().fieldMeta.name?.isValidating).toBe(true);
+			await vi.advanceTimersByTimeAsync(20);
+			expect(await run).toEqual({ status: "aborted", issues: [] });
+			expect(validatorSignal?.aborted).toBe(true);
+			pending.resolve([issue("late")]);
+			await Promise.resolve();
+			expect(getState().issues.map((entry) => entry.code)).toEqual(["retained"]);
+			expect(getState().meta.validation.validating).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it.each(["signal", "mutation", "reset", "dispose", "supersede"] as const)(
+		"cancels abort-ignoring work on %s without stale writes",
+		async (cause) => {
+			const pending = deferred<readonly ValidationIssue[]>();
+			const controller = new AbortController();
+			const { coordinator, getState, resetState } = candidateHarness([
+				{ id: "slow", fields: ["name"], validate: () => pending.promise },
+			]);
+			const snapshot = { data: { name: "x" }, uiState: { step: 1 } };
+			const run = coordinator.validateCandidate(snapshot, 0, controller.signal);
+			if (cause === "signal") controller.abort();
+			if (cause === "mutation") coordinator.onMutation();
+			if (cause === "reset") {
+				coordinator.reset();
+				resetState();
+			}
+			if (cause === "dispose") coordinator.dispose();
+			if (cause === "supersede") {
+				const next = coordinator.validateCandidate(snapshot, 0);
+				expect(getState().meta.validation.validating).toBe(true);
+				coordinator.reset();
+				resetState();
+				expect((await next).status).toBe("aborted");
+			}
+			expect(await run).toEqual({
+				status: cause === "mutation" || cause === "supersede" ? "superseded" : "aborted",
+				issues: [],
+			});
+			pending.resolve([issue("late")]);
+			await Promise.resolve();
+			expect(getState().issues.map((entry) => entry.code)).toEqual(["retained"]);
+			expect(getState().meta.validation.validating).toBe(false);
+			expect(getState().fieldMeta.name?.isValidating ?? false).toBe(false);
+		},
+	);
+
+	it("checks abort, revision and disposal even without validators", async () => {
+		const { coordinator } = candidateHarness([]);
+		const snapshot = { data: { name: "x" }, uiState: { step: 1 } };
+		const controller = new AbortController();
+		controller.abort();
+		expect((await coordinator.validateCandidate(snapshot, 0, controller.signal)).status).toBe("aborted");
+		expect((await coordinator.validateSnapshot(snapshot, 0, controller.signal)).status).toBe("completed");
+		coordinator.onMutation();
+		expect((await coordinator.validateCandidate(snapshot, 0)).status).toBe("superseded");
+		coordinator.dispose();
+		expect((await coordinator.validateCandidate(snapshot, coordinator.revision())).status).toBe("aborted");
+	});
+});
 
 describe("validateAsync selection and ownership", () => {
 	it("selects exact, ancestor, and descendant fields while form-level validators stay unscoped", async () => {

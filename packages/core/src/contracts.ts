@@ -50,6 +50,8 @@ export interface AsyncValidatorConfig<TData = unknown, TUi = unknown> {
 		readonly data: TData;
 		readonly uiState: TUi;
 		readonly signal: AbortSignal;
+		readonly stage?: string;
+		readonly context?: SubmitContext;
 	}) => Promise<readonly ValidationIssue[]>;
 	/** Absolute data paths this validator watches. Empty/undefined = form-level. */
 	readonly fields?: readonly DataPathInput[];

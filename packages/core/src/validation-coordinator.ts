@@ -1,6 +1,7 @@
 import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
-import type { FieldMetaEntry, FormState, ValidationIssue } from "./state.js";
+import type { FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
+import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
 import { normalizeIssues } from "./validation.js";
 
 const DEFAULT_DEBOUNCE_MS = 300;
@@ -35,12 +36,20 @@ export interface ValidationCoordinator<TData, TUi> {
 		revision: number,
 		signal?: AbortSignal,
 	): Promise<AsyncValidationResult>;
+	/** Validate a candidate without publishing its issues into the retained draft lane. */
+	validateCandidate(
+		snapshot: { readonly data: TData; readonly uiState: TUi },
+		expectedRevision: number,
+		signal?: AbortSignal,
+		options?: { readonly stage?: string; readonly context?: SubmitContext },
+	): Promise<AsyncValidationResult>;
 	reset(): void;
 	dispose(): void;
 }
 
 interface CoordinatorDeps<TData, TUi> {
 	readonly validators: readonly AsyncValidatorConfig<TData, TUi>[];
+	readonly validatorTimeout?: number;
 	readonly getState: () => FormState<TData, TUi>;
 	readonly updateState: (updater: (state: FormState<TData, TUi>) => FormState<TData, TUi>) => void;
 }
@@ -111,6 +120,7 @@ class ValidationRuntime<TData, TUi> {
 	private foreground: RunToken | undefined;
 	private currentRevision = 0;
 	private lifecycle = 0;
+	private disposed = false;
 
 	constructor(private readonly deps: CoordinatorDeps<TData, TUi>) {
 		this.validators = normalizeValidators(deps.validators);
@@ -123,6 +133,8 @@ class ValidationRuntime<TData, TUi> {
 			onBlur: (path) => this.trigger(path, "onBlur", false),
 			validate: (scope, signal) => this.validate(scope, signal),
 			validateSnapshot: (snapshot, revision, signal) => this.runForeground(this.validators, snapshot, revision, signal),
+			validateCandidate: (snapshot, revision, signal, options) =>
+				this.runForeground(this.validators, snapshot, revision, signal, undefined, options, true),
 			reset: () => this.endLifecycle(false),
 			dispose: () => this.endLifecycle(true),
 		};
@@ -209,9 +221,10 @@ class ValidationRuntime<TData, TUi> {
 		validator: NormalizedValidator<TData, TUi>,
 		snapshot: { readonly data: TData; readonly uiState: TUi },
 		token: RunToken,
+		options?: { readonly stage?: string; readonly context?: SubmitContext },
 	): Promise<readonly ValidationIssue[]> {
 		try {
-			const issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal });
+			const issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal, ...options });
 			return issues.map((issue) => canonicalizeIssue(issue, validator.config.id));
 		} catch (error) {
 			if (!this.isCurrent(token)) return [];
@@ -291,9 +304,14 @@ class ValidationRuntime<TData, TUi> {
 		expectedRevision: number,
 		signal?: AbortSignal,
 		scope?: AbsoluteDataPath,
+		options?: { readonly stage?: string; readonly context?: SubmitContext },
+		candidate = false,
 	): Promise<AsyncValidationResult> {
-		if (selected.length === 0) return { status: "completed", issues: [] };
+		if (!candidate && selected.length === 0) return { status: "completed", issues: [] };
 		if (signal?.aborted) return { status: "aborted", issues: [] };
+		if (candidate && this.disposed) return { status: "aborted", issues: [] };
+		if (candidate && expectedRevision !== this.currentRevision) return { status: "superseded", issues: [] };
+		if (selected.length === 0) return { status: "completed", issues: [] };
 		const paths = [...selected.flatMap((validator) => validator.fields), ...(scope ? [scope] : [])];
 		const token = this.startForeground(selected, paths);
 		if (expectedRevision !== this.currentRevision) this.cancel(token, "superseded");
@@ -303,13 +321,20 @@ class ValidationRuntime<TData, TUi> {
 		};
 		signal?.addEventListener("abort", abort, { once: true });
 		this.projectValidating();
-		const validation = Promise.all(selected.map((validator) => this.executeValidator(validator, snapshot, token)));
+		if (candidate && !token.cancellation) {
+			const timeout = this.deps.validatorTimeout ?? DEFAULT_RUNTIME_CONSTRAINTS.validatorTimeout;
+			token.timer = setTimeout(abort, Math.max(0, timeout));
+		}
+		const validation = Promise.all(
+			selected.map((validator) => this.executeValidator(validator, snapshot, token, options)),
+		);
 		const outcome = await Promise.race([validation, token.cancelled]);
+		if (token.timer) clearTimeout(token.timer);
 		signal?.removeEventListener("abort", abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
 		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
 		const issues = normalizeIssues(outcome.flat());
-		this.replaceIssues(token.validatorIds, issues);
+		if (!candidate) this.replaceIssues(token.validatorIds, issues);
 		this.detach(token);
 		this.projectValidating();
 		return { status: "completed", issues };
@@ -352,6 +377,7 @@ class ValidationRuntime<TData, TUi> {
 	}
 
 	private endLifecycle(project: boolean): void {
+		if (project) this.disposed = true;
 		this.lifecycle += 1;
 		this.currentRevision += 1;
 		this.cancelAll("aborted", project);
