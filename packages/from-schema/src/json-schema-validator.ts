@@ -85,7 +85,7 @@ function snapshotSchema(schema: unknown): unknown {
 	const seen = new WeakSet<object>();
 	let nodes = 0;
 	let bytes = 0;
-	function copy(value: unknown, depth: number): unknown {
+	function copy(value: unknown, depth: number, annotation = false): unknown {
 		if (++nodes > maxNodes || depth > maxDepth) reject("schema-limit");
 		if (value === null || typeof value === "boolean") return value;
 		if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -95,22 +95,25 @@ function snapshotSchema(schema: unknown): unknown {
 			return value;
 		}
 		if (typeof value !== "object" || seen.has(value)) reject("non-json-schema");
+		const array = Array.isArray(value);
+		const prototype = Object.getPrototypeOf(value);
+		if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null)
+			reject(annotation ? "non-plain-annotation" : "non-plain-schema");
 		seen.add(value);
-		const result: unknown = Array.isArray(value) ? [] : Object.create(null);
+		const result: unknown = array ? [] : Object.create(null);
 		const descriptors = Object.getOwnPropertyDescriptors(value);
-		if (Array.isArray(value) && (value.length > maxNodes || Object.keys(descriptors).length !== value.length + 1))
+		if (array && (value.length > maxNodes || Object.keys(descriptors).length !== value.length + 1))
 			reject("non-json-schema");
 		for (const key of Reflect.ownKeys(descriptors)) {
 			if (typeof key !== "string") reject("non-json-schema");
-			if (Array.isArray(value) && key === "length") continue;
-			if (Array.isArray(value) && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length))
-				reject("non-json-schema");
+			if (array && key === "length") continue;
+			if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) reject("non-json-schema");
 			const property = descriptors[key];
 			if (!property?.enumerable || !("value" in property)) reject("non-json-schema");
 			bytes += new TextEncoder().encode(key).length;
 			if (bytes > maxBytes) reject("schema-limit");
 			Object.defineProperty(result, key, {
-				value: copy(property.value, depth + 1),
+				value: copy(property.value, depth + 1, annotation || key === "x-formbar"),
 				enumerable: true,
 				configurable: true,
 				writable: true,

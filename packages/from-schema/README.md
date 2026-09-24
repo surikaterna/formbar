@@ -77,8 +77,9 @@ Only locally trusted, synchronous Draft 2020-12 schemas are supported. Supported
 Unknown formats, remote refs, unsupported dialects and vocabularies, async schemas, invalid
 schemas and malformed sources fail closed with `diagnostics.validation` and a root data issue.
 No remote loading, data coercion, default assignment or stored-data pruning occurs. Schemas
-are snapshotted via own data properties before compilation (262144 UTF-8 bytes of names and
-values, 8192 nodes, depth 64); reported validation errors are limited to 100 plus a root
+are snapshotted via own data properties of plain objects/arrays before compilation; inherited
+constraints and built-in objects are rejected, including within annotations. Limits are 262144
+UTF-8 bytes of names and values, 8192 nodes, and depth 64; reported errors are limited to 100 plus a root
 truncation issue. Cache entries are reused only for matching schema identity *and* serialized
 snapshot. JavaScript regex evaluation in-process cannot guarantee a CPU timeout: do not use
 attacker-controlled schemas without an isolated execution boundary.

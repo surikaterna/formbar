@@ -60,9 +60,11 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		...(options.limits ? { limits: options.limits } : {}),
 		...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
 	};
+	const unsafeProjection =
+		validation?.diagnostics[0]?.code === "non-plain-schema" || validation?.diagnostics[0]?.code === "schema-limit";
 	let projected: ReturnType<typeof projectSchema>;
 	try {
-		projected = projectSchema(schema, projectionOptions);
+		projected = projectSchema(unsafeProjection ? {} : schema, projectionOptions);
 	} catch (error) {
 		if (!validation?.diagnostics.length) throw error;
 		projected = projectSchema({}, projectionOptions);

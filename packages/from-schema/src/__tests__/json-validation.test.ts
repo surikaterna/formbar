@@ -153,4 +153,98 @@ describe("automatic plain JSON Schema validation", () => {
 		).toEqual(expect.arrayContaining(["json-schema.minLength", "json-schema.required"]));
 		expect(prepared.validators[0]?.({ data: { name: "Ada" }, uiState: {} })).toEqual([]);
 	});
+
+	it("fails closed for inherited constraints and built-in objects at every schema depth", async () => {
+		const inherited = Object.create({ type: "object", required: ["name"] }) as Record<string, unknown>;
+		const inheritedNested = Object.create({ type: "string", minLength: 2 }) as Record<string, unknown>;
+		const unsafe = [
+			inherited,
+			new Date("2026-01-01"),
+			{ type: "object", properties: { name: inheritedNested } },
+			{ type: "array", items: new Date("2026-01-01") },
+		];
+		for (const schema of unsafe) {
+			const onSubmit = vi.fn();
+			const prepared = prepare(schema);
+			expect(prepared.diagnostics.validation).toMatchObject([{ code: "non-plain-schema", severity: "error" }]);
+			expect(prepared.diagnostics.validation[0]?.message).not.toContain("2026-01-01");
+			const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
+			expect(form.validate()).toMatchObject([{ code: "json-schema.adapter-failure", path: { segments: [] } }]);
+			expect(await form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
+			expect(onSubmit).not.toHaveBeenCalled();
+			form.dispose();
+		}
+	});
+
+	it("preserves JSON object and null-prototype schemas with local refs and formats", async () => {
+		const schema = Object.assign(Object.create(null), {
+			type: "object",
+			required: ["email"],
+			$defs: { address: { type: "string", format: "email" } },
+			properties: { email: { $ref: "#/$defs/address" } },
+		});
+		const prepared = prepare(schema);
+		expect(prepared.diagnostics.validation).toEqual([]);
+		const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "saved" }));
+		const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
+		expect(form.validate().map((issue) => issue.code)).toEqual(["json-schema.required"]);
+		form.setValue("email", "bad");
+		expect(form.validate().map((issue) => issue.code)).toEqual(["json-schema.format"]);
+		form.setValue("email", "ada@example.com");
+		expect(await form.submit()).toMatchObject({ ok: true });
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		form.dispose();
+	});
+
+	it("rejects array subclasses, accessors, and observable proxy failures without leaking trap details", () => {
+		let getterReads = 0;
+		const throwing = new Proxy(
+			{},
+			{
+				getPrototypeOf: () => {
+					throw Error("private prototype");
+				},
+			},
+		);
+		const revoked = Proxy.revocable({}, {});
+		revoked.revoke();
+		const nested = {
+			type: "object",
+			properties: {
+				name: Object.defineProperty({}, "type", {
+					enumerable: true,
+					get: () => {
+						getterReads++;
+						throw Error("private getter");
+					},
+				}),
+			},
+		};
+		for (const schema of [
+			throwing,
+			revoked.proxy,
+			nested,
+			{ enum: [new Date()] },
+			{ enum: [new (class extends Array {})()] },
+		]) {
+			const prepared = prepare(schema);
+			expect(prepared.diagnostics.validation[0]?.message).not.toContain("private");
+			expect(prepared.validators[0]?.({ data: {}, uiState: {} })).toMatchObject([
+				{ code: "json-schema.adapter-failure", path: { segments: [] } },
+			]);
+		}
+		expect(getterReads).toBe(0);
+	});
+
+	it("keeps presentation diagnostics while refusing prototype-bearing option annotations as validation input", async () => {
+		const forged = Object.create({ value: "a" });
+		const prepared = prepare({ type: "string", enum: ["a"], "x-formbar": { options: [forged] } });
+		expect(prepared.diagnostics.validation[0]?.code).toBe("non-plain-annotation");
+		expect(prepared.diagnostics.compilation.map((item) => item.code)).toContain("invalid-extension-props");
+		const onSubmit = vi.fn();
+		const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
+		expect(await form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
+		expect(onSubmit).not.toHaveBeenCalled();
+		form.dispose();
+	});
 });
