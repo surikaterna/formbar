@@ -18,9 +18,26 @@ async function checkGeometry(page: Page, list: Locator) {
 	const measurements = await list.evaluate((element) => {
 		const viewport = document.documentElement.clientWidth;
 		const buttons = [...element.querySelectorAll<HTMLButtonElement>("button[data-formbar-array-operation]")];
+		const overlaps = [...element.querySelectorAll(":scope > ol > li > fieldset")].flatMap((row) => {
+			const controls = [...row.querySelectorAll<HTMLButtonElement>(":scope > [data-formbar-action] > button")].filter(
+				(button) => button.getClientRects().length,
+			);
+			return controls.flatMap((button, index) =>
+				controls.slice(index + 1).map((other) => {
+					const a = button.getBoundingClientRect();
+					const b = other.getBoundingClientRect();
+					return (
+						Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+						Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
+					);
+				}),
+			);
+		});
 		return {
 			viewport,
 			pageWidth: document.documentElement.scrollWidth,
+			rowCount: element.querySelectorAll(":scope > ol > li").length,
+			overlaps,
 			buttons: buttons
 				.filter((button) => button.getClientRects().length)
 				.map((button) => {
@@ -30,6 +47,8 @@ async function checkGeometry(page: Page, list: Locator) {
 		};
 	});
 	expect(measurements.pageWidth).toBeLessThanOrEqual(measurements.viewport);
+	if (measurements.rowCount > 1) expect(measurements.overlaps.length).toBeGreaterThan(0);
+	expect(measurements.overlaps.every((area) => area === 0)).toBe(true);
 	for (const rect of measurements.buttons) {
 		expect(rect.left).toBeGreaterThanOrEqual(0);
 		expect(rect.right).toBeLessThanOrEqual(measurements.viewport);
@@ -44,18 +63,54 @@ async function checkMuted(button: Locator, available: Locator) {
 	expect(unavailableStyle).not.toBe(availableStyle);
 }
 
-async function checkNestedIsolation(row: Locator, id: string) {
-	await row.locator(":scope > fieldset").evaluate((fieldset, actionId) => {
-		const nested = document.createElement("fieldset");
-		nested.dataset.formbarNode = "unrelated-nested";
-		const list = nested.appendChild(document.createElement("ol"));
-		const item = list.appendChild(document.createElement("li"));
-		const control = item.appendChild(document.createElement("fieldset")).appendChild(document.createElement("div"));
-		control.dataset.formbarNode = actionId;
-		control.appendChild(document.createElement("button")).textContent = "Nested move";
-		fieldset.append(nested);
-	}, id);
-	await expect(row.getByRole("button", { name: "Nested move" })).toBeVisible();
+async function checkNestedIsolation(row: Locator, id: string, repeaterId: string) {
+	await row.locator(":scope > fieldset").evaluate(
+		(fieldset, actionId) => {
+			const [nodeId, nestedId] = actionId;
+			for (const [repeaterNode, actionNode, label] of [
+				[nestedId, nodeId, "Nested move"],
+				["unrelated-nested", "unrelated-up", "Unrelated move"],
+			]) {
+				const nested = document.createElement("fieldset");
+				nested.dataset.formbarNode = repeaterNode;
+				const list = nested.appendChild(document.createElement("ol"));
+				const item = list.appendChild(document.createElement("li"));
+				const control = item.appendChild(document.createElement("fieldset")).appendChild(document.createElement("div"));
+				control.dataset.formbarNode = actionNode;
+				control.dataset.formbarAction = "array.move";
+				control.appendChild(document.createElement("button")).textContent = label;
+				fieldset.append(nested);
+			}
+		},
+		[id, repeaterId],
+	);
+	const nested = row.getByRole("button", { name: "Nested move" });
+	const unrelated = row.getByRole("button", { name: "Unrelated move" });
+	const styles = await nested.evaluate((button) => {
+		const peer = button.closest("li")?.parentElement?.parentElement?.nextElementSibling?.querySelector("button");
+		if (!peer) throw new Error("Missing unrelated action");
+		const observed = getComputedStyle(button);
+		const reference = getComputedStyle(peer);
+		return {
+			display: getComputedStyle(button.parentElement as HTMLElement).display,
+			minHeight: observed.minHeight,
+			peerMinHeight: reference.minHeight,
+			padding: observed.padding,
+			peerPadding: reference.padding,
+		};
+	});
+	expect(styles.display).not.toBe("none");
+	expect(styles.minHeight).not.toBe("44px");
+	expect(styles.minHeight).toBe(styles.peerMinHeight);
+	expect(styles.padding).toBe(styles.peerPadding);
+	await nested.focus();
+	await expect(nested).toBeFocused();
+	await row.page().keyboard.press("Tab");
+	await expect(unrelated).toBeFocused();
+	await row
+		.locator(`fieldset[data-formbar-node="${repeaterId}"]`)
+		.last()
+		.evaluate((element) => element.remove());
 	await row.locator('[data-formbar-node="unrelated-nested"]').evaluate((element) => element.remove());
 }
 
@@ -70,7 +125,7 @@ async function checkArrayRow(page: Page, form: Locator, id: string, prefix: stri
 		await expect(action(first, `${prefix}-${direction}`)).toBeHidden();
 		await expect(first.getByRole("button", { name: `Move ${direction}, item 1` })).toHaveCount(0);
 	}
-	await checkNestedIsolation(first, `${prefix}-up`);
+	await checkNestedIsolation(first, `${prefix}-up`, id);
 	await expect(action(first, `${prefix}-remove`)).toBeVisible();
 	await add.click();
 	await expect(rows(list)).toHaveCount(2);
@@ -127,6 +182,7 @@ async function checkOrderRows(list: Locator, add: Locator) {
 	await expect(rows(list)).toHaveCount(1);
 	await expect(action(rows(list).first(), "line-up")).toBeHidden();
 	await expect(action(rows(list).first(), "line-down")).toBeHidden();
+	await checkNestedIsolation(rows(list).first(), "line-up", "line-items");
 	await expect(action(rows(list).first(), "line-remove")).toBeDisabled();
 	await checkMuted(action(rows(list).first(), "line-remove"), add);
 	await rows(list).first().getByRole("textbox", { name: "Description" }).fill("Consulting");
