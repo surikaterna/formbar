@@ -110,12 +110,22 @@ export class ScopedAsyncScheduler<TData, TUi> {
 	}
 
 	private publish(key: string, issues: readonly ValidationIssue[]): void {
-		const previous = new Set(this.emitted.get(key) ?? []);
-		this.deps.updateState((state) => ({
-			...state,
-			issues: normalizeIssues([...state.issues.filter((issue) => !previous.has(issue)), ...issues]),
-		}));
+		const owned = this.emitted.get(key);
+		const previous = new Set(owned ?? []);
+		// Subscribers run during commit; reentrant events must see the ownership being published.
 		this.emitted.set(key, issues);
+		try {
+			this.deps.updateState((state) => ({
+				...state,
+				issues: normalizeIssues([...state.issues.filter((issue) => !previous.has(issue)), ...issues]),
+			}));
+		} catch (error) {
+			if (this.emitted.get(key) === issues) {
+				if (owned === undefined) this.emitted.delete(key);
+				else this.emitted.set(key, owned);
+			}
+			throw error;
+		}
 	}
 
 	private projectionFor(token: Pending<TData, TUi>): AsyncProjection<TData, TUi> {
@@ -154,9 +164,14 @@ export class ScopedAsyncScheduler<TData, TUi> {
 			if (timer) clearTimeout(timer);
 		}
 		if (!this.current(token) || !token.projection.current()) return;
-		this.publish(token.key, issues);
+		try {
+			this.publish(token.key, issues);
+		} catch {
+			this.cancel(token);
+			return;
+		}
 		if (timedOut) token.controller.abort();
-		token.finished = true;
+		if (this.current(token)) token.finished = true;
 	}
 
 	private schedule(field: ScopedAsyncField, capture: Capture<TData, TUi>, projection: Projection<TData, TUi>): void {
@@ -188,6 +203,11 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		if (!resolved) return;
 		const present = new Set(resolved.projection.fields.map(keyOf));
 		for (const key of this.emitted.keys()) if (!present.has(key)) this.publish(key, []);
+		if (trigger === "onChange") {
+			for (const token of previous) {
+				if (present.has(token.key) && this.emitted.get(token.key)?.length) this.publish(token.key, []);
+			}
+		}
 		for (const field of resolved.projection.fields) {
 			const selected = path && trigger === field.trigger && overlaps(field.binding.segments, path.segments);
 			if (selected || (trigger === "onChange" && previous.some((token) => token.key === keyOf(field))))
