@@ -54,20 +54,28 @@ describe("public package boundary", () => {
 		});
 	});
 
-	it("accepts a Changesets-style linked dependency range bump", () => {
+	it("accepts an unchanged compatible range after a patch-only core release", () => {
 		expectNeutralDependencies(
-			{ "@formbar/core": "^0.7.0", "@formbar/expressions": "^0.4.0" },
-			{ "@formbar/core": "0.7.0", "@formbar/expressions": "0.4.0" },
+			{ "@formbar/core": "^0.22.0", "@formbar/expressions": "^0.14.3" },
+			{ "@formbar/core": "0.22.2", "@formbar/expressions": "0.14.3" },
+		);
+	});
+
+	it("accepts an actual linked dependency range bump", () => {
+		expectNeutralDependencies(
+			{ "@formbar/core": "^0.22.2", "@formbar/expressions": "^0.14.4" },
+			{ "@formbar/core": "0.22.2", "@formbar/expressions": "0.14.4" },
 		);
 	});
 
 	it("rejects unexpected dependencies and invalid or incompatible ranges", () => {
-		const versions: NeutralVersions = { "@formbar/core": "0.7.0", "@formbar/expressions": "0.4.0" };
-		const dependencies = { "@formbar/core": "^0.7.0", "@formbar/expressions": "^0.4.0" };
+		const versions: NeutralVersions = { "@formbar/core": "0.22.2", "@formbar/expressions": "0.14.3" };
+		const dependencies = { "@formbar/core": "^0.22.0", "@formbar/expressions": "^0.14.3" };
 		expect(() => expectNeutralDependencies({ ...dependencies, react: "^19.0.0" }, versions)).toThrow();
-		for (const range of ["0.7.0", "^0.7", "^0.6.0"]) {
+		for (const range of ["0.22.2", "^0.22", "^0.21.9", "^0.22.3", "^0.23.0", "^1.0.0"]) {
 			expect(() => expectNeutralDependencies({ ...dependencies, "@formbar/core": range }, versions)).toThrow();
 		}
+		expect(() => expectNeutralDependencies({ ...dependencies, "@formbar/expressions": "^0.14.4" }, versions)).toThrow();
 	});
 });
 
@@ -84,7 +92,15 @@ function expectNeutralDependencies(dependencies: Record<string, string>, version
 		const version = versions[name];
 		expect(version, `${name} package version`).toMatch(stableVersion);
 		expect(dependencies[name], `${name} dependency range`).toMatch(caretStableRange);
-		expect(dependencies[name], `${name} compatible dependency range`).toBe(`^${version}`);
+		const [major, minor, patch] = version.split(".").map(Number);
+		const [rangeMajor, rangeMinor, rangePatch] = dependencies[name].slice(1).split(".").map(Number);
+		// A caret on 0.x admits patch updates within the minor; 0.0.x admits only its patch.
+		const compatible =
+			rangeMajor === major &&
+			(major > 0 || rangeMinor === minor) &&
+			(major > 0 || minor > 0 || rangePatch === patch) &&
+			(rangeMinor < minor || (rangeMinor === minor && rangePatch <= patch));
+		expect(compatible, `${name} compatible dependency range`).toBe(true);
 	}
 }
 
