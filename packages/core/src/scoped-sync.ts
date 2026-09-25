@@ -73,7 +73,7 @@ export function scopedCaptureCurrent<TData, TUi>(
 	);
 }
 
-function valueAt(root: unknown, segments: readonly CanonicalSegment[]): boolean {
+export function valueAt(root: unknown, segments: readonly CanonicalSegment[]): boolean {
 	let value = root;
 	for (const segment of segments) {
 		if (value === null || typeof value !== "object") return false;
@@ -100,7 +100,7 @@ function diagnostic(input: ScopedFieldIssueInput): boolean {
 	);
 }
 
-interface ScopedEmissionContext {
+export interface ScopedEmissionContext {
 	readonly captureData: unknown;
 	readonly snapshotData: unknown;
 	readonly stage: string | undefined;
@@ -108,10 +108,11 @@ interface ScopedEmissionContext {
 	readonly generation: number;
 	readonly run: object;
 	readonly guarded: boolean;
+	readonly asyncValidatorId?: string;
 }
 
-function emitScopedIssues(
-	field: ScopedFieldInstance,
+export function emitScopedIssues(
+	field: Pick<ScopedFieldInstance, "fieldId" | "instanceKey" | "binding">,
 	proposed: readonly ScopedFieldIssueInput[],
 	context: ScopedEmissionContext,
 ): ValidationIssue[] {
@@ -123,6 +124,7 @@ function emitScopedIssues(
 		revision: generation,
 		run,
 		current,
+		...(context.asyncValidatorId ? { asyncValidatorId: context.asyncValidatorId } : {}),
 	});
 	const issues: ValidationIssue[] = [];
 	for (const input of proposed) {

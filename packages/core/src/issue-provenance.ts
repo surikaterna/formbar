@@ -15,6 +15,11 @@ interface Certificate {
 const certificates = new WeakMap<ValidationIssue, Certificate>();
 let nextId = 0;
 
+/** A stale emission keeps its identity for instance-specific replacement, not certification. */
+export function isOriginalEmission(issue: ValidationIssue): boolean {
+	return certificates.get(issue)?.issue === issue;
+}
+
 function safeSegments(segments: readonly CanonicalSegment[]): boolean {
 	return segments.every((segment) =>
 		typeof segment === "number"
@@ -32,6 +37,7 @@ export function createIssueEmission(options: {
 	readonly run: object;
 	readonly current: () => boolean;
 	readonly signal?: AbortSignal;
+	readonly asyncValidatorId?: string;
 }) {
 	const binding = Object.freeze([...options.binding.segments]);
 	const valid = () => {
@@ -62,7 +68,10 @@ export function createIssueEmission(options: {
 			severity: input.severity,
 			...(input.stage === undefined ? {} : { stage: input.stage }),
 			path: Object.freeze({ namespace: "data", segments: Object.freeze([...binding, ...descendant]) }),
-			source: Object.freeze({ origin: "function-validator", validatorId: options.fieldId }),
+			source: Object.freeze({
+				origin: options.asyncValidatorId === undefined ? "function-validator" : "async-validator",
+				validatorId: options.asyncValidatorId ?? options.fieldId,
+			}),
 		});
 		certificates.set(issue, {
 			id: ++nextId,

@@ -1,7 +1,8 @@
 import { createDeferredForm, createForm } from "@formbar/core";
 import type { CreateFormOptions, SchemaValidator } from "@formbar/core";
-import { registerScopedSync } from "@formbar/core/internal/scoped-sync";
+import { assertScopedAsyncIds, registerScopedAsync, registerScopedSync } from "@formbar/core/internal/scoped-sync";
 import {
+	type DefinitionAsyncFieldValidator,
 	type DefinitionDiagnostic,
 	type DefinitionFieldValidator,
 	type FormDefinition,
@@ -10,7 +11,7 @@ import {
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
-import { prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
+import { prepareScopedAsyncHost, prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
 import type { LimitOptions, SchemaDocumentProvider, StandardSchemaV1 } from "@scheman/core";
 import {
 	type CompileDefaultFormDefinitionOptions,
@@ -34,6 +35,7 @@ export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
 	readonly generation?: CompileDefaultFormDefinitionOptions;
 	/** V1 definition FieldNode IDs only; never data paths or concrete row identities. */
 	readonly fieldValidators?: readonly DefinitionFieldValidator<TData, TUi>[];
+	readonly asyncFieldValidators?: readonly DefinitionAsyncFieldValidator<TData, TUi>[];
 }
 
 export interface SchemaFormResult<TData = unknown, TUi = unknown> {
@@ -86,15 +88,35 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	const scoped = options.fieldValidators
 		? prepareScopedSyncHost(prepared.definition, options.fieldValidators)
 		: undefined;
-	const attach = (form: ReturnType<typeof createForm<TData, TUi>>) => {
+	const scopedAsync = options.asyncFieldValidators
+		? prepareScopedAsyncHost(prepared.definition, options.asyncFieldValidators)
+		: undefined;
+	const preflight = (coreOptions: CreateFormOptions<TData, TUi>) => {
+		if (scopedAsync)
+			assertScopedAsyncIds(
+				scopedAsync,
+				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
+			);
+	};
+	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) => {
 		if (scoped) registerScopedSync(form, scoped);
+		if (scopedAsync)
+			registerScopedAsync(
+				form,
+				scopedAsync,
+				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
+			);
 		return form;
 	};
 	return Object.freeze({
-		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => attach(createForm(coreOptions)),
+		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
+			preflight(coreOptions);
+			return attach(createForm(coreOptions), coreOptions);
+		},
 		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
+			preflight(coreOptions);
 			const runtime = createDeferredForm(coreOptions);
-			attach(runtime.form);
+			attach(runtime.form, coreOptions);
 			return runtime;
 		},
 		descriptors: projected.descriptors,

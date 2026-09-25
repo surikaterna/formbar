@@ -1,5 +1,7 @@
 /** Trusted same-realm integration adapter; importable, not a malicious-JS sandbox. */
 export { registerScopedSync, scopedCaptureCurrent, scopedLifecycleRevision } from "../scoped-sync.js";
+export { assertScopedAsyncIds, registerScopedAsync } from "../scoped-async.js";
+export type { ScopedAsyncField, ScopedAsyncHost } from "../scoped-async.js";
 export type {
 	ScopedSyncHost,
 	ScopedFieldInstance,

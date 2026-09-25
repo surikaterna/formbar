@@ -49,4 +49,34 @@ assert.equal(cjs.normalizeIssues([issue, { ...issue }]).length, 1);
 form.dispose();
 deferred.dispose();
 bare.dispose();
+const asyncOptions = {
+	provider: jsonSchemaProvider(),
+	side: "input",
+	definition,
+	asyncFieldValidators: [
+		{
+			id: "async-field",
+			fieldId: "field",
+			validate: async () => [{ code: "async-owned", message: "bad", severity: "error" }],
+		},
+	],
+};
+const asyncForm = createSchemaForm({}, asyncOptions).createForm({ initialData: data });
+const [asyncIssue] = (await asyncForm.validateAsync()).issues;
+assert.deepEqual(asyncIssue.path.segments, ["a.b", "0"]);
+assert.strictEqual(asyncForm.getState().issues[0], asyncIssue);
+assert.equal(normalizeIssues([asyncIssue, { ...asyncIssue }]).length, 2);
+let deferredAsync;
+function AsyncHook() {
+	deferredAsync = useSchemaForm({}, { ...asyncOptions, initialData: data }).form;
+	return null;
+}
+renderToString(createElement(AsyncHook));
+assert.deepEqual(
+	(await deferredAsync.validateAsync()).issues.map((entry) => entry.code),
+	["async-owned"],
+);
+assert.equal(core.registerScopedAsync, undefined);
+asyncForm.dispose();
+deferredAsync.dispose();
 console.log("SCOPED_SYNC same-format=esm immediate+deferred=pass mixed-format=independent");
