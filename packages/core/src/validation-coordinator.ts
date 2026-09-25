@@ -1,5 +1,7 @@
+import { canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
 import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
+import { ownIssues } from "./issue-ownership.js";
 import type { FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
 import { normalizeIssues } from "./validation.js";
@@ -67,24 +69,6 @@ function normalizeValidators<TData, TUi>(configs: readonly AsyncValidatorConfig<
 		ids.add(config.id);
 		return { config, fields: Object.freeze((config.fields ?? []).map(normalizeDataPath)) };
 	});
-}
-
-function canonicalizeIssue(issue: ValidationIssue, validatorId: string): ValidationIssue {
-	const path =
-		issue.path.namespace === "data" && issue.path.segments.length > 0
-			? normalizeDataPath({ namespace: "data", segments: issue.path.segments })
-			: issue.path;
-	return { ...issue, path, source: { ...issue.source, origin: "async-validator", validatorId } };
-}
-
-function exceptionIssue(validator: NormalizedValidator<unknown, unknown>, error: unknown): ValidationIssue {
-	return {
-		code: "ASYNC_VALIDATOR_EXCEPTION",
-		message: error instanceof Error ? error.message : String(error),
-		severity: "error",
-		path: validator.fields[0] ?? { namespace: "data", segments: [] },
-		source: { origin: "async-validator", validatorId: validator.config.id },
-	};
 }
 
 function createToken(
@@ -223,23 +207,28 @@ class ValidationRuntime<TData, TUi> {
 		token: RunToken,
 		options?: { readonly stage?: string; readonly context?: SubmitContext },
 	): Promise<readonly ValidationIssue[]> {
+		let issues: readonly ValidationIssue[];
 		try {
-			const issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal, ...options });
-			return issues.map((issue) => canonicalizeIssue(issue, validator.config.id));
+			issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal, ...options });
 		} catch (error) {
 			if (!this.isCurrent(token)) return [];
-			return [exceptionIssue(validator as NormalizedValidator<unknown, unknown>, error)];
+			return [exceptionIssue(validator, error)];
 		}
+		return ownIssues(issues).map((issue) => canonicalizeIssue(issue, validator.config.id));
 	}
 
 	private async runAutomatic(token: RunToken, validator: NormalizedValidator<TData, TUi>): Promise<void> {
 		const state = this.deps.getState();
 		const snapshot = { data: state.data, uiState: state.uiState };
-		const outcome = await Promise.race([this.executeValidator(validator, snapshot, token), token.cancelled]);
-		if (Array.isArray(outcome) && this.isCurrent(token)) this.replaceIssues(token.validatorIds, outcome);
-		if (!this.isCurrent(token)) return;
-		this.detach(token);
-		this.projectValidating();
+		try {
+			const outcome = await Promise.race([this.executeValidator(validator, snapshot, token), token.cancelled]);
+			if (Array.isArray(outcome) && this.isCurrent(token)) this.replaceIssues(token.validatorIds, outcome);
+		} finally {
+			if (this.isCurrent(token)) {
+				this.detach(token);
+				this.projectValidating();
+			}
+		}
 	}
 
 	private matching(path: AbsoluteDataPath, trigger: "onChange" | "onBlur") {
@@ -298,6 +287,24 @@ class ValidationRuntime<TData, TUi> {
 		return token;
 	}
 
+	private async awaitForeground(
+		validation: Promise<(readonly ValidationIssue[])[]>,
+		token: RunToken,
+		signal: AbortSignal | undefined,
+		abort: () => void,
+	): Promise<(readonly ValidationIssue[])[] | Cancellation> {
+		try {
+			return await Promise.race([validation, token.cancelled]);
+		} catch (error) {
+			this.detach(token);
+			this.projectValidating();
+			throw error;
+		} finally {
+			if (token.timer) clearTimeout(token.timer);
+			signal?.removeEventListener("abort", abort);
+		}
+	}
+
 	private async runForeground(
 		selected: readonly NormalizedValidator<TData, TUi>[],
 		snapshot: { readonly data: TData; readonly uiState: TUi },
@@ -328,9 +335,7 @@ class ValidationRuntime<TData, TUi> {
 		const validation = Promise.all(
 			selected.map((validator) => this.executeValidator(validator, snapshot, token, options)),
 		);
-		const outcome = await Promise.race([validation, token.cancelled]);
-		if (token.timer) clearTimeout(token.timer);
-		signal?.removeEventListener("abort", abort);
+		const outcome = await this.awaitForeground(validation, token, signal, abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
 		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
 		const issues = normalizeIssues(outcome.flat());

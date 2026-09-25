@@ -107,29 +107,36 @@ describe("internal issue-only ownership", () => {
 		expect(listener).not.toHaveBeenCalled();
 	});
 
-	test("rejects mutable and copied issues and custom strategy", () => {
+	test("owns mutable and copied issues without granting a copied certificate", () => {
 		const s = store();
 		const original = issue();
 		const copied = { ...original };
 		const before = s.getState();
-		expect(() => publishIssueOnly(s, [copied])).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
-		expect(() => publishIssueOnly(s, [{ ...original, code: "OTHER" }])).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
-		expect(s.getState()).toBe(before);
+		publishIssueOnly(s, [copied, original]);
+		expect(s.getState()).not.toBe(before);
+		expect(s.getState().issues[1]).toBe(original);
+		const detached = s.getState().issues[0] as ValidationIssue;
+		expect(detached).not.toBe(copied);
+		expect(issueEmissionId(detached)).toBeUndefined();
+		expect(issueEmissionId(original)).toBeTypeOf("number");
+		publishIssueOnly(s, [detached, original]);
+		expect(s.getState().issues[0]).toBe(detached);
 		expect(Object.isFrozen(copied)).toBe(false);
 		const custom = new FormStore(before, { clone: structuredClone, freeze: (value) => value });
 		expect(() => publishIssueOnly(custom, [])).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
 	});
 
-	test("ordinary issue transactions remain available without opt-in", () => {
+	test("ordinary issue transactions detach caller diagnostics without changing their data", () => {
 		const s = store();
 		const ordinary = { ...issue() };
 		const tx = s.beginTransaction();
 		tx.mutate((draft) => ({ ...draft, issues: [ordinary] }));
 		s.commitTransaction(tx);
-		expect(s.getState().issues[0]).toBe(ordinary);
+		expect(s.getState().issues[0]).not.toBe(ordinary);
+		expect(s.getState().issues[0]).toEqual(ordinary);
 		const before = s.getState();
-		expect(() => publishIssueOnly(s, [])).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
-		expect(s.getState()).toBe(before);
+		publishIssueOnly(s, before.issues);
+		expect(s.getState().issues[0]).toBe(before.issues[0]);
 		expect(Object.isFrozen(ordinary)).toBe(false);
 	});
 

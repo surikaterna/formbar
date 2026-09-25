@@ -1,6 +1,7 @@
 import { rebaseAttemptIssues } from "./attempt-issues.js";
 import { structuredEqual } from "./equality.js";
-import { assertCertifiedIssues, ownNonIssueState } from "./owned-issue-snapshot.js";
+import { ownIssues } from "./issue-ownership.js";
+import { ownNonIssueState } from "./owned-issue-snapshot.js";
 import type { FormState } from "./state.js";
 import type { ValidationIssue } from "./state.js";
 import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.js";
@@ -24,7 +25,7 @@ export class FormStore<TData, TUi> {
 	private _owned = false;
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy) {
-		this._state = initialState;
+		this._state = this._ownStateIssues(initialState);
 		this._strategy = strategy ?? defaultStrategy;
 	}
 
@@ -47,11 +48,12 @@ export class FormStore<TData, TUi> {
 		if (tx !== this._activeTransaction) {
 			throw new Error("Transaction does not belong to this store");
 		}
-		const committed = tx.commit();
+		const committed = tx.dirty ? this._ownStateIssues(tx.draftState) : tx.draftState;
 		const nextState = structuredEqual(this._state.fieldPolicy, committed.fieldPolicy)
 			? { ...committed, fieldPolicy: this._state.fieldPolicy }
 			: committed;
 		this._activeTransaction = null;
+		tx.commit();
 
 		if (!tx.dirty) {
 			return;
@@ -67,9 +69,9 @@ export class FormStore<TData, TUi> {
 	[issueOnly](issues: readonly ValidationIssue[]): void {
 		if (this._disposed || this._activeTransaction || this._strategy !== defaultStrategy)
 			throw new Error("ISSUE_ONLY_UNSUPPORTED_STATE");
-		assertCertifiedIssues(issues);
+		const incoming = ownIssues(issues);
 		const base = this._owned ? this._state : ownNonIssueState(this._state);
-		const next = rebaseAttemptIssues({ ...base, issues: Object.freeze([...normalizeIssues(issues)]) });
+		const next = rebaseAttemptIssues({ ...base, issues: Object.freeze([...normalizeIssues(incoming)]) });
 		if (next.attemptValidation) {
 			Object.freeze(next.attemptValidation.renderableIssues);
 			Object.freeze(next.attemptValidation);
@@ -77,6 +79,18 @@ export class FormStore<TData, TUi> {
 		this._state = Object.freeze(next);
 		this._owned = true;
 		this._notifyListeners();
+	}
+
+	private _ownStateIssues(state: FormState<TData, TUi>): FormState<TData, TUi> {
+		const issues = ownIssues(state.issues);
+		const attempt = state.attemptValidation;
+		if (!attempt) return { ...state, issues };
+		const attemptIssues = ownIssues(attempt.issues);
+		return rebaseAttemptIssues({
+			...state,
+			issues,
+			attemptValidation: { ...attempt, issues: attemptIssues, renderableIssues: ownIssues(attempt.renderableIssues) },
+		});
 	}
 
 	/** Discard draft state without notifying subscribers. */

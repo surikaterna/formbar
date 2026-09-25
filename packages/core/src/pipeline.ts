@@ -8,6 +8,7 @@ import {
 	replacePolicyContributions,
 } from "./field-policy.js";
 import { setImmutablePath } from "./immutable-path.js";
+import { ownIssues } from "./issue-ownership.js";
 import { runNotifyHooksSync, runVetoHooksSync } from "./middleware-runner.js";
 import { parsePath } from "./path-parser.js";
 import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
@@ -241,7 +242,7 @@ function runValidationPhase(
 	const raw = ctx.options.validators?.length
 		? runValidators(ctx.options.validators as readonly ValidatorFn[], tx.draftState, stage, ctx.submitContext)
 		: [];
-	const issues = normalizeIssues(raw);
+	const issues = normalizeIssues(ownIssues(raw));
 	runNotifyHooksSync(middlewares, "afterValidate", { action: ctx.action, state: tx.draftState, issues });
 	return issues;
 }
