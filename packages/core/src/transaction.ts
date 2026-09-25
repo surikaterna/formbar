@@ -1,3 +1,4 @@
+import { isOriginalEmission } from "./issue-provenance.js";
 import type { FormState } from "./state.js";
 import { deepFreeze } from "./utils.js";
 
@@ -25,10 +26,27 @@ export class Transaction<TData, TUi> {
 	private _draftState: FormState<TData, TUi>;
 	private _status: "active" | "committed" | "rolled-back" = "active";
 	private _dirty = false;
+	private readonly certifiedDraftIssues = new Map<
+		FormState<TData, TUi>["issues"][number],
+		FormState<TData, TUi>["issues"][number]
+	>();
 
 	constructor(currentState: FormState<TData, TUi>, strategy: StateStrategy = defaultStrategy) {
 		this._prevState = strategy.freeze(strategy.clone(currentState));
 		this._draftState = strategy.clone(currentState);
+		currentState.issues.forEach((issue, index) => {
+			const draft = this._draftState.issues[index];
+			if (draft && isOriginalEmission(issue)) {
+				this.certifiedDraftIssues.set(draft, issue);
+				this.certifiedDraftIssues.set(issue, issue);
+			}
+		});
+		if (this.certifiedDraftIssues.size > 0) {
+			this._draftState = {
+				...this._draftState,
+				issues: this._draftState.issues.map((issue) => this.certifiedDraftIssues.get(issue) ?? issue),
+			};
+		}
 	}
 
 	get prevState(): FormState<TData, TUi> {
@@ -52,7 +70,14 @@ export class Transaction<TData, TUi> {
 		if (this._status !== "active") {
 			throw new Error(`Cannot mutate ${this._status} transaction`);
 		}
-		this._draftState = mutator(this._draftState);
+		const updated = mutator(this._draftState);
+		const issues = updated.issues.map((issue) => {
+			const original = this.certifiedDraftIssues.get(issue);
+			return original && isOriginalEmission(original) ? original : issue;
+		});
+		this._draftState = issues.some((issue, index) => issue !== updated.issues[index])
+			? { ...updated, issues }
+			: updated;
 		this._dirty = true;
 	}
 

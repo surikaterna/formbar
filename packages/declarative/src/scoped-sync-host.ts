@@ -18,7 +18,7 @@ export interface DefinitionFieldValidator<TData, TUi> {
 	}) => readonly ScopedFieldIssueInput[];
 }
 
-function collect(node: FormNode, ids: Map<string, string>): void {
+export function collect(node: FormNode, ids: Map<string, string>): void {
 	if (ids.has(node.id)) throw new TypeError("Duplicate definition node ID");
 	ids.set(node.id, node.type);
 	if (node.type === "conditional") {
@@ -33,7 +33,7 @@ function collect(node: FormNode, ids: Map<string, string>): void {
 	if ("children" in node && node.children) for (const child of node.children) collect(child, ids);
 }
 
-function overlaps(a: AbsoluteBinding, b: AbsoluteBinding): boolean {
+export function overlaps(a: AbsoluteBinding, b: AbsoluteBinding): boolean {
 	if (a.namespace !== b.namespace) return false;
 	const prefix = (x: readonly (string | number)[], y: readonly (string | number)[]) =>
 		x.length <= y.length && x.every((part, i) => part === y[i]);

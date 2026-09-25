@@ -1,30 +1,20 @@
 import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
+import type { ScopedAsyncScheduler, ScopedForeground } from "./scoped-async-scheduler.js";
 import type { FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
+import {
+	type Cancellation,
+	DEFAULT_DEBOUNCE_MS,
+	type NormalizedValidator,
+	type RunToken,
+	canonicalizeIssue,
+	createToken,
+	exceptionIssue,
+	normalizeValidators,
+	overlaps,
+} from "./validation-coordinator-support.js";
 import { normalizeIssues } from "./validation.js";
-
-const DEFAULT_DEBOUNCE_MS = 300;
-type Cancellation = "superseded" | "aborted";
-
-interface NormalizedValidator<TData, TUi> {
-	readonly config: AsyncValidatorConfig<TData, TUi>;
-	readonly fields: readonly AbsoluteDataPath[];
-}
-
-interface RunToken {
-	readonly kind: "automatic" | "foreground";
-	readonly revision: number;
-	readonly lifecycle: number;
-	readonly validatorGenerations: ReadonlyMap<string, number>;
-	readonly validatorIds: ReadonlySet<string>;
-	readonly paths: readonly AbsoluteDataPath[];
-	readonly controller: AbortController;
-	readonly cancelled: Promise<Cancellation>;
-	resolveCancellation(reason: Cancellation): void;
-	cancellation?: Cancellation;
-	timer?: ReturnType<typeof setTimeout> | undefined;
-}
 
 export interface ValidationCoordinator<TData, TUi> {
 	readonly revision: () => number;
@@ -52,63 +42,7 @@ interface CoordinatorDeps<TData, TUi> {
 	readonly validatorTimeout?: number;
 	readonly getState: () => FormState<TData, TUi>;
 	readonly updateState: (updater: (state: FormState<TData, TUi>) => FormState<TData, TUi>) => void;
-}
-
-function overlaps(a: AbsoluteDataPath, b: AbsoluteDataPath): boolean {
-	const length = Math.min(a.segments.length, b.segments.length);
-	for (let index = 0; index < length; index++) if (a.segments[index] !== b.segments[index]) return false;
-	return true;
-}
-
-function normalizeValidators<TData, TUi>(configs: readonly AsyncValidatorConfig<TData, TUi>[]) {
-	const ids = new Set<string>();
-	return configs.map((config) => {
-		if (!config.id || ids.has(config.id)) throw new Error(`Async validator id must be unique: "${config.id}"`);
-		ids.add(config.id);
-		return { config, fields: Object.freeze((config.fields ?? []).map(normalizeDataPath)) };
-	});
-}
-
-function canonicalizeIssue(issue: ValidationIssue, validatorId: string): ValidationIssue {
-	const path =
-		issue.path.namespace === "data" && issue.path.segments.length > 0
-			? normalizeDataPath({ namespace: "data", segments: issue.path.segments })
-			: issue.path;
-	return { ...issue, path, source: { ...issue.source, origin: "async-validator", validatorId } };
-}
-
-function exceptionIssue(validator: NormalizedValidator<unknown, unknown>, error: unknown): ValidationIssue {
-	return {
-		code: "ASYNC_VALIDATOR_EXCEPTION",
-		message: error instanceof Error ? error.message : String(error),
-		severity: "error",
-		path: validator.fields[0] ?? { namespace: "data", segments: [] },
-		source: { origin: "async-validator", validatorId: validator.config.id },
-	};
-}
-
-function createToken(
-	kind: RunToken["kind"],
-	revision: number,
-	lifecycle: number,
-	validatorGenerations: ReadonlyMap<string, number>,
-	paths: readonly AbsoluteDataPath[],
-): RunToken {
-	let resolveCancellation!: (reason: Cancellation) => void;
-	const cancelled = new Promise<Cancellation>((resolve) => {
-		resolveCancellation = resolve;
-	});
-	return {
-		kind,
-		revision,
-		lifecycle,
-		validatorGenerations,
-		validatorIds: new Set(validatorGenerations.keys()),
-		paths,
-		controller: new AbortController(),
-		cancelled,
-		resolveCancellation,
-	};
+	readonly scoped?: () => ScopedAsyncScheduler<TData, TUi>;
 }
 
 class ValidationRuntime<TData, TUi> {
@@ -205,12 +139,14 @@ class ValidationRuntime<TData, TUi> {
 		if (project) this.projectValidating();
 	}
 
-	private replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[]): void {
+	private replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[], scoped?: ScopedForeground): void {
+		const previous = scoped?.previous();
 		this.deps.updateState((state) => ({
 			...state,
 			issues: normalizeIssues([
 				...state.issues.filter(
-					(issue) => issue.source.origin !== "async-validator" || !ids.has(issue.source.validatorId),
+					(issue) =>
+						!previous?.has(issue) && (issue.source.origin !== "async-validator" || !ids.has(issue.source.validatorId)),
 				),
 				...issues,
 			]),
@@ -306,12 +242,14 @@ class ValidationRuntime<TData, TUi> {
 		scope?: AbsoluteDataPath,
 		options?: { readonly stage?: string; readonly context?: SubmitContext },
 		candidate = false,
+		scopedScope?: DataPathInput,
 	): Promise<AsyncValidationResult> {
-		if (!candidate && selected.length === 0) return { status: "completed", issues: [] };
+		if (!candidate && selected.length === 0 && !this.deps.scoped?.().hasHost())
+			return { status: "completed", issues: [] };
 		if (signal?.aborted) return { status: "aborted", issues: [] };
 		if (candidate && this.disposed) return { status: "aborted", issues: [] };
 		if (candidate && expectedRevision !== this.currentRevision) return { status: "superseded", issues: [] };
-		if (selected.length === 0) return { status: "completed", issues: [] };
+		if (selected.length === 0 && (candidate || !this.deps.scoped)) return { status: "completed", issues: [] };
 		const paths = [...selected.flatMap((validator) => validator.fields), ...(scope ? [scope] : [])];
 		const token = this.startForeground(selected, paths);
 		if (expectedRevision !== this.currentRevision) this.cancel(token, "superseded");
@@ -321,20 +259,49 @@ class ValidationRuntime<TData, TUi> {
 		};
 		signal?.addEventListener("abort", abort, { once: true });
 		this.projectValidating();
-		if (candidate && !token.cancellation) {
+		return this.completeForeground(token, selected, snapshot, signal, abort, options, candidate, scopedScope);
+	}
+
+	private async completeForeground(
+		token: RunToken,
+		selected: readonly NormalizedValidator<TData, TUi>[],
+		snapshot: { readonly data: TData; readonly uiState: TUi },
+		signal: AbortSignal | undefined,
+		abort: () => void,
+		options: { readonly stage?: string; readonly context?: SubmitContext } | undefined,
+		candidate: boolean,
+		scopedScope: DataPathInput | undefined,
+	): Promise<AsyncValidationResult> {
+		let scoped: ScopedForeground | undefined;
+		try {
+			if (!candidate) scoped = this.deps.scoped?.().prepareForeground(scopedScope, token.controller.signal);
+		} catch {
+			this.cancel(token, "aborted");
+			this.projectValidating();
+		}
+		if ((candidate || scoped) && !token.cancellation) {
 			const timeout = this.deps.validatorTimeout ?? DEFAULT_RUNTIME_CONSTRAINTS.validatorTimeout;
 			token.timer = setTimeout(abort, Math.max(0, timeout));
 		}
-		const validation = Promise.all(
-			selected.map((validator) => this.executeValidator(validator, snapshot, token, options)),
-		);
-		const outcome = await Promise.race([validation, token.cancelled]);
+		const validation = Promise.all([
+			...selected.map((validator) => this.executeValidator(validator, snapshot, token, options)),
+			...(scoped ? [scoped.run()] : []),
+		]);
+		let outcome: Cancellation | readonly (readonly ValidationIssue[])[];
+		try {
+			outcome = await Promise.race([validation, token.cancelled]);
+		} catch {
+			this.cancel(token, "aborted");
+			outcome = "aborted";
+		}
 		if (token.timer) clearTimeout(token.timer);
 		signal?.removeEventListener("abort", abort);
-		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
+		if (typeof outcome === "string") return { status: outcome, issues: [] };
 		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
 		const issues = normalizeIssues(outcome.flat());
-		if (!candidate) this.replaceIssues(token.validatorIds, issues);
+		if (!candidate) this.replaceIssues(token.validatorIds, issues, scoped);
+		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
+		scoped?.commit();
 		this.detach(token);
 		this.projectValidating();
 		return { status: "completed", issues };
@@ -373,7 +340,16 @@ class ValidationRuntime<TData, TUi> {
 		const normalizedScope = scope === undefined ? undefined : normalizeDataPath(scope);
 		const state = this.deps.getState();
 		const snapshot = { data: state.data, uiState: state.uiState };
-		return this.runForeground(this.select(normalizedScope), snapshot, this.currentRevision, signal, normalizedScope);
+		return this.runForeground(
+			this.select(normalizedScope),
+			snapshot,
+			this.currentRevision,
+			signal,
+			normalizedScope,
+			undefined,
+			false,
+			scope,
+		);
 	}
 
 	private endLifecycle(project: boolean): void {

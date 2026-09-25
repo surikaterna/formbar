@@ -27,6 +27,40 @@ function mountSchema(schema: unknown, onSubmit: ReturnType<typeof vi.fn>) {
 }
 
 describe("plain JSON Schema hook submission", () => {
+	it("attaches definition-scoped async before deferred validation", async () => {
+		let form: FormApi<{ name: string }, object> | undefined;
+		function Hook() {
+			form = useSchemaForm<{ name: string }, object>(
+				{ type: "object", properties: { name: { type: "string" } } },
+				{
+					provider,
+					side: "input",
+					initialData: { name: "Ada" },
+					definition: {
+						version: 1,
+						id: "authored",
+						root: {
+							type: "field",
+							id: "name-field",
+							widget: "text",
+							binding: { namespace: "data", segments: ["name"] },
+						},
+					},
+					asyncFieldValidators: [
+						{
+							id: "async-name",
+							fieldId: "name-field",
+							validate: async () => [{ code: "scoped-async", message: "bad", severity: "error" }],
+						},
+					],
+				},
+			).form;
+			return null;
+		}
+		renderToString(<Hook />);
+		expect((await form?.validateAsync())?.issues.map((issue) => issue.code)).toEqual(["scoped-async"]);
+		form?.dispose();
+	});
 	it("attaches prepared scoped sync before the deferred form's first validation", () => {
 		let form: FormApi<{ name: string }, object> | undefined;
 		function Hook() {
