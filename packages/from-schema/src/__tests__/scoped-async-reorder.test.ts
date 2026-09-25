@@ -64,7 +64,123 @@ function formFor(trigger: "onChange" | "onBlur") {
 
 afterEach(() => vi.useRealTimers());
 
+const nested = {
+	version: 1 as const,
+	id: "nested",
+	root: {
+		type: "repeater" as const,
+		id: "groups",
+		scope: "group",
+		binding: { namespace: "data" as const, segments: ["groups"] },
+		children: [
+			{
+				type: "repeater" as const,
+				id: "rows",
+				scope: "row",
+				binding: { namespace: "data" as const, scope: "group", segments: ["rows"] },
+				children: [
+					{
+						type: "field" as const,
+						id: "value",
+						widget: "text",
+						binding: { namespace: "data" as const, scope: "row", segments: ["value"] },
+					},
+				],
+			},
+		],
+	},
+};
+
+function nestedForm(count: number, trigger: "onBlur" | "onChange" = "onBlur") {
+	return createSchemaForm(
+		{},
+		{
+			provider: jsonSchemaProvider(),
+			side: "input",
+			definition: nested,
+			asyncFieldValidators: [
+				{
+					id: "scoped",
+					fieldId: "value",
+					trigger,
+					validate: async () => [{ code: "bad", message: "bad", severity: "error" as const }],
+				},
+			],
+		},
+	).createForm({
+		initialData: { groups: [{ rows: Array.from({ length: count }, (_, index) => ({ value: String(index) })) }] },
+	});
+}
+
 describe("completed scoped issue ownership on recycled indices", () => {
+	it.each([100, 300, 600])("reschedules %i pending change rows with keyed work", (count) => {
+		vi.useFakeTimers();
+		const form = nestedForm(count, "onChange");
+		const rows = () => Array.from({ length: count }, (_, index) => ({ value: String(index) }));
+		try {
+			form.setValue("groups", [{ rows: rows() }]);
+			let keys = 0;
+			const stringify = JSON.stringify;
+			const spy = vi.spyOn(JSON, "stringify").mockImplementation((value, ...args) => {
+				if (Array.isArray(value) && value[0] === "scoped") keys++;
+				return stringify(value, ...args);
+			});
+			try {
+				form.setValue("groups", [{ rows: rows() }]);
+			} finally {
+				spy.mockRestore();
+			}
+			expect(keys).toBeGreaterThan(count);
+			expect(keys).toBeLessThan(count * 20);
+		} finally {
+			form.dispose();
+		}
+	});
+	it.each([100, 300, 600])("bounds real nested-row revocation for %i blur rows", async (count) => {
+		const rows = () => Array.from({ length: count }, (_, index) => ({ value: String(index) }));
+		const form = nestedForm(count);
+		try {
+			const result = await form.validateAsync();
+			const originals = result.issues;
+			expect(originals).toHaveLength(count);
+			let visits = 0;
+			let notifications = 0;
+			const unsubscribe = form.subscribe(() => {
+				notifications++;
+			});
+			const check = (next: { value: string }[]) => {
+				visits = 0;
+				notifications = 0;
+				const filter = Array.prototype.filter;
+				const spy = vi.spyOn(Array.prototype, "filter").mockImplementation(function (
+					this: unknown[],
+					...args: Parameters<typeof filter>
+				) {
+					if (this[0] === originals[0]) visits += this.length;
+					return filter.apply(this, args);
+				});
+				try {
+					form.setValue("groups", [{ rows: next }]);
+				} finally {
+					spy.mockRestore();
+				}
+				expect(form.getState().issues).toEqual([]);
+				expect(notifications).toBeLessThanOrEqual(4);
+				if (next[0]?.value === "0") expect(visits).toBeGreaterThan(0);
+				expect(visits).toBeLessThan(count * 20);
+			};
+			check(rows());
+			await form.validateAsync();
+			const current = (form.getState().data as { groups: { rows: { value: string }[] }[] }).groups[0].rows;
+			current[0].value = "mutated";
+			check(current);
+			await form.validateAsync();
+			check(rows().reverse());
+			unsubscribe();
+		} finally {
+			form.dispose();
+		}
+	});
 	it.each(["onBlur", "onChange"] as const)(
 		"invalidates completed foreground %s rows without restarting blur",
 		async (trigger) => {
