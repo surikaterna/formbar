@@ -26,6 +26,7 @@ function fixture(middleware: Middleware[] = [], plugins: FormPlugin[] = []) {
 		onCommittedMutation: () => {
 			revision++;
 		},
+		isActive: () => true,
 	};
 	const adapter = () => ({
 		data: { included: "Ada" },
@@ -161,6 +162,34 @@ describe("internal guarded B handoff", () => {
 		);
 		expect(prepareGuardedSubmitCandidate(f.context, f.guard, f.adapter)).toEqual({ ok: false, code: "stale" });
 		expect(trace).toEqual([]);
+	});
+
+	it("rejects deactivation, thrown gates and async gate results without capture", () => {
+		const f = fixture();
+		let active = true;
+		f.guard.isActive = () => active;
+		f.context.plugins.push({
+			id: "deactivate",
+			beforeSubmit: () => {
+				active = false;
+			},
+		});
+		let captures = 0;
+		const capture = () => {
+			captures++;
+			return f.adapter();
+		};
+		expect(prepareGuardedSubmitCandidate(f.context, f.guard, capture)).toEqual({ ok: false, code: "stale" });
+		for (const beforeSubmit of [
+			() => {
+				throw new Error("secret");
+			},
+			() => Promise.resolve([]),
+		]) {
+			const g = fixture([], [{ id: "gate", beforeSubmit } as FormPlugin]);
+			expect(prepareGuardedSubmitCandidate(g.context, g.guard, capture)).toEqual({ ok: false, code: "vetoed" });
+		}
+		expect(captures).toBe(0);
 	});
 
 	it("rejects reentrancy during adapter or egress and fails closed on final proof", () => {
