@@ -14,6 +14,7 @@ import { inspect } from "./owned-issue-snapshot.js";
 import { parsePath } from "./path-parser.js";
 import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
+import { OwnedNotificationOverflow } from "./store.js";
 import type { FormStore } from "./store.js";
 import {
 	type PreparationCheckpoint,
@@ -368,6 +369,7 @@ function runPipeline(ctx: PipelineContext, checkpoint?: PreparationCheckpoint): 
 		return result;
 	} catch (err) {
 		if (tx) rollback(ctx.store, tx);
+		if (err instanceof OwnedNotificationOverflow) throw err;
 		return { ok: false, error: err instanceof Error ? err.message : String(err) };
 	}
 }

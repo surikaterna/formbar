@@ -11,6 +11,131 @@ function state(data: unknown, uiState: unknown): FormState<unknown, unknown> {
 }
 
 describe("#301 owned scheduling boundary", () => {
+	test("opt-in reentry coalesces superseded states and reads the current owned snapshot at each invocation", () => {
+		const form = createForm({ initialData: { x: 0 }, ownedScheduling: true });
+		const seen: [string, number, number][] = [];
+		const observe = (name: string, argument: typeof form extends { getState: () => infer S } ? S : never) => {
+			const current = form.getState();
+			expect(argument).toBe(current);
+			expect(argument).toBe(form.captureState().state);
+			expect(snapshotOwnership(argument)?.epoch).toBe(snapshotOwnership(current)?.epoch);
+			seen.push([name, argument.data.x, snapshotOwnership(argument)?.epoch ?? -1]);
+		};
+		form.subscribe((snapshot) => {
+			observe("first", snapshot);
+			if (snapshot.data.x === 1) {
+				form.setValue("x", 2);
+				form.setValue("x", 3);
+				// This argument is historical after our own synchronous writes.
+				expect(snapshot).not.toBe(form.getState());
+			}
+		});
+		form.subscribe((snapshot) => observe("second", snapshot));
+		expect(form.setValue("x", 1)).toEqual({ ok: true });
+		expect(seen.map(([name, x]) => [name, x])).toEqual([
+			["first", 1],
+			["second", 3],
+			["first", 3],
+		]);
+		expect(seen[0]?.[2]).toBeLessThan(seen[1]?.[2] ?? 0);
+		expect(seen[1]?.[2]).toBe(seen[2]?.[2]);
+		form.dispose();
+	});
+
+	test("issue-only reentry preserves epoch but delivers latest identity; activation also drains coherently", () => {
+		const form = createForm({ initialData: { x: 0 } });
+		const seen: string[] = [];
+		form.subscribe((snapshot) => {
+			expect(snapshot).toBe(form.getState());
+			expect(snapshot).toBe(form.captureState().state);
+			seen.push(`first:${snapshot.data.x}`);
+			if (snapshot.data.x === 0) form.setValue("x", 1);
+		});
+		form.subscribe((snapshot) => {
+			expect(snapshot).toBe(form.getState());
+			expect(snapshot).toBe(form.captureState().state);
+			seen.push(`second:${snapshot.data.x}`);
+		});
+		activateOwnedSchedulingBoundary(form);
+		expect(seen).toEqual(["first:0", "second:1", "first:1"]);
+		form.dispose();
+
+		const store = new FormStore(state({}, {}), undefined, true);
+		const initial = store.getState();
+		const delivered: object[] = [];
+		store.subscribe((snapshot) => {
+			if (snapshot.issues.length === 1) publishIssueOnly(store, []);
+		});
+		store.subscribe((snapshot) => {
+			expect(snapshot).toBe(store.getState());
+			delivered.push(snapshot);
+		});
+		publishIssueOnly(store, [
+			{
+				code: "test",
+				message: "test",
+				severity: "error",
+				path: { namespace: "data", segments: ["x"], canonical: "x" },
+				source: { origin: "function-validator", validatorId: "test" },
+			},
+		]);
+		expect(delivered).toEqual([store.getState()]);
+		expect(store.getState()).not.toBe(initial);
+		expect(snapshotOwnership(store.getState())?.epoch).toBe(snapshotOwnership(initial)?.epoch);
+		store.dispose();
+	});
+
+	test("unsubscribe, dispose, and throwing subscribers remain isolated during owned drain", () => {
+		const store = new FormStore(state({ x: 0 }, {}), undefined, true);
+		const called: string[] = [];
+		let stop = () => {};
+		store.subscribe(() => {
+			called.push("writer");
+			stop();
+			throw new Error("listener failure");
+		});
+		stop = store.subscribe(() => called.push("removed"));
+		store.subscribe(() => called.push("last"));
+		publishIssueOnly(store, []);
+		expect(called).toEqual(["writer", "last"]);
+		store.subscribe(() => store.dispose());
+		store.subscribe(() => called.push("after dispose"));
+		publishIssueOnly(store, []);
+		expect(called).toEqual(["writer", "last", "writer", "last"]);
+	});
+
+	test("always-writing feedback throws a finite code-only overflow and permits a later notification", () => {
+		const form = createForm({ initialData: { x: 0 }, ownedScheduling: true });
+		let writes = 0;
+		const stop = form.subscribe((snapshot) => {
+			writes++;
+			form.setValue("x", snapshot.data.x + 1);
+		});
+		expect(() => form.setValue("x", 1)).toThrow("OWNED_NOTIFICATION_OVERFLOW");
+		expect(writes).toBe(1024);
+		expect(form.getState().data.x).toBe(1025);
+		stop();
+		const notified = vi.fn();
+		form.subscribe(notified);
+		expect(form.setValue("x", 1026)).toEqual({ ok: true });
+		expect(notified).toHaveBeenCalledOnce();
+		form.dispose();
+	});
+
+	test("non-opt-in nested notification arguments retain legacy historical delivery", () => {
+		const form = createForm({ initialData: { x: 0 } });
+		const seen: [number, number][] = [];
+		form.subscribe((snapshot) => {
+			if (snapshot.data.x === 1) form.setValue("x", 2);
+		});
+		form.subscribe((snapshot) => seen.push([snapshot.data.x, form.getState().data.x]));
+		form.setValue("x", 1);
+		expect(seen).toEqual([
+			[2, 2],
+			[1, 2],
+		]);
+		form.dispose();
+	});
 	test("creation opt-in owns before eager init and deferred first capture; invalid originals never initialize", () => {
 		for (const deferred of [false, true]) {
 			const caller = { ok: 1 };

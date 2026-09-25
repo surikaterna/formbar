@@ -8,6 +8,12 @@ import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.
 import { normalizeIssues } from "./validation.js";
 
 export type StateListener<TData, TUi> = (state: FormState<TData, TUi>) => void;
+export class OwnedNotificationOverflow extends Error {
+	constructor() {
+		super("OWNED_NOTIFICATION_OVERFLOW");
+	}
+}
+const MAX_OWNED_NOTIFICATIONS = 1024;
 const issueOnly = Symbol("internal issue-only publication");
 const enableOwnership = Symbol("internal nonissue ownership activation");
 const snapshotOwners = new WeakMap<
@@ -58,6 +64,7 @@ export class FormStore<TData, TUi> {
 	private _write = 0;
 	private _epoch = 0;
 	private _failure = 0;
+	private _notifyingOwned = false;
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy, ownedScheduling = false) {
 		if (ownedScheduling && strategy !== undefined && strategy !== defaultStrategy)
@@ -220,6 +227,10 @@ export class FormStore<TData, TUi> {
 
 	private _notifyListeners(): void {
 		if (this._disposed) return;
+		if (this._ownedMode) {
+			this._notifyOwnedListeners();
+			return;
+		}
 		const state = this._state;
 		for (const listener of this._listeners) {
 			try {
@@ -227,6 +238,34 @@ export class FormStore<TData, TUi> {
 			} catch {
 				// Swallow subscriber errors to ensure all listeners are notified
 			}
+		}
+	}
+
+	private _notifyOwnedListeners(): void {
+		if (this._notifyingOwned) return;
+		this._notifyingOwned = true;
+		const delivered = new Map<StateListener<TData, TUi>, FormState<TData, TUi>>();
+		let count = 0;
+		try {
+			while (!this._disposed) {
+				let invoked = false;
+				for (const listener of [...this._listeners]) {
+					if (this._disposed) return;
+					if (!this._listeners.has(listener) || delivered.get(listener) === this._state) continue;
+					if (count++ >= MAX_OWNED_NOTIFICATIONS) throw new OwnedNotificationOverflow();
+					const current = this._state;
+					delivered.set(listener, current);
+					invoked = true;
+					try {
+						listener(current);
+					} catch {
+						// Listener failures do not prevent other subscribers from observing the current state.
+					}
+				}
+				if (!invoked) return;
+			}
+		} finally {
+			this._notifyingOwned = false;
 		}
 	}
 }
