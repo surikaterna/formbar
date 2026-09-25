@@ -5,7 +5,13 @@ import { normalizeDataPath } from "./field-policy.js";
 import { parsePath } from "./path-parser.js";
 import type { CanonicalSegment } from "./path.js";
 import { type AsyncProjection, runScopedAsyncField } from "./scoped-async-execution.js";
-import { type Observation, observationCurrent, observe } from "./scoped-async-observation.js";
+import {
+	type Observation,
+	type ObservationContext,
+	observationContext,
+	observationCurrent,
+	observe,
+} from "./scoped-async-observation.js";
 import { type ScopedAsyncField, scopedAsyncHost } from "./scoped-async.js";
 import type { FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
@@ -23,6 +29,7 @@ interface Pending<TData, TUi> {
 	readonly revision: number;
 	readonly lifecycle: number;
 	readonly controller: AbortController;
+	readonly observationContext: ObservationContext;
 	finished?: boolean;
 	timer?: ReturnType<typeof setTimeout> | undefined;
 }
@@ -172,7 +179,7 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		}
 		if (!this.current(token) || !token.projection.current()) return;
 		try {
-			this.publish(token.key, issues, observe(token.field, token.capture.state.data));
+			this.publish(token.key, issues, observe(token.field, token.capture.state.data, token.observationContext));
 		} catch {
 			this.cancel(token);
 			return;
@@ -181,7 +188,12 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		if (this.current(token)) token.finished = true;
 	}
 
-	private schedule(field: ScopedAsyncField, capture: Capture<TData, TUi>, projection: Projection<TData, TUi>): void {
+	private schedule(
+		field: ScopedAsyncField,
+		capture: Capture<TData, TUi>,
+		projection: Projection<TData, TUi>,
+		context: ObservationContext,
+	): void {
 		const key = keyOf(field);
 		const old = this.pending.get(key);
 		if (old) this.cancel(old);
@@ -193,6 +205,7 @@ export class ScopedAsyncScheduler<TData, TUi> {
 			revision: this.deps.revision(),
 			lifecycle: this.lifecycle,
 			controller: new AbortController(),
+			observationContext: context,
 		};
 		this.pending.set(key, token);
 		token.timer = setTimeout(() => {
@@ -213,8 +226,9 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		const resolved = this.project();
 		if (!resolved) return;
 		const present = new Set(resolved.projection.fields.map(keyOf));
+		const compared = new Map<object, boolean>();
 		for (const key of this.emitted.keys()) {
-			if (!present.has(key) || !observationCurrent(this.observations.get(key), resolved.capture.state.data))
+			if (!present.has(key) || !observationCurrent(this.observations.get(key), resolved.capture.state.data, compared))
 				this.publish(key, []);
 		}
 		if (trigger === "onChange") {
@@ -222,10 +236,11 @@ export class ScopedAsyncScheduler<TData, TUi> {
 				if (present.has(token.key) && this.emitted.get(token.key)?.length) this.publish(token.key, []);
 			}
 		}
+		const context = observationContext();
 		for (const field of resolved.projection.fields) {
 			const selected = path && trigger === field.trigger && overlaps(field.binding.segments, path.segments);
 			if (selected || (trigger === "onChange" && previous.some((token) => token.key === keyOf(field))))
-				this.schedule(field, resolved.capture, resolved.projection);
+				this.schedule(field, resolved.capture, resolved.projection, context);
 		}
 	}
 
@@ -272,6 +287,7 @@ export class ScopedAsyncScheduler<TData, TUi> {
 			paths: fields.map((field) => field.binding),
 			run,
 			stage: () => {
+				const context = observationContext();
 				const old = new Map([...keys].map((key) => [key, this.emitted.get(key)] as const));
 				const oldObservations = new Map([...keys].map((key) => [key, this.observations.get(key)] as const));
 				const previous = new Set([...old.values()].flatMap((issues) => issues ?? []));
@@ -280,7 +296,7 @@ export class ScopedAsyncScheduler<TData, TUi> {
 				for (const [key, issues] of staged) {
 					this.emitted.set(key, issues);
 					const field = fieldsByKey.get(key);
-					if (field && issues.length) this.observations.set(key, observe(field, resolved.capture.state.data));
+					if (field && issues.length) this.observations.set(key, observe(field, resolved.capture.state.data, context));
 					else this.observations.delete(key);
 					this.publishing.add(key);
 				}
