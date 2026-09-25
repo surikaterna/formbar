@@ -122,6 +122,42 @@ describe("#301 owned scheduling boundary", () => {
 		form.dispose();
 	});
 
+	test("nested owned forms surface the inner overflow without undoing either committed write", () => {
+		const outer = createForm({ initialData: { x: 0 }, ownedScheduling: true });
+		const inner = createForm({ initialData: { x: 0 }, ownedScheduling: true });
+		let innerWrites = 0;
+		const stopInner = inner.subscribe((snapshot) => {
+			innerWrites++;
+			inner.setValue("x", snapshot.data.x + 1);
+		});
+		const stopOuter = outer.subscribe(() => {
+			inner.setValue("x", 1);
+		});
+		const error = vi.fn();
+		try {
+			outer.setValue("x", 1);
+		} catch (caught) {
+			error(caught);
+		}
+		expect(error).toHaveBeenCalledOnce();
+		expect(error.mock.calls[0]?.[0]).toMatchObject({ message: "OWNED_NOTIFICATION_OVERFLOW" });
+		expect(innerWrites).toBe(1024);
+		expect(inner.getState().data.x).toBe(1025);
+		expect(outer.getState().data.x).toBe(1);
+		stopInner();
+		stopOuter();
+		const innerNotice = vi.fn();
+		const outerNotice = vi.fn();
+		inner.subscribe(innerNotice);
+		outer.subscribe(outerNotice);
+		expect(inner.setValue("x", 1026)).toEqual({ ok: true });
+		expect(outer.setValue("x", 2)).toEqual({ ok: true });
+		expect(innerNotice).toHaveBeenCalledOnce();
+		expect(outerNotice).toHaveBeenCalledOnce();
+		inner.dispose();
+		outer.dispose();
+	});
+
 	test("non-opt-in nested notification arguments retain legacy historical delivery", () => {
 		const form = createForm({ initialData: { x: 0 } });
 		const seen: [number, number][] = [];

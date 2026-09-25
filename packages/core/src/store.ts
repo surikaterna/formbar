@@ -235,7 +235,8 @@ export class FormStore<TData, TUi> {
 		for (const listener of this._listeners) {
 			try {
 				listener(state);
-			} catch {
+			} catch (error) {
+				if (error instanceof OwnedNotificationOverflow) throw error;
 				// Swallow subscriber errors to ensure all listeners are notified
 			}
 		}
@@ -258,7 +259,8 @@ export class FormStore<TData, TUi> {
 					invoked = true;
 					try {
 						listener(current);
-					} catch {
+					} catch (error) {
+						if (error instanceof OwnedNotificationOverflow) throw error;
 						// Listener failures do not prevent other subscribers from observing the current state.
 					}
 				}
