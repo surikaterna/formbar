@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createDeferredForm, createForm, registerScopedSync } from "../index.js";
+import * as publicCore from "../index.js";
+import { createDeferredForm, createForm } from "../index.js";
+import { registerScopedSync } from "../internal/scoped-sync.js";
 import { issueCertificate, issueEmissionId } from "../issue-provenance.js";
 import { normalizeIssues } from "../validation.js";
 
-describe("trusted scoped sync registration", () => {
+describe("internal trusted scoped sync adapter", () => {
+	it("does not offer raw registration through the public core root", () => {
+		expect(publicCore).not.toHaveProperty("registerScopedSync");
+		const bare = createForm({ initialData: { x: "a" } });
+		expect(bare.validate()).toEqual([]);
+	});
 	it("keeps the original stamped issue separate from identical generic diagnostics", () => {
 		const plain = {
 			code: "bad",

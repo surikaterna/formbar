@@ -1,5 +1,6 @@
-import { createDeferredForm, createForm, registerScopedSync } from "@formbar/core";
+import { createDeferredForm, createForm } from "@formbar/core";
 import type { CreateFormOptions, SchemaValidator } from "@formbar/core";
+import { registerScopedSync } from "@formbar/core/internal/scoped-sync";
 import {
 	type DefinitionDiagnostic,
 	type DefinitionFieldValidator,
@@ -7,9 +8,9 @@ import {
 	type RuntimeFieldBaseline,
 	type RuntimeRepeaterBaseline,
 	type ValidatedFormDefinition,
-	prepareScopedSyncHost,
 	validateFormDefinition,
 } from "@formbar/declarative";
+import { prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
 import type { LimitOptions, SchemaDocumentProvider, StandardSchemaV1 } from "@scheman/core";
 import {
 	type CompileDefaultFormDefinitionOptions,

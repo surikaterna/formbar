@@ -1,4 +1,5 @@
-import type { FormApi, FormStateCapture, ScopedFieldIssueInput, ScopedSyncHost } from "@formbar/core";
+import type { FormApi, FormStateCapture } from "@formbar/core";
+import type { ScopedFieldIssueInput, ScopedSyncHost } from "@formbar/core/internal/scoped-sync";
 import type { AbsoluteBinding } from "./bindings.js";
 import type { ValidatedFormDefinition } from "./definition.js";
 import type { FormNode } from "./nodes.js";

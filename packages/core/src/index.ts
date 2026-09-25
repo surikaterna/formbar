@@ -57,8 +57,6 @@ export type {
 } from "./field-policy.js";
 // Form factory (SE1.4)
 export { createDeferredForm, createForm } from "./create-form.js";
-export { registerScopedSync } from "./scoped-sync.js";
-export type { ScopedFieldIssueInput, ScopedFieldInstance, ScopedSyncHost } from "./scoped-sync.js";
 export { createCoreExpressionNamespaces } from "./expression-namespaces.js";
 // Equality utility
 export { structuredEqual } from "./equality.js";

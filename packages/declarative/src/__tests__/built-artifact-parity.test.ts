@@ -23,12 +23,7 @@ beforeAll(async () => {
 
 describe("built public export parity", () => {
 	it("provides the same runtime values through ESM and CJS", () => {
-		expect(runtimeExports(esm)).toEqual([
-			"createActionExecutor",
-			"createFormRuntime",
-			"prepareScopedSyncHost",
-			"validateFormDefinition",
-		]);
+		expect(runtimeExports(esm)).toEqual(["createActionExecutor", "createFormRuntime", "validateFormDefinition"]);
 		expect(runtimeExports(cjs)).toEqual(runtimeExports(esm));
 		expect(esm).not.toHaveProperty("sortDiagnostics");
 		expect(esm).not.toHaveProperty("copyJson");
