@@ -304,6 +304,7 @@ export class FormRuntime<TData, TUi> {
 	}
 
 	private reset = (nextInitial?: { readonly data?: TData; readonly uiState?: TUi }): void => {
+		invalidateScopedSync(this.api);
 		this.submitHandler.reset();
 		this.coordinator.reset();
 		if (nextInitial?.data !== undefined) this.initialDataSnapshot = structuredClone(nextInitial.data);

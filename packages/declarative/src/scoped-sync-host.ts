@@ -1,5 +1,5 @@
-import type { FormApi, FormStateCapture } from "@formbar/core";
-import type { ScopedFieldIssueInput, ScopedSyncHost } from "@formbar/core/internal/scoped-sync";
+import type { FormApi, FormStateCapture, SubmitContext } from "@formbar/core";
+import type { ScopedFieldIssueInput, ScopedSyncHost, ScopedValidationInput } from "@formbar/core/internal/scoped-sync";
 import type { AbsoluteBinding } from "./bindings.js";
 import type { ValidatedFormDefinition } from "./definition.js";
 import type { FormNode } from "./nodes.js";
@@ -13,6 +13,7 @@ export interface DefinitionFieldValidator<TData, TUi> {
 		readonly uiState: Readonly<TUi>;
 		readonly field: { readonly instance: RuntimeNodeInstance; readonly binding: AbsoluteBinding };
 		readonly stage?: string;
+		readonly context?: SubmitContext;
 	}) => readonly ScopedFieldIssueInput[];
 }
 
@@ -53,7 +54,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 		return Object.freeze({ fieldId: entry.fieldId, validate: entry.validate });
 	});
 	return Object.freeze({
-		instances(form: FormApi<TData, TUi>, capture: FormStateCapture<TData, TUi>, stage?: string) {
+		instances(form: FormApi<TData, TUi>, capture: FormStateCapture<TData, TUi>) {
 			const ownership = projectConcreteOwnership({
 				form: form as FormApi<unknown, unknown>,
 				definition,
@@ -72,12 +73,13 @@ export function prepareScopedSyncHost<TData, TUi>(
 						fieldId: entry.fieldId,
 						instanceKey: owner.instance.instanceKey,
 						binding: { namespace: "data" as const, segments: owner.binding.segments },
-						validate: () =>
+						validate: (input: ScopedValidationInput<unknown, unknown>) =>
 							entry.validate({
-								data: capture.state.data,
-								uiState: capture.state.uiState,
+								data: input.data as Readonly<TData>,
+								uiState: input.uiState as Readonly<TUi>,
 								field: { instance: owner.instance, binding: owner.binding },
-								...(stage === undefined ? {} : { stage }),
+								...(input.stage === undefined ? {} : { stage: input.stage }),
+								...(input.context ? { context: input.context } : {}),
 							}),
 					});
 				}),

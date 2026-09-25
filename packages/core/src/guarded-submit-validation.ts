@@ -1,8 +1,9 @@
 import { beginAttempt, clearAttempt, completeAttempt } from "./attempt-issues.js";
-import type { AsyncValidationResult, Middleware, ValidatorFn } from "./contracts.js";
+import type { AsyncValidationResult, FormApi, Middleware, ValidatorFn } from "./contracts.js";
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
+import { runScopedSync } from "./scoped-sync.js";
 import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
 import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
 import { clone, freeze, unchanged } from "./submit-candidate-safety.js";
@@ -95,6 +96,28 @@ function syncValidation(
 	return normalizeIssues(issues);
 }
 
+function syncCandidateIssues(
+	form: FormApi<unknown, unknown> | undefined,
+	validators: readonly ValidatorFn[],
+	snapshot: { readonly data: unknown; readonly uiState: unknown },
+	stage: string | undefined,
+	context: SubmitContext | undefined,
+	signal: AbortSignal,
+	current: () => boolean,
+): readonly ValidationIssue[] | undefined {
+	const legacy = syncValidation(validators, snapshot.data, snapshot.uiState, stage, context, current);
+	if (!legacy || !current()) return;
+	const scoped = form
+		? runScopedSync(form, stage, {
+				snapshot,
+				...(context ? { context } : {}),
+				signal,
+				current,
+			})
+		: [];
+	return normalizeIssues([...legacy, ...scoped]);
+}
+
 function ownedValidationState(data: unknown, uiState: unknown, stage: string | undefined): FormState<unknown, unknown> {
 	return Object.freeze({
 		data,
@@ -156,6 +179,7 @@ export async function validateGuardedSubmitCandidate(
 	coordinator: ValidationCoordinator<unknown, unknown>,
 	submitId: string,
 	transforms: readonly CandidateEgress[] = [],
+	form?: FormApi<unknown, unknown>,
 ): Promise<Outcome> {
 	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms);
 	if (!prepared.ok) return prepared;
@@ -188,7 +212,12 @@ export async function validateGuardedSubmitCandidate(
 	} catch {
 		return { ok: false, code: "unsafe_candidate" };
 	}
-	const sync = syncValidation(validators, data, uiState, stage, submitContext, current);
+	let sync: readonly ValidationIssue[] | undefined;
+	try {
+		sync = syncCandidateIssues(form, validators, { data, uiState }, stage, submitContext, guard.signal, current);
+	} catch {
+		return { ok: false, code: "unsafe_candidate" };
+	}
 	if (!sync || !current()) return { ok: false, code: "unsafe_candidate" };
 	if (!notify(middleware, "afterValidate", context.action, state, sync, current)) return { ok: false, code: "stale" };
 	if (!current()) return { ok: false, code: "stale" };

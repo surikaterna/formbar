@@ -1,7 +1,16 @@
 import type { FormApi } from "./contracts.js";
+import { structuredEqual } from "./equality.js";
 import { createIssueEmission } from "./issue-provenance.js";
 import type { CanonicalSegment } from "./path.js";
-import type { FormStateCapture, IssueSeverity, ValidationIssue } from "./state.js";
+import type { FormStateCapture, IssueSeverity, SubmitContext, ValidationIssue } from "./state.js";
+
+export interface ScopedValidationInput<TData, TUi> {
+	readonly data: TData;
+	readonly uiState: TUi;
+	readonly stage?: string;
+	readonly context?: SubmitContext;
+	readonly signal?: AbortSignal;
+}
 
 export interface ScopedFieldIssueInput {
 	readonly code: string;
@@ -14,7 +23,7 @@ export interface ScopedFieldInstance {
 	readonly fieldId: string;
 	readonly instanceKey: string;
 	readonly binding: { readonly namespace: "data"; readonly segments: readonly CanonicalSegment[] };
-	readonly validate: () => readonly ScopedFieldIssueInput[];
+	readonly validate: (input: ScopedValidationInput<unknown, unknown>) => readonly ScopedFieldIssueInput[];
 }
 
 /** Trusted definition host; only prepared definition adapters should register. */
@@ -23,6 +32,7 @@ export interface ScopedSyncHost<TData, TUi> {
 		form: FormApi<TData, TUi>,
 		capture: FormStateCapture<TData, TUi>,
 		stage?: string,
+		context?: SubmitContext,
 	): {
 		readonly current: () => boolean;
 		readonly fields: readonly ScopedFieldInstance[];
@@ -31,6 +41,7 @@ export interface ScopedSyncHost<TData, TUi> {
 
 const hosts = new WeakMap<object, ScopedSyncHost<never, never>>();
 const generations = new WeakMap<object, number>();
+const lifecycles = new WeakMap<object, number>();
 
 export function registerScopedSync<TData, TUi>(form: FormApi<TData, TUi>, host: ScopedSyncHost<TData, TUi>): void {
 	if (hosts.has(form) || form.isDisposed()) throw new TypeError("Scoped sync host already registered or form disposed");
@@ -39,7 +50,27 @@ export function registerScopedSync<TData, TUi>(form: FormApi<TData, TUi>, host: 
 
 /** React deactivation revokes all emissions without needing a state write. */
 export function invalidateScopedSync(form: object): void {
+	lifecycles.set(form, scopedLifecycleRevision(form) + 1);
 	if (hosts.has(form)) generations.set(form, (generations.get(form) ?? 0) + 1);
+}
+
+export function scopedLifecycleRevision(form: object): number {
+	return lifecycles.get(form) ?? 0;
+}
+
+/** Attempt metadata may replace the whole state; ownership inputs must not change. */
+export function scopedCaptureCurrent<TData, TUi>(
+	form: FormApi<TData, TUi>,
+	capture: FormStateCapture<TData, TUi>,
+): boolean {
+	const state = form.getState();
+	return (
+		!form.isDisposed() &&
+		state.meta.stage === capture.state.meta.stage &&
+		structuredEqual(state.data, capture.state.data) &&
+		structuredEqual(state.uiState, capture.state.uiState) &&
+		structuredEqual(state.fieldPolicy, capture.state.fieldPolicy)
+	);
 }
 
 function valueAt(root: unknown, segments: readonly CanonicalSegment[]): boolean {
@@ -70,17 +101,30 @@ function diagnostic(input: ScopedFieldIssueInput): boolean {
 }
 
 /** Called only by the core form's full-draft synchronous validation entry. */
-export function runScopedSync<TData, TUi>(form: FormApi<TData, TUi>, stage?: string): readonly ValidationIssue[] {
+export function runScopedSync<TData, TUi>(
+	form: FormApi<TData, TUi>,
+	stage?: string,
+	options?: {
+		readonly snapshot: { readonly data: TData; readonly uiState: TUi };
+		readonly context?: SubmitContext;
+		readonly signal?: AbortSignal;
+		readonly current: () => boolean;
+	},
+): readonly ValidationIssue[] {
 	const host = hosts.get(form) as unknown as ScopedSyncHost<TData, TUi> | undefined;
 	if (!host) return [];
 	const capture = form.captureState();
+	const lifecycle = scopedLifecycleRevision(form);
 	const generation = (generations.get(form) ?? 0) + 1;
 	generations.set(form, generation);
-	const projection = host.instances(form, capture, stage);
+	const projection = host.instances(form, capture, stage, options?.context);
+	const snapshot = options?.snapshot ?? capture.state;
 	const current = () =>
 		generations.get(form) === generation &&
-		!form.isDisposed() &&
-		form.captureState().state === capture.state &&
+		scopedLifecycleRevision(form) === lifecycle &&
+		!options?.signal?.aborted &&
+		(options?.current() ?? true) &&
+		scopedCaptureCurrent(form, capture) &&
 		projection.current();
 	if (!current()) throw new Error("Stale scoped sync projection");
 	const run = {};
@@ -93,7 +137,13 @@ export function runScopedSync<TData, TUi>(form: FormApi<TData, TUi>, stage?: str
 			!valueAt(capture.state.data, field.binding.segments)
 		)
 			throw new Error("Invalid scoped field binding");
-		const proposed = field.validate();
+		const proposed = field.validate({
+			data: snapshot.data,
+			uiState: snapshot.uiState,
+			...(stage === undefined ? {} : { stage }),
+			...(options?.context ? { context: options.context } : {}),
+			...(options?.signal ? { signal: options.signal } : {}),
+		});
 		if (!Array.isArray(proposed) || !current()) throw new Error("Invalid scoped field result");
 		const emit = createIssueEmission({
 			fieldId: field.fieldId,
@@ -104,7 +154,11 @@ export function runScopedSync<TData, TUi>(form: FormApi<TData, TUi>, stage?: str
 			current,
 		});
 		for (const input of proposed) {
-			if (!diagnostic(input) || !valueAt(capture.state.data, [...field.binding.segments, ...(input.descendant ?? [])]))
+			if (
+				!diagnostic(input) ||
+				(input.descendant && !valueAt(snapshot.data, [...field.binding.segments, ...input.descendant])) ||
+				(!options && !valueAt(snapshot.data, field.binding.segments))
+			)
 				throw new Error("Invalid scoped field issue");
 			issues.push(
 				emit({

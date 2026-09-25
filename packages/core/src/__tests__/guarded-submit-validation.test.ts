@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { attemptCanSubmit, renderableIssues } from "../attempt-issues.js";
+import { attemptCanSubmit, rebaseAttemptIssues, renderableIssues } from "../attempt-issues.js";
 import type { Middleware, ValidatorFn } from "../contracts.js";
 import { createForm } from "../create-form.js";
+import { FormRuntime } from "../form-runtime.js";
 import { validateGuardedSubmitCandidate } from "../guarded-submit-validation.js";
+import { registerScopedSync, scopedCaptureCurrent } from "../internal/scoped-sync.js";
+import { issueEmissionId } from "../issue-provenance.js";
 import { FormStore } from "../store.js";
 import { createValidationCoordinator } from "../validation-coordinator.js";
+import { normalizeIssues } from "../validation.js";
 
 const issue = (code: string) => ({
 	code,
@@ -27,10 +31,17 @@ function fixture(
 			context?: unknown;
 		}) => Promise<ReturnType<typeof issue>[]>;
 	}[] = [],
+	keepForm = false,
 ) {
-	const form = createForm({ initialData: { hidden: "secret", included: "Ada" }, initialUiState: { tab: 1 } });
-	const store = new FormStore(form.getState());
-	form.dispose();
+	const runtime = keepForm
+		? new FormRuntime({ initialData: { hidden: "secret", included: "Ada" }, initialUiState: { tab: 1 } })
+		: undefined;
+	const form =
+		runtime?.build() ?? createForm({ initialData: { hidden: "secret", included: "Ada" }, initialUiState: { tab: 1 } });
+	const store = runtime
+		? (runtime as unknown as { store: FormStore<{ hidden: string; included: string }, { tab: number }> }).store
+		: new FormStore(form.getState());
+	if (!keepForm) form.dispose();
 	let revision = 0;
 	let active = true;
 	const controller = new AbortController();
@@ -71,6 +82,7 @@ function fixture(
 		},
 	});
 	return {
+		form,
 		store,
 		coordinator,
 		context,
@@ -90,6 +102,121 @@ function fixture(
 }
 
 describe("internal final candidate validator orchestration", () => {
+	it("runs bound scoped sync with legacy on final bytes and retains only the original certificate", async () => {
+		const seen: unknown[] = [];
+		const f = fixture(
+			[],
+			[
+				({ data, context }) => {
+					seen.push([data, context]);
+					return [
+						{ ...issue("same"), stage: "review", source: { origin: "function-validator", validatorId: "included" } },
+					];
+				},
+			],
+			[],
+			true,
+		);
+		registerScopedSync(f.form, {
+			instances: (form, capture) => ({
+				current: () => scopedCaptureCurrent(form, capture),
+				fields: [
+					{
+						fieldId: "included",
+						instanceKey: "included",
+						binding: { namespace: "data", segments: ["included"] },
+						validate: (input) => {
+							seen.push([input.data, input.uiState, input.stage, input.context]);
+							return [{ code: "same", message: "same", severity: "error" }];
+						},
+					},
+				],
+			}),
+		});
+		const stageTx = f.store.beginTransaction();
+		stageTx.mutate((state) => ({ ...state, meta: { ...state.meta, stage: "review" } }));
+		f.store.commitTransaction(stageTx);
+		const result = await validateGuardedSubmitCandidate(
+			f.context,
+			f.guard,
+			f.adapter,
+			f.coordinator,
+			"attempt",
+			[(value) => ({ ...(value as object), included: "Grace" })],
+			f.form,
+		);
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+		const issues = f.store.getState().attemptValidation?.issues ?? [];
+		expect(f.form.getState()).toBe(f.store.getState());
+		expect(issues).toHaveLength(2);
+		expect(issues.filter((entry) => issueEmissionId(entry) !== undefined)).toHaveLength(1);
+		const certified = issues.find((entry) => issueEmissionId(entry) !== undefined);
+		if (!certified) throw new Error("Missing certified candidate issue");
+		const unowned = issues.find((entry) => entry !== certified);
+		if (!unowned) throw new Error("Missing unowned candidate issue");
+		expect(issueEmissionId(unowned)).toBeUndefined();
+		expect(issueEmissionId({ ...certified })).toBeUndefined();
+		for (const order of [
+			[certified, unowned, { ...certified }],
+			[unowned, { ...certified }, certified],
+		]) {
+			const normalized = normalizeIssues(order);
+			expect(normalized).toHaveLength(2);
+			expect(normalized).toContain(certified);
+			expect(normalized).toContain(unowned);
+		}
+		const rebased = rebaseAttemptIssues(f.store.getState());
+		expect(rebased.attemptValidation?.issues).toContain(certified);
+		expect(renderableIssues(rebased)).toContain(certified);
+		expect(issueEmissionId(certified)).toBeDefined();
+		expect(seen).toEqual([
+			[{ included: "Grace" }, { requestId: "candidate", at: "now" }],
+			[{ included: "Grace" }, { tab: 1 }, "review", { requestId: "candidate", at: "now" }],
+		]);
+		f.form.reset();
+		expect(issueEmissionId(certified)).toBeUndefined();
+		f.form.dispose();
+		f.coordinator.dispose();
+	});
+	it("rejects scoped callback reentrancy on data, UI, reset, disposal, abort and revision changes", async () => {
+		for (const kind of ["data", "ui", "reset", "dispose", "abort", "revision"] as const) {
+			const f = fixture([], [], [], true);
+			registerScopedSync(f.form, {
+				instances: (form, capture) => ({
+					current: () => scopedCaptureCurrent(form, capture),
+					fields: [
+						{
+							fieldId: "included",
+							instanceKey: "included",
+							binding: { namespace: "data", segments: ["included"] },
+							validate: () => {
+								if (kind === "data") f.form.setValue("included", "changed");
+								if (kind === "ui") f.form.setValue("$ui.tab", 2);
+								if (kind === "reset") f.form.reset();
+								if (kind === "dispose") f.form.dispose();
+								if (kind === "abort") f.controller.abort();
+								if (kind === "revision") f.stale();
+								return [{ code: "same", message: "same", severity: "error" }];
+							},
+						},
+					],
+				}),
+			});
+			const result = await validateGuardedSubmitCandidate(
+				f.context,
+				f.guard,
+				f.adapter,
+				f.coordinator,
+				"attempt",
+				[],
+				f.form,
+			);
+			expect(result.ok, kind).toBe(false);
+			expect(f.store.getState().attemptValidation, kind).toBeUndefined();
+			f.form.dispose();
+			f.coordinator.dispose();
+		}
+	});
 	it("runs hooks once and every sync and async validator over the exact post-egress bytes and captured UI despite sync errors", async () => {
 		const trace: string[] = [];
 		const check = (input: { data: unknown; uiState: unknown; stage?: string; context?: unknown }) => {
