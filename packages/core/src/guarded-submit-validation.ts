@@ -3,7 +3,7 @@ import type { AsyncValidationResult, Middleware, ValidatorFn } from "./contracts
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
-import type { FormState, ValidationIssue } from "./state.js";
+import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
 import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
 import { clone, freeze, unchanged } from "./submit-candidate-safety.js";
 import type { CandidateEgress } from "./submit-candidate-safety.js";
@@ -25,6 +25,13 @@ function publish(
 	context.store.commitTransaction(tx);
 }
 
+function rejectSyncReturn(result: unknown): boolean {
+	if (result === null || (typeof result !== "object" && typeof result !== "function")) return result !== undefined;
+	// Observe a rejected async return even though this path must reject it synchronously.
+	Promise.resolve(result).then(undefined, () => {});
+	return true;
+}
+
 function notify(
 	middleware: readonly Middleware[],
 	hook: "beforeValidate" | "afterValidate",
@@ -43,8 +50,12 @@ function notify(
 							state,
 							...(state.meta.stage ? { stage: state.meta.stage } : {}),
 						})
-					: entry.afterValidate?.({ action, state, issues });
-			if (result && typeof (result as PromiseLike<unknown>).then === "function") return false;
+					: entry.afterValidate?.({
+							action,
+							state,
+							issues: freeze(clone(issues).value) as unknown as readonly ValidationIssue[],
+						});
+			if (rejectSyncReturn(result)) return false;
 		} catch {
 			return false;
 		}
@@ -71,7 +82,10 @@ function syncValidation(
 				...(stage === undefined ? {} : { stage }),
 				...(context ? { context } : {}),
 			});
-			if (result && typeof (result as unknown as PromiseLike<unknown>).then === "function") return;
+			if (!Array.isArray(result)) {
+				rejectSyncReturn(result);
+				return;
+			}
 			issues.push(...result);
 		} catch {
 			return;
@@ -101,6 +115,7 @@ async function completeValidation(
 	data: unknown,
 	uiState: unknown,
 	stage: string | undefined,
+	submitContext: SubmitContext | undefined,
 	current: () => boolean,
 	sync: readonly ValidationIssue[],
 ): Promise<Outcome> {
@@ -113,7 +128,7 @@ async function completeValidation(
 	try {
 		asyncResult = await coordinator.validateCandidate({ data, uiState }, revision, guard.signal, {
 			...(stage === undefined ? {} : { stage }),
-			...(context.submitContext ? { context: context.submitContext } : {}),
+			...(submitContext ? { context: submitContext } : {}),
 		});
 	} catch {
 		asyncResult = { status: "aborted", issues: [] };
@@ -149,6 +164,12 @@ export async function validateGuardedSubmitCandidate(
 	const retained = context.store.getState();
 	const retainedBaseline = freeze(clone({ data: retained.data, uiState: retained.uiState }).value);
 	const stage = retained.meta.stage;
+	let submitContext: SubmitContext | undefined;
+	try {
+		if (context.submitContext) submitContext = freeze(clone(context.submitContext).value) as unknown as SubmitContext;
+	} catch {
+		return { ok: false, code: "unsafe_candidate" };
+	}
 	const state = ownedValidationState(data, uiState, stage);
 	const baseline = freeze(clone({ data, uiState }).value);
 	const current = () =>
@@ -167,9 +188,21 @@ export async function validateGuardedSubmitCandidate(
 	} catch {
 		return { ok: false, code: "unsafe_candidate" };
 	}
-	const sync = syncValidation(validators, data, uiState, stage, context.submitContext, current);
+	const sync = syncValidation(validators, data, uiState, stage, submitContext, current);
 	if (!sync || !current()) return { ok: false, code: "unsafe_candidate" };
 	if (!notify(middleware, "afterValidate", context.action, state, sync, current)) return { ok: false, code: "stale" };
 	if (!current()) return { ok: false, code: "stale" };
-	return completeValidation(context, guard, coordinator, submitId, revision, data, uiState, stage, current, sync);
+	return completeValidation(
+		context,
+		guard,
+		coordinator,
+		submitId,
+		revision,
+		data,
+		uiState,
+		stage,
+		submitContext,
+		current,
+		sync,
+	);
 }

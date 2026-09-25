@@ -275,6 +275,111 @@ describe("internal final candidate validator orchestration", () => {
 		f.coordinator.dispose();
 	});
 
+	it("keeps captured submit context identical across sync and async callbacks that try to mutate it", async () => {
+		const seen: unknown[] = [];
+		const f = fixture(
+			[],
+			[
+				({ context }) => {
+					seen.push(context);
+					try {
+						(context as { requestId: string }).requestId = "changed";
+					} catch {
+						/* frozen input */
+					}
+					return [];
+				},
+				({ context }) => {
+					seen.push(context);
+					return [];
+				},
+			],
+			[
+				{
+					id: "remote",
+					validate: async ({ context }) => {
+						seen.push(context);
+						try {
+							(context as { requestId: string }).requestId = "remote-change";
+						} catch {
+							/* frozen input */
+						}
+						return [];
+					},
+				},
+				{
+					id: "remote2",
+					validate: async ({ context }) => {
+						seen.push(context);
+						return [];
+					},
+				},
+			],
+		);
+		expect(await f.run()).toMatchObject({ ok: true });
+		expect(seen).toEqual(Array(4).fill({ requestId: "candidate", at: "now" }));
+		expect(f.context.submitContext.requestId).toBe("candidate");
+		f.coordinator.dispose();
+	});
+
+	it("never allows afterValidate to erase or rewrite canonical sync failures", async () => {
+		const f = fixture(
+			[
+				{
+					id: "hook",
+					afterValidate: ({ issues }) => {
+						try {
+							(issues as ReturnType<typeof issue>[]).splice(0);
+						} catch {
+							/* frozen snapshot */
+						}
+						try {
+							(issues[0] as { code: string }).code = "forged";
+						} catch {
+							/* frozen snapshot */
+						}
+					},
+				},
+			],
+			[() => [issue("FAIL")]],
+		);
+		expect(await f.run()).toMatchObject({ ok: false, code: "validation_failed" });
+		expect(f.store.getState().attemptValidation?.issues.map((i) => i.code)).toEqual(["FAIL"]);
+		f.coordinator.dispose();
+		const override = fixture(
+			[{ id: "override", afterValidate: (() => []) as Middleware["afterValidate"] }],
+			[() => [issue("FAIL")]],
+		);
+		expect(await override.run()).toMatchObject({ ok: false });
+		expect(override.store.getState().attemptValidation).toBeUndefined();
+		override.coordinator.dispose();
+	});
+
+	it("consumes rejected thenables from sync hooks and invalid sync validator returns", async () => {
+		const unhandled = vi.fn();
+		process.on("unhandledRejection", unhandled);
+		try {
+			for (const kind of ["before", "after", "validator"] as const) {
+				const reject = () => Promise.reject(new Error(kind));
+				const f = fixture(
+					kind === "before"
+						? [{ id: kind, beforeValidate: reject }]
+						: kind === "after"
+							? [{ id: kind, afterValidate: reject }]
+							: [],
+					kind === "validator" ? [reject as unknown as ValidatorFn] : [],
+				);
+				expect(await f.run()).toMatchObject({ ok: false });
+				expect(f.store.getState().attemptValidation).toBeUndefined();
+				f.coordinator.dispose();
+			}
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(unhandled).not.toHaveBeenCalled();
+		} finally {
+			process.off("unhandledRejection", unhandled);
+		}
+	});
+
 	it("reports async validator exceptions as failed attempts, and never invokes later validators after sync throws", async () => {
 		const f = fixture(
 			[],
