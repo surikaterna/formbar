@@ -244,4 +244,65 @@ describe("internal guarded B handoff", () => {
 			]),
 		).toEqual({ ok: false, code: "unsafe_candidate" });
 	});
+
+	it.each(["data", "uiState"] as const)("rejects plugin in-place %s mutation before capture", (target) => {
+		const f = fixture();
+		let original: unknown;
+		let subsequent = 0;
+		let captures = 0;
+		f.context.plugins.push(
+			{
+				id: "mutator",
+				beforeSubmit: ({ data, uiState }) => {
+					original = target === "data" ? data : uiState;
+					if (target === "data") (data as { hidden: string }).hidden = "changed";
+					else (uiState as { tab: number }).tab = 2;
+				},
+			},
+			{
+				id: "subsequent",
+				beforeSubmit: () => {
+					subsequent++;
+				},
+			},
+		);
+		const result = prepareGuardedSubmitCandidate(f.context, f.guard, () => {
+			captures++;
+			return f.adapter();
+		});
+		expect(result).toEqual({ ok: false, code: "unsafe_candidate" });
+		expect(subsequent).toBe(0);
+		expect(captures).toBe(0);
+		expect(f.guard.revision()).toBe(0);
+		expect(f.store.getState()[target]).toBe(original);
+		expect(Object.isFrozen(original)).toBe(false);
+	});
+
+	it("accepts committed pipeline plugin writes before the gate baseline and counts their revision", () => {
+		const f = fixture(
+			[],
+			[
+				{
+					id: "write",
+					evaluate: () => ({
+						writes: [
+							{ path: "included", value: "Grace", mode: "set" },
+							{ path: "$ui.tab", value: 2, mode: "set" },
+						],
+					}),
+				},
+			],
+		);
+		const result = prepareGuardedSubmitCandidate(f.context, f.guard, (capture) => {
+			expect(capture.data).toEqual({ hidden: "secret", included: "Grace" });
+			expect(capture.uiState).toEqual({ tab: 2 });
+			return { ...f.adapter(), data: { included: "Grace" } };
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			revision: 1,
+			candidate: { data: { included: "Grace" }, uiState: { tab: 2 } },
+		});
+		expect(f.guard.revision()).toBe(1);
+	});
 });
