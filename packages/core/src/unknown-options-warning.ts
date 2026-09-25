@@ -9,6 +9,7 @@ const KNOWN_CREATE_FORM_OPTIONS = {
 	initialUiState: true,
 	middleware: true,
 	onSubmit: true,
+	ownedScheduling: true,
 	plugins: true,
 	schema: true,
 	stateStrategy: true,

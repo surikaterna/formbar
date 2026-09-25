@@ -17,6 +17,31 @@ const definition = {
 const fieldValidators = [{ fieldId: "field", validate: () => [{ code: "owned", message: "bad", severity: "error" }] }];
 const options = { provider: jsonSchemaProvider(), side: "input", definition, fieldValidators };
 const prepared = createSchemaForm({}, options);
+const initCalls = [];
+const ownedOptions = {
+	initialData: { "a.b": { 0: "x" } },
+	ownedScheduling: true,
+	plugins: [
+		{
+			id: "owned-init",
+			onInit: ({ getState, initialData }) =>
+				initCalls.push(Object.isFrozen(getState().data) && Object.isFrozen(initialData)),
+		},
+	],
+};
+const eagerOwned = prepared.createForm(ownedOptions);
+assert.deepEqual(initCalls, [true]);
+const deferredOwned = prepared.createDeferredForm(ownedOptions);
+assert.equal(Object.isFrozen(deferredOwned.form.getState().data), true);
+assert.deepEqual(initCalls, [true]);
+deferredOwned.activate();
+assert.deepEqual(initCalls, [true, true]);
+assert.throws(() => prepared.createForm({ ...ownedOptions, initialData: { bad: new Date() } }), {
+	message: "ISSUE_ONLY_UNSUPPORTED_STATE",
+});
+assert.deepEqual(initCalls, [true, true]);
+eagerOwned.dispose();
+deferredOwned.form.dispose();
 assert.equal(core.registerScopedSync, undefined);
 assert.equal(declarative.prepareScopedSyncHost, undefined);
 assert.equal(typeof registerScopedSync, "function"); // Importable trusted adapter, not a JS sandbox.
@@ -65,6 +90,12 @@ function Hook() {
 	return null;
 }
 renderToString(createElement(Hook));
+function OwnedHook() {
+	const first = useSchemaForm({}, { ...options, initialData: data, ownedScheduling: true }).form;
+	assert.equal(Object.isFrozen(first.getState().data), true);
+	return null;
+}
+renderToString(createElement(OwnedHook));
 const [deferredIssue] = deferred.validate();
 assert.deepEqual(deferredIssue.path.segments, ["a.b", "0"]);
 assert.strictEqual(normalizeIssues([deferredIssue])[0], deferredIssue);

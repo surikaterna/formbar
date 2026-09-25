@@ -59,9 +59,13 @@ export class FormStore<TData, TUi> {
 	private _epoch = 0;
 	private _failure = 0;
 
-	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy) {
-		this._state = this._ownStateIssues(initialState);
+	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy, ownedScheduling = false) {
+		if (ownedScheduling && strategy !== undefined && strategy !== defaultStrategy)
+			throw new Error("OWNED_STATE_UNSUPPORTED");
+		this._state = ownedScheduling ? Object.freeze(ownNonIssueState(initialState)) : this._ownStateIssues(initialState);
 		this._strategy = strategy ?? defaultStrategy;
+		this._ownedMode = ownedScheduling;
+		this._owned = ownedScheduling;
 		this._stamp();
 	}
 

@@ -10,6 +10,7 @@ import {
 import { setImmutablePath } from "./immutable-path.js";
 import { ownIssues } from "./issue-ownership.js";
 import { runNotifyHooksSync, runVetoHooksSync } from "./middleware-runner.js";
+import { inspect } from "./owned-issue-snapshot.js";
 import { parsePath } from "./path-parser.js";
 import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
@@ -358,6 +359,8 @@ function runPipeline(ctx: PipelineContext, checkpoint?: PreparationCheckpoint): 
 		if (ctx.action.path !== undefined) {
 			parsePath(ctx.action.path);
 		}
+		if (ctx.store.isOwnedSchedulingMode() && ctx.action.type === "set-value" && ctx.action.path !== undefined)
+			inspect(ctx.action.value, new Set(), { value: 0 }, 0);
 		const previousPolicy = ctx.store.getState().fieldPolicy;
 		tx = ctx.store.beginTransaction();
 		const result = executeTransaction(ctx, tx, previousPolicy, checkpoint);

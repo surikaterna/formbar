@@ -17,6 +17,7 @@ import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import { bindOwnedSchedulingBoundary } from "./owned-scheduling-boundary.js";
+import { preflightOwnedCreation } from "./owned-scheduling-preflight.js";
 import { parsePath } from "./path-parser.js";
 import { issuesForPath } from "./path-relations.js";
 import type { CanonicalPath } from "./path.js";
@@ -58,10 +59,12 @@ export class FormRuntime<TData, TUi> {
 		private readonly deferred = false,
 	) {
 		warnUnknownCreateFormOptionsAtRuntime(options);
+		preflightOwnedCreation(options);
 		this.initialDataSnapshot = structuredClone((options.initialData ?? {}) as TData);
 		this.initialUiStateSnapshot = structuredClone((options.initialUiState ?? {}) as TUi);
 		this.initialState = this.createInitialState();
-		this.store = new FormStore(this.initialState, options.stateStrategy);
+		this.store = new FormStore(this.initialState, options.stateStrategy, options.ownedScheduling === true);
+		if (options.ownedScheduling) this.initialDataSnapshot = this.store.getState().data;
 		this.normalizedValidators = normalizeValidators(options as CreateFormOptions<unknown, unknown>);
 		this.plugins = options.plugins ?? [];
 		validatePluginIds(this.plugins);
@@ -142,7 +145,6 @@ export class FormRuntime<TData, TUi> {
 			issues: [],
 		};
 	}
-
 	private updateState(updater: (draft: FormState<TData, TUi>) => FormState<TData, TUi>): void {
 		const tx = this.store.beginTransaction();
 		tx.mutate(updater);
@@ -195,7 +197,6 @@ export class FormRuntime<TData, TUi> {
 			this.coordinator.onMutation(dataPath, "onChange");
 		} else if (mutated) this.coordinator.onMutation();
 	}
-
 	private dispatch = (action: FormAction): FormDispatchResult => {
 		if (action.type === "set-value" && action.path !== undefined)
 			return this.dispatchSetValue(action.path, action.value);

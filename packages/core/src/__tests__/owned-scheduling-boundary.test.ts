@@ -11,6 +11,106 @@ function state(data: unknown, uiState: unknown): FormState<unknown, unknown> {
 }
 
 describe("#301 owned scheduling boundary", () => {
+	test("creation opt-in owns before eager init and deferred first capture; invalid originals never initialize", () => {
+		for (const deferred of [false, true]) {
+			const caller = { ok: 1 };
+			const observed: boolean[] = [];
+			const options = {
+				initialData: caller,
+				initialUiState: { tab: "first" },
+				ownedScheduling: true as const,
+				middleware: [
+					{
+						onInit: ({ state }: { state: FormState<typeof caller, { tab: string }> }) => {
+							observed.push(
+								Object.isFrozen(state.data) && Object.isFrozen(state.uiState) && Object.isFrozen(state.fieldPolicy),
+							);
+						},
+					},
+				],
+				plugins: [
+					{
+						id: "init",
+						onInit: ({
+							getState,
+							initialData,
+						}: { getState: () => { data: typeof caller }; initialData: typeof caller }) => {
+							observed.push(Object.isFrozen(getState().data) && Object.isFrozen(initialData));
+						},
+					},
+				],
+			};
+			const runtime = deferred ? createDeferredForm(options) : undefined;
+			const form = runtime?.form ?? createForm(options);
+			expect(Object.isFrozen(form.getState().data)).toBe(true);
+			expect(snapshotOwnership(form.getState())?.owned).toBe(true);
+			expect(observed).toEqual(deferred ? [] : [true, true]);
+			runtime?.activate();
+			expect(observed).toEqual([true, true]);
+			caller.ok = 2;
+			expect(form.getState().data).toEqual({ ok: 1 });
+			form.dispose();
+		}
+		const init = vi.fn();
+		const invalid = { ok: new Date() };
+		expect(() =>
+			createForm({ initialData: invalid, ownedScheduling: true, plugins: [{ id: "p", onInit: init }] }),
+		).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
+		expect(() =>
+			createDeferredForm({ initialData: invalid, ownedScheduling: true, middleware: [{ onInit: init }] }),
+		).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
+		expect(init).not.toHaveBeenCalled();
+		expect(Object.isFrozen(invalid)).toBe(false);
+	});
+
+	test("invalid direct input never invokes pipeline hooks, while invalid trusted output cannot publish", () => {
+		const beforeAction = vi.fn();
+		const beforeEvaluate = vi.fn();
+		const evaluate = vi.fn(() => ({ writes: [{ path: "bad", value: new Date(), mode: "set" as const }] }));
+		const afterAction = vi.fn();
+		const form = createForm({
+			initialData: { ok: 1 },
+			ownedScheduling: true,
+			middleware: [{ beforeAction, beforeEvaluate, afterAction }],
+			plugins: [{ id: "bad", evaluate }],
+		});
+		const prior = form.getState();
+		const notice = vi.fn();
+		form.subscribe(notice);
+		expect(form.setValue("ok", new Date() as never)).toEqual({ ok: false, error: "ISSUE_ONLY_UNSUPPORTED_STATE" });
+		expect(beforeAction).not.toHaveBeenCalled();
+		expect(beforeEvaluate).not.toHaveBeenCalled();
+		expect(evaluate).not.toHaveBeenCalled();
+		expect(form.setValue("ok", 2)).toEqual({ ok: false, error: "ISSUE_ONLY_UNSUPPORTED_STATE" });
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		expect(afterAction).not.toHaveBeenCalled();
+		expect(form.getState()).toBe(prior);
+		expect(notice).not.toHaveBeenCalled();
+	});
+
+	test("trusted transform output is rejected at commit without afterAction or submit handler", () => {
+		const afterAction = vi.fn();
+		const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "sent" }));
+		const form = createForm({
+			initialData: { ok: 1 },
+			ownedScheduling: true,
+			onSubmit,
+			middleware: [{ afterAction }],
+			transforms: [{ id: "invalid", path: "ok", phase: "ingress", transform: () => new Date() }],
+		});
+		const initial = form.getState();
+		const notify = vi.fn();
+		form.subscribe(notify);
+		expect(form.dispatch({ type: "set-value", path: "ok", value: 2 })).toEqual({
+			ok: false,
+			error: "ISSUE_ONLY_UNSUPPORTED_STATE",
+		});
+		expect(form.getState()).toBe(initial);
+		expect(notify).not.toHaveBeenCalled();
+		expect(afterAction).not.toHaveBeenCalled();
+		expect(onSubmit).not.toHaveBeenCalled();
+		form.dispose();
+	});
 	test("immediate opt-in detaches before a scheduling capture; prior snapshots and caller values stay writable", () => {
 		const caller = { rows: [{ name: "initial" }] };
 		const ui = { tab: "first" };
