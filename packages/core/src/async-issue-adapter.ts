@@ -26,3 +26,17 @@ export function exceptionIssue(
 		source: { origin: "async-validator", validatorId: validator.config.id },
 	};
 }
+
+/** Automatic callbacks have no caller to receive a rejection; report only a safe code. */
+export function automaticFailureIssue(validator: {
+	readonly config: { readonly id: string };
+	readonly fields: readonly AbsoluteDataPath[];
+}): ValidationIssue {
+	return {
+		code: "ASYNC_VALIDATOR_EXCEPTION",
+		message: "ISSUE_ONLY_UNSUPPORTED_STATE",
+		severity: "error",
+		path: validator.fields[0] ?? { namespace: "data", segments: [] },
+		source: { origin: "async-validator", validatorId: validator.config.id },
+	};
+}

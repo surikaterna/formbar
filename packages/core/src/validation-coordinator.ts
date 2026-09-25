@@ -1,4 +1,4 @@
-import { canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
+import { automaticFailureIssue, canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
 import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import { ownIssues } from "./issue-ownership.js";
@@ -105,11 +105,9 @@ class ValidationRuntime<TData, TUi> {
 	private currentRevision = 0;
 	private lifecycle = 0;
 	private disposed = false;
-
 	constructor(private readonly deps: CoordinatorDeps<TData, TUi>) {
 		this.validators = normalizeValidators(deps.validators);
 	}
-
 	api(): ValidationCoordinator<TData, TUi> {
 		return {
 			revision: () => this.currentRevision,
@@ -123,7 +121,6 @@ class ValidationRuntime<TData, TUi> {
 			dispose: () => this.endLifecycle(true),
 		};
 	}
-
 	private isCurrent(token: RunToken): boolean {
 		if (token.cancellation || token.revision !== this.currentRevision || token.lifecycle !== this.lifecycle)
 			return false;
@@ -132,18 +129,15 @@ class ValidationRuntime<TData, TUi> {
 		}
 		return token.kind === "foreground" ? this.foreground === token : [...this.automatic.values()].includes(token);
 	}
-
 	private desiredPaths(): Set<string> {
 		return new Set([...this.active].flatMap((token) => token.paths.map(fieldMetaKey)));
 	}
-
 	private projectionChanged(paths: ReadonlySet<string>): boolean {
 		const current = this.deps.getState();
 		if (current.meta.validation.validating !== this.active.size > 0) return true;
 		if ([...paths].some((key) => !(key in current.fieldMeta))) return true;
 		return Object.entries(current.fieldMeta).some(([key, meta]) => meta.isValidating !== paths.has(key));
 	}
-
 	private projectValidating(): void {
 		const paths = this.desiredPaths();
 		if (!this.projectionChanged(paths)) return;
@@ -164,7 +158,6 @@ class ValidationRuntime<TData, TUi> {
 			};
 		});
 	}
-
 	private detach(token: RunToken): void {
 		this.active.delete(token);
 		if (token.kind === "foreground" && this.foreground === token) this.foreground = undefined;
@@ -174,7 +167,6 @@ class ValidationRuntime<TData, TUi> {
 			this.automaticPaths.delete(id);
 		}
 	}
-
 	private cancel(token: RunToken, reason: Cancellation): void {
 		if (token.cancellation) return;
 		token.cancellation = reason;
@@ -223,6 +215,10 @@ class ValidationRuntime<TData, TUi> {
 		try {
 			const outcome = await Promise.race([this.executeValidator(validator, snapshot, token), token.cancelled]);
 			if (Array.isArray(outcome) && this.isCurrent(token)) this.replaceIssues(token.validatorIds, outcome);
+		} catch {
+			if (this.isCurrent(token)) {
+				this.replaceIssues(token.validatorIds, ownIssues([automaticFailureIssue(validator)]));
+			}
 		} finally {
 			if (this.isCurrent(token)) {
 				this.detach(token);
@@ -261,7 +257,13 @@ class ValidationRuntime<TData, TUi> {
 		this.active.add(token);
 		token.timer = setTimeout(() => {
 			token.timer = undefined;
-			void this.runAutomatic(token, validator);
+			void this.runAutomatic(token, validator).catch(() => {
+				try {
+					console.error("ASYNC_VALIDATOR_FAILURE_REPORT_FAILED");
+				} catch {
+					// Reporting must not create another unhandled rejection.
+				}
+			});
 		}, validator.config.debounceMs ?? DEFAULT_DEBOUNCE_MS);
 	}
 
