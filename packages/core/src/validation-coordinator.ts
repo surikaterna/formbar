@@ -139,8 +139,11 @@ class ValidationRuntime<TData, TUi> {
 		if (project) this.projectValidating();
 	}
 
-	private replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[], scoped?: ScopedForeground): void {
-		const previous = scoped?.previous();
+	private replaceIssues(
+		ids: ReadonlySet<string>,
+		issues: readonly ValidationIssue[],
+		previous?: ReadonlySet<ValidationIssue>,
+	): void {
 		this.deps.updateState((state) => ({
 			...state,
 			issues: normalizeIssues([
@@ -151,6 +154,20 @@ class ValidationRuntime<TData, TUi> {
 				...issues,
 			]),
 		}));
+	}
+
+	private publishForeground(token: RunToken, issues: readonly ValidationIssue[], scoped?: ScopedForeground): boolean {
+		const staged = scoped?.stage();
+		try {
+			this.replaceIssues(token.validatorIds, issues, staged?.previous);
+		} catch {
+			staged?.rollback();
+			this.cancel(token, "aborted");
+			this.projectValidating();
+			return false;
+		}
+		staged?.finish();
+		return true;
 	}
 
 	private async executeValidator(
@@ -299,9 +316,8 @@ class ValidationRuntime<TData, TUi> {
 		if (typeof outcome === "string") return { status: outcome, issues: [] };
 		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
 		const issues = normalizeIssues(outcome.flat());
-		if (!candidate) this.replaceIssues(token.validatorIds, issues, scoped);
+		if (!candidate && !this.publishForeground(token, issues, scoped)) return { status: "aborted", issues: [] };
 		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
-		scoped?.commit();
 		this.detach(token);
 		this.projectValidating();
 		return { status: "completed", issues };

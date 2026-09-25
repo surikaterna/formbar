@@ -343,6 +343,72 @@ describe("definition-scoped asynchronous validation", () => {
 		unsubscribe();
 		form.dispose();
 	});
+	it.each([
+		["removal", []],
+		["reorder", [{ value: "other" }]],
+	])("cleans foreground ownership on subscriber %s, including legacy publication", async (_, nextRows) => {
+		const rowDefinition = {
+			version: 1 as const,
+			id: "rows",
+			root: {
+				type: "repeater" as const,
+				id: "rows",
+				scope: "row",
+				binding: { namespace: "data", segments: ["rows"] },
+				children: [
+					{
+						type: "field" as const,
+						id: "value",
+						widget: "text",
+						binding: { namespace: "data", scope: "row", segments: ["value"] },
+					},
+				],
+			},
+		};
+		const form = createSchemaForm(
+			{},
+			{
+				provider: jsonSchemaProvider(),
+				side: "input",
+				definition: rowDefinition,
+				asyncFieldValidators: [
+					{
+						id: "scoped",
+						fieldId: "value",
+						debounceMs: 0,
+						validate: async () => [{ code: "obsolete", message: "bad", severity: "error" }],
+					},
+				],
+			},
+		).createForm({ initialData: { rows: [{ value: "first" }] }, asyncValidators: [legacyAsyncValidator] });
+		let changed = false;
+		let obsolete: unknown;
+		let afterMutation: readonly string[] = [];
+		form.subscribe((state) => {
+			if (changed || !state.issues.some((entry) => entry.code === "obsolete")) return;
+			changed = true;
+			obsolete = state.issues.find((entry) => entry.code === "obsolete");
+			form.setValue("rows", nextRows);
+			afterMutation = form.getState().issues.map((entry) => entry.code);
+		});
+		try {
+			expect((await form.validateAsync()).status).toBe("superseded");
+			expect(changed).toBe(true);
+			expect(afterMutation).not.toContain("obsolete");
+			expect(afterMutation).toContain("legacy");
+			expect(form.getState().issues).not.toContain(obsolete);
+			form.setValue("rows", [{ value: "fresh" }]);
+			const retry = await form.validateAsync();
+			expect(retry.status).toBe("completed");
+			expect(form.getState().issues.filter((entry) => entry.code === "obsolete")).toHaveLength(1);
+			expect(form.getState().issues).not.toContain(obsolete);
+			expect(form.getState().issues.some((entry) => entry.code === "legacy")).toBe(true);
+			form.setValue("rows", []);
+			expect(form.getState().issues.some((entry) => entry.code === "obsolete")).toBe(false);
+		} finally {
+			form.dispose();
+		}
+	});
 	it("schedules two concrete rows after a parent change without dropping either result", async () => {
 		vi.useFakeTimers();
 		try {
