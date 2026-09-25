@@ -81,7 +81,13 @@ describe("isolated attempt issue lane", () => {
 		expect(attemptCanSubmit(failed, 8)).toBe(false);
 		expect(failed.issues).toEqual([draft]);
 		expect(renderableIssues(failed)).toHaveLength(3);
-		expect(completeAttempt(running, "id", 8, { status: "aborted", issues: [] }).attemptValidation).toBeUndefined();
+		const aborted = completeAttempt(running, "id", 8, { status: "aborted", issues: [] });
+		expect(Object.hasOwn(aborted, "attemptValidation")).toBe(false);
+		expect(aborted.issues).toBe(running.issues);
+		expect(completeAttempt(running, "other", 8, { status: "aborted", issues: [] })).toBe(running);
+		expect(Object.hasOwn(clearAttempt(success), "attemptValidation")).toBe(false);
+		const untouched = base();
+		expect(clearAttempt(untouched)).toBe(untouched);
 	});
 
 	it("combines synchronous and isolated asynchronous candidate results without publishing into draft", async () => {
