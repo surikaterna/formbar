@@ -48,7 +48,7 @@ describe("detached submit candidate", () => {
 		expect(store.getState()).toBe(state);
 		expect(Object.isFrozen(visible)).toBe(false);
 		expect(Object.isFrozen(state.uiState.view)).toBe(false);
-		expect(Object.isFrozen(issues)).toBe(false);
+		expect(Object.isFrozen(issues)).toBe(true);
 		visible.name = "mutable";
 	});
 

@@ -1,5 +1,7 @@
+import { automaticFailureIssue, canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
 import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
+import { ownIssues } from "./issue-ownership.js";
 import type { FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
 import { normalizeIssues } from "./validation.js";
@@ -69,24 +71,6 @@ function normalizeValidators<TData, TUi>(configs: readonly AsyncValidatorConfig<
 	});
 }
 
-function canonicalizeIssue(issue: ValidationIssue, validatorId: string): ValidationIssue {
-	const path =
-		issue.path.namespace === "data" && issue.path.segments.length > 0
-			? normalizeDataPath({ namespace: "data", segments: issue.path.segments })
-			: issue.path;
-	return { ...issue, path, source: { ...issue.source, origin: "async-validator", validatorId } };
-}
-
-function exceptionIssue(validator: NormalizedValidator<unknown, unknown>, error: unknown): ValidationIssue {
-	return {
-		code: "ASYNC_VALIDATOR_EXCEPTION",
-		message: error instanceof Error ? error.message : String(error),
-		severity: "error",
-		path: validator.fields[0] ?? { namespace: "data", segments: [] },
-		source: { origin: "async-validator", validatorId: validator.config.id },
-	};
-}
-
 function createToken(
 	kind: RunToken["kind"],
 	revision: number,
@@ -121,11 +105,9 @@ class ValidationRuntime<TData, TUi> {
 	private currentRevision = 0;
 	private lifecycle = 0;
 	private disposed = false;
-
 	constructor(private readonly deps: CoordinatorDeps<TData, TUi>) {
 		this.validators = normalizeValidators(deps.validators);
 	}
-
 	api(): ValidationCoordinator<TData, TUi> {
 		return {
 			revision: () => this.currentRevision,
@@ -139,7 +121,6 @@ class ValidationRuntime<TData, TUi> {
 			dispose: () => this.endLifecycle(true),
 		};
 	}
-
 	private isCurrent(token: RunToken): boolean {
 		if (token.cancellation || token.revision !== this.currentRevision || token.lifecycle !== this.lifecycle)
 			return false;
@@ -148,18 +129,15 @@ class ValidationRuntime<TData, TUi> {
 		}
 		return token.kind === "foreground" ? this.foreground === token : [...this.automatic.values()].includes(token);
 	}
-
 	private desiredPaths(): Set<string> {
 		return new Set([...this.active].flatMap((token) => token.paths.map(fieldMetaKey)));
 	}
-
 	private projectionChanged(paths: ReadonlySet<string>): boolean {
 		const current = this.deps.getState();
 		if (current.meta.validation.validating !== this.active.size > 0) return true;
 		if ([...paths].some((key) => !(key in current.fieldMeta))) return true;
 		return Object.entries(current.fieldMeta).some(([key, meta]) => meta.isValidating !== paths.has(key));
 	}
-
 	private projectValidating(): void {
 		const paths = this.desiredPaths();
 		if (!this.projectionChanged(paths)) return;
@@ -180,7 +158,6 @@ class ValidationRuntime<TData, TUi> {
 			};
 		});
 	}
-
 	private detach(token: RunToken): void {
 		this.active.delete(token);
 		if (token.kind === "foreground" && this.foreground === token) this.foreground = undefined;
@@ -190,7 +167,6 @@ class ValidationRuntime<TData, TUi> {
 			this.automaticPaths.delete(id);
 		}
 	}
-
 	private cancel(token: RunToken, reason: Cancellation): void {
 		if (token.cancellation) return;
 		token.cancellation = reason;
@@ -223,23 +199,32 @@ class ValidationRuntime<TData, TUi> {
 		token: RunToken,
 		options?: { readonly stage?: string; readonly context?: SubmitContext },
 	): Promise<readonly ValidationIssue[]> {
+		let issues: readonly ValidationIssue[];
 		try {
-			const issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal, ...options });
-			return issues.map((issue) => canonicalizeIssue(issue, validator.config.id));
+			issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal, ...options });
 		} catch (error) {
 			if (!this.isCurrent(token)) return [];
-			return [exceptionIssue(validator as NormalizedValidator<unknown, unknown>, error)];
+			return [exceptionIssue(validator, error)];
 		}
+		return ownIssues(issues).map((issue) => canonicalizeIssue(issue, validator.config.id));
 	}
 
 	private async runAutomatic(token: RunToken, validator: NormalizedValidator<TData, TUi>): Promise<void> {
 		const state = this.deps.getState();
 		const snapshot = { data: state.data, uiState: state.uiState };
-		const outcome = await Promise.race([this.executeValidator(validator, snapshot, token), token.cancelled]);
-		if (Array.isArray(outcome) && this.isCurrent(token)) this.replaceIssues(token.validatorIds, outcome);
-		if (!this.isCurrent(token)) return;
-		this.detach(token);
-		this.projectValidating();
+		try {
+			const outcome = await Promise.race([this.executeValidator(validator, snapshot, token), token.cancelled]);
+			if (Array.isArray(outcome) && this.isCurrent(token)) this.replaceIssues(token.validatorIds, outcome);
+		} catch {
+			if (this.isCurrent(token)) {
+				this.replaceIssues(token.validatorIds, ownIssues([automaticFailureIssue(validator)]));
+			}
+		} finally {
+			if (this.isCurrent(token)) {
+				this.detach(token);
+				this.projectValidating();
+			}
+		}
 	}
 
 	private matching(path: AbsoluteDataPath, trigger: "onChange" | "onBlur") {
@@ -272,7 +257,13 @@ class ValidationRuntime<TData, TUi> {
 		this.active.add(token);
 		token.timer = setTimeout(() => {
 			token.timer = undefined;
-			void this.runAutomatic(token, validator);
+			void this.runAutomatic(token, validator).catch(() => {
+				try {
+					console.error("ASYNC_VALIDATOR_FAILURE_REPORT_FAILED");
+				} catch {
+					// Reporting must not create another unhandled rejection.
+				}
+			});
 		}, validator.config.debounceMs ?? DEFAULT_DEBOUNCE_MS);
 	}
 
@@ -296,6 +287,24 @@ class ValidationRuntime<TData, TUi> {
 		this.foreground = token;
 		this.active.add(token);
 		return token;
+	}
+
+	private async awaitForeground(
+		validation: Promise<(readonly ValidationIssue[])[]>,
+		token: RunToken,
+		signal: AbortSignal | undefined,
+		abort: () => void,
+	): Promise<(readonly ValidationIssue[])[] | Cancellation> {
+		try {
+			return await Promise.race([validation, token.cancelled]);
+		} catch (error) {
+			this.detach(token);
+			this.projectValidating();
+			throw error;
+		} finally {
+			if (token.timer) clearTimeout(token.timer);
+			signal?.removeEventListener("abort", abort);
+		}
 	}
 
 	private async runForeground(
@@ -328,9 +337,7 @@ class ValidationRuntime<TData, TUi> {
 		const validation = Promise.all(
 			selected.map((validator) => this.executeValidator(validator, snapshot, token, options)),
 		);
-		const outcome = await Promise.race([validation, token.cancelled]);
-		if (token.timer) clearTimeout(token.timer);
-		signal?.removeEventListener("abort", abort);
+		const outcome = await this.awaitForeground(validation, token, signal, abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
 		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
 		const issues = normalizeIssues(outcome.flat());

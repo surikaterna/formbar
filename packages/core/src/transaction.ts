@@ -1,3 +1,4 @@
+import { isOwnedIssue } from "./issue-ownership.js";
 import type { FormState } from "./state.js";
 import { deepFreeze } from "./utils.js";
 
@@ -27,8 +28,29 @@ export class Transaction<TData, TUi> {
 	private _dirty = false;
 
 	constructor(currentState: FormState<TData, TUi>, strategy: StateStrategy = defaultStrategy) {
-		this._prevState = strategy.freeze(strategy.clone(currentState));
-		this._draftState = strategy.clone(currentState);
+		const clone = (): FormState<TData, TUi> => {
+			const copy = strategy.clone(currentState);
+			const preserve = (issues: typeof currentState.issues, copies: typeof currentState.issues) =>
+				issues.map((issue, index) => (isOwnedIssue(issue) ? issue : (copies[index] as typeof issue)));
+			return {
+				...copy,
+				issues: preserve(currentState.issues, copy.issues),
+				...(currentState.attemptValidation && copy.attemptValidation
+					? {
+							attemptValidation: {
+								...copy.attemptValidation,
+								issues: preserve(currentState.attemptValidation.issues, copy.attemptValidation.issues),
+								renderableIssues: preserve(
+									currentState.attemptValidation.renderableIssues,
+									copy.attemptValidation.renderableIssues,
+								),
+							},
+						}
+					: {}),
+			};
+		};
+		this._prevState = strategy.freeze(clone());
+		this._draftState = clone();
 	}
 
 	get prevState(): FormState<TData, TUi> {

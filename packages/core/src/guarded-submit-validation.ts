@@ -1,6 +1,7 @@
 import { beginAttempt, clearAttempt, completeAttempt } from "./attempt-issues.js";
 import type { AsyncValidationResult, FormApi, Middleware, ValidatorFn } from "./contracts.js";
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
+import { ownIssues } from "./issue-ownership.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
 import { runScopedSync } from "./scoped-sync.js";
@@ -93,7 +94,7 @@ function syncValidation(
 		}
 		if (!current()) return;
 	}
-	return normalizeIssues(issues);
+	return normalizeIssues(ownIssues(issues));
 }
 
 function syncCandidateIssues(
@@ -115,7 +116,7 @@ function syncCandidateIssues(
 				current,
 			})
 		: [];
-	return normalizeIssues([...legacy, ...scoped]);
+	return normalizeIssues(ownIssues([...legacy, ...scoped]));
 }
 
 function ownedValidationState(data: unknown, uiState: unknown, stage: string | undefined): FormState<unknown, unknown> {
@@ -153,7 +154,11 @@ async function completeValidation(
 			...(stage === undefined ? {} : { stage }),
 			...(submitContext ? { context: submitContext } : {}),
 		});
-	} catch {
+	} catch (error) {
+		if (error instanceof Error && error.message === "ISSUE_ONLY_UNSUPPORTED_STATE") {
+			publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+			return { ok: false, code: "unsafe_candidate" };
+		}
 		asyncResult = { status: "aborted", issues: [] };
 	}
 	if (!current() || asyncResult.status !== "completed") {

@@ -25,7 +25,20 @@ const [issue] = form.validate();
 assert.deepEqual(issue.path.segments, ["a.b", "0"]);
 assert.strictEqual(normalizeIssues([issue])[0], issue);
 assert.equal(normalizeIssues([issue, { ...issue }]).length, 2);
-const bare = createForm({ initialData: data, validators: [() => [{ ...issue }]] });
+const plain = {
+	...issue,
+	path: { ...issue.path, segments: [...issue.path.segments] },
+	details: { nested: { value: 1 } },
+};
+const bare = createForm({ initialData: data, validators: [() => [plain]] });
+assert.strictEqual(bare.validate()[0], plain);
+bare.setValue("new", 1);
+const [detached] = bare.getState().issues;
+assert.notStrictEqual(detached, plain);
+assert.strictEqual(normalizeIssues([plain])[0], plain);
+assert.equal(Object.isFrozen(detached.details.nested), true);
+plain.details.nested.value = 2;
+assert.equal(detached.details.nested.value, 1);
 assert.equal(bare.validate().length, 1);
 assert.equal(normalizeIssues([issue, bare.validate()[0]]).length, 2);
 assert.equal(

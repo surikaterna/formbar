@@ -1,3 +1,4 @@
+import { ownIssue } from "./issue-ownership.js";
 import type { CanonicalSegment } from "./path.js";
 import type { ValidationIssue } from "./state.js";
 
@@ -56,13 +57,13 @@ export function createIssueEmission(options: {
 		) {
 			throw new Error("Unsafe or stale scoped issue emission");
 		}
-		const issue: ValidationIssue = Object.freeze({
+		const issue: ValidationIssue = ownIssue({
 			code: input.code,
 			message: input.message,
 			severity: input.severity,
 			...(input.stage === undefined ? {} : { stage: input.stage }),
-			path: Object.freeze({ namespace: "data", segments: Object.freeze([...binding, ...descendant]) }),
-			source: Object.freeze({ origin: "function-validator", validatorId: options.fieldId }),
+			path: { namespace: "data", segments: [...binding, ...descendant] },
+			source: { origin: "function-validator", validatorId: options.fieldId },
 		});
 		certificates.set(issue, {
 			id: ++nextId,

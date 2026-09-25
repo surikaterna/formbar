@@ -1,20 +1,20 @@
-import { issueEmissionId } from "./issue-provenance.js";
+import { ownIssues } from "./issue-ownership.js";
 import type { FormState, ValidationIssue } from "./state.js";
 
 const REJECTION = "ISSUE_ONLY_UNSUPPORTED_STATE";
 const MAX_NODES = 100_000;
 const MAX_DEPTH = 64;
-type Node = null | string | number | boolean | { array: boolean; children: [string, Node][] };
+export type Node = null | string | number | boolean | { array: boolean; children: [string, Node][] };
 
 function reject(): never {
 	throw new Error(REJECTION);
 }
 
-function inspect(value: unknown, ancestors: Set<object>, count: { value: number }, depth: number): Node {
+export function inspect(value: unknown, ancestors: Set<object>, count: { value: number }, depth: number): Node {
+	if (depth > MAX_DEPTH || ++count.value > MAX_NODES) return reject();
 	if (value === null || typeof value === "string" || typeof value === "boolean") return value;
 	if (typeof value === "number") return Number.isFinite(value) ? value : reject();
-	if (typeof value !== "object" || depth > MAX_DEPTH || ++count.value > MAX_NODES || ancestors.has(value))
-		return reject();
+	if (typeof value !== "object" || ancestors.has(value)) return reject();
 	const array = Array.isArray(value);
 	if (!array && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
 		return reject();
@@ -34,7 +34,7 @@ function inspect(value: unknown, ancestors: Set<object>, count: { value: number 
 	return { array, children };
 }
 
-function materialize(node: Node): unknown {
+export function materialize(node: Node): unknown {
 	if (node === null || typeof node !== "object") return node;
 	const result: Record<string, unknown> | unknown[] = node.array ? [] : Object.create(null);
 	for (const [key, child] of node.children)
@@ -45,22 +45,6 @@ function materialize(node: Node): unknown {
 			configurable: false,
 		});
 	return Object.freeze(result);
-}
-
-function certified(issues: readonly ValidationIssue[]): boolean {
-	if (!Array.isArray(issues) || Reflect.ownKeys(issues).length !== issues.length + 1) return false;
-	for (let index = 0; index < issues.length; index++) {
-		const descriptor = Object.getOwnPropertyDescriptor(issues, index);
-		if (!descriptor?.enumerable || !("value" in descriptor)) return false;
-	}
-	return issues.every(
-		(issue) =>
-			issueEmissionId(issue) !== undefined &&
-			Object.isFrozen(issue) &&
-			Object.isFrozen(issue.path) &&
-			Object.isFrozen(issue.path.segments) &&
-			Object.isFrozen(issue.source),
-	);
 }
 
 function checkAttempt(value: object): void {
@@ -81,11 +65,14 @@ export function ownNonIssueState<TData, TUi>(state: FormState<TData, TUi>): Form
 		const descriptor = Object.getOwnPropertyDescriptor(state, key);
 		if (!descriptor?.enumerable || !("value" in descriptor)) return reject();
 	}
-	if (!certified(state.issues)) return reject();
+	const issues = ownIssues(state.issues);
 	const attempt = state.attemptValidation;
+	let attemptIssues: readonly ValidationIssue[] | undefined;
+	let renderable: readonly ValidationIssue[] | undefined;
 	if (attempt) {
 		checkAttempt(attempt);
-		if (!certified(attempt.issues) || !certified(attempt.renderableIssues)) return reject();
+		attemptIssues = ownIssues(attempt.issues);
+		renderable = ownIssues(attempt.renderableIssues);
 	}
 	const source = {
 		data: state.data,
@@ -100,25 +87,22 @@ export function ownNonIssueState<TData, TUi>(state: FormState<TData, TUi>): Form
 	const detachedAttempt = owned.attempt;
 	return {
 		...state,
+		issues,
 		data: owned.data,
 		uiState: owned.uiState,
 		meta: owned.meta,
 		fieldMeta: owned.fieldMeta,
 		fieldPolicy: owned.fieldPolicy,
-		...(attempt && detachedAttempt
+		...(attempt && detachedAttempt && attemptIssues && renderable
 			? {
 					attemptValidation: {
 						submitId: detachedAttempt.submitId,
 						revision: detachedAttempt.revision,
 						status: detachedAttempt.status,
-						issues: Object.freeze([...attempt.issues]),
-						renderableIssues: Object.freeze([...attempt.renderableIssues]),
+						issues: attemptIssues,
+						renderableIssues: renderable,
 					},
 				}
 			: {}),
 	};
-}
-
-export function assertCertifiedIssues(issues: readonly ValidationIssue[]): void {
-	if (!certified(issues)) reject();
 }
