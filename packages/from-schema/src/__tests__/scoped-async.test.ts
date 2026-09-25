@@ -72,6 +72,74 @@ const legacyAsyncValidator = {
 };
 
 describe("definition-scoped asynchronous validation", () => {
+	it.each([
+		["removes", []],
+		["reorders", [{ value: "second" }]],
+	])("cleans up a row when a subscriber %s it during issue publication", async (_, nextRows) => {
+		vi.useFakeTimers();
+		try {
+			const rowDefinition = {
+				version: 1 as const,
+				id: "rows",
+				root: {
+					type: "repeater" as const,
+					id: "rows",
+					scope: "row",
+					binding: { namespace: "data", segments: ["rows"] },
+					children: [
+						{
+							type: "field" as const,
+							id: "value",
+							widget: "text",
+							binding: { namespace: "data", scope: "row", segments: ["value"] },
+						},
+					],
+				},
+			};
+			const form = createSchemaForm(
+				{},
+				{
+					provider: jsonSchemaProvider(),
+					side: "input",
+					definition: rowDefinition,
+					asyncFieldValidators: [
+						{
+							id: "scoped",
+							fieldId: "value",
+							debounceMs: 0,
+							validate: async () => [{ code: "obsolete", message: "bad", severity: "error" }],
+						},
+					],
+				},
+			).createForm({ initialData: { rows: [{ value: "first" }] } });
+			let changed = false;
+			let afterMutation: readonly string[] = [];
+			let obsoleteIssue: unknown;
+			form.subscribe((state) => {
+				if (!changed && state.issues.some((issue) => issue.code === "obsolete")) {
+					changed = true;
+					obsoleteIssue = state.issues[0];
+					form.setValue("rows", nextRows);
+					afterMutation = form.getState().issues.map((issue) => issue.code);
+				}
+			});
+			form.setValue("rows", [{ value: "first" }]);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(changed).toBe(true);
+			expect(afterMutation).toEqual([]);
+			if (nextRows.length) {
+				await vi.advanceTimersByTimeAsync(1);
+				expect(form.getState().issues.map((issue) => issue.code)).toEqual(["obsolete"]);
+				expect(form.getState().issues[0]).not.toBe(obsoleteIssue);
+				form.setValue("rows", []);
+			}
+			expect(form.getState().issues).toEqual([]);
+			form.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("bounds ignored automatic signals with a blocking timeout diagnostic", async () => {
 		vi.useFakeTimers();
 		try {
