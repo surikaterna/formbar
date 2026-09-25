@@ -1,0 +1,175 @@
+import { beginAttempt, clearAttempt, completeAttempt } from "./attempt-issues.js";
+import type { AsyncValidationResult, Middleware, ValidatorFn } from "./contracts.js";
+import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
+import { normalizeValidators } from "./normalize-validators.js";
+import type { PipelineContext } from "./pipeline.js";
+import type { FormState, ValidationIssue } from "./state.js";
+import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
+import { clone, freeze, unchanged } from "./submit-candidate-safety.js";
+import type { CandidateEgress } from "./submit-candidate-safety.js";
+import type { SubmitPreparationGuard } from "./submit-preparation-checkpoint.js";
+import type { ValidationCoordinator } from "./validation-coordinator.js";
+import { normalizeIssues } from "./validation.js";
+
+type Outcome =
+	| { readonly ok: true; readonly issues: readonly ValidationIssue[] }
+	| { readonly ok: false; readonly code: "validation_failed"; readonly fieldIssues: readonly ValidationIssue[] }
+	| { readonly ok: false; readonly code: "stale" | "vetoed" | "unsafe_candidate" | "invalid_witness" | "aborted" };
+
+function publish(
+	context: PipelineContext,
+	update: (state: FormState<unknown, unknown>) => FormState<unknown, unknown>,
+) {
+	const tx = context.store.beginTransaction();
+	tx.mutate(update);
+	context.store.commitTransaction(tx);
+}
+
+function notify(
+	middleware: readonly Middleware[],
+	hook: "beforeValidate" | "afterValidate",
+	action: PipelineContext["action"],
+	state: FormState<unknown, unknown>,
+	issues: readonly ValidationIssue[],
+	current: () => boolean,
+): boolean {
+	for (const entry of middleware) {
+		if (!current()) return false;
+		try {
+			const result: unknown =
+				hook === "beforeValidate"
+					? entry.beforeValidate?.({
+							action,
+							state,
+							...(state.meta.stage ? { stage: state.meta.stage } : {}),
+						})
+					: entry.afterValidate?.({ action, state, issues });
+			if (result && typeof (result as PromiseLike<unknown>).then === "function") return false;
+		} catch {
+			return false;
+		}
+		if (!current()) return false;
+	}
+	return true;
+}
+
+function syncValidation(
+	validators: readonly ValidatorFn[],
+	data: unknown,
+	uiState: unknown,
+	stage: string | undefined,
+	context: PipelineContext["submitContext"],
+	current: () => boolean,
+): readonly ValidationIssue[] | undefined {
+	const issues: ValidationIssue[] = [];
+	for (const validator of validators) {
+		if (!current()) return;
+		try {
+			const result = validator({
+				data,
+				uiState,
+				...(stage === undefined ? {} : { stage }),
+				...(context ? { context } : {}),
+			});
+			if (result && typeof (result as unknown as PromiseLike<unknown>).then === "function") return;
+			issues.push(...result);
+		} catch {
+			return;
+		}
+		if (!current()) return;
+	}
+	return normalizeIssues(issues);
+}
+
+function ownedValidationState(data: unknown, uiState: unknown, stage: string | undefined): FormState<unknown, unknown> {
+	return Object.freeze({
+		data,
+		uiState,
+		meta: Object.freeze({ validation: Object.freeze({}), ...(stage === undefined ? {} : { stage }) }),
+		fieldMeta: Object.freeze({}),
+		fieldPolicy: Object.freeze([]),
+		issues: Object.freeze([]),
+	});
+}
+
+async function completeValidation(
+	context: PipelineContext,
+	guard: SubmitPreparationGuard,
+	coordinator: ValidationCoordinator<unknown, unknown>,
+	submitId: string,
+	revision: number,
+	data: unknown,
+	uiState: unknown,
+	stage: string | undefined,
+	current: () => boolean,
+	sync: readonly ValidationIssue[],
+): Promise<Outcome> {
+	publish(context, (draft) => beginAttempt(draft, submitId, revision));
+	if (!current() || context.store.getState().attemptValidation?.submitId !== submitId) {
+		publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+		return { ok: false, code: "stale" };
+	}
+	let asyncResult: AsyncValidationResult;
+	try {
+		asyncResult = await coordinator.validateCandidate({ data, uiState }, revision, guard.signal, {
+			...(stage === undefined ? {} : { stage }),
+			...(context.submitContext ? { context: context.submitContext } : {}),
+		});
+	} catch {
+		asyncResult = { status: "aborted", issues: [] };
+	}
+	if (!current() || asyncResult.status !== "completed") {
+		publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+		return { ok: false, code: asyncResult.status === "aborted" ? "aborted" : "stale" };
+	}
+	publish(context, (draft) => (current() ? completeAttempt(draft, submitId, revision, asyncResult, sync) : draft));
+	const attempt = context.store.getState().attemptValidation;
+	if (!current() || attempt?.submitId !== submitId || attempt.status === "running") {
+		publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+		return { ok: false, code: "stale" };
+	}
+	return attempt.status === "failed"
+		? { ok: false, code: "validation_failed", fieldIssues: attempt.issues }
+		: { ok: true, issues: attempt.issues };
+}
+
+/** Internal C1 only: never evaluates retained-issue eligibility or calls a submit handler. */
+export async function validateGuardedSubmitCandidate(
+	context: PipelineContext,
+	guard: SubmitPreparationGuard,
+	adapter: SubmitDefinitionAdapter,
+	coordinator: ValidationCoordinator<unknown, unknown>,
+	submitId: string,
+	transforms: readonly CandidateEgress[] = [],
+): Promise<Outcome> {
+	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms);
+	if (!prepared.ok) return prepared;
+	const { data, uiState } = prepared.candidate;
+	const revision = prepared.revision;
+	const retained = context.store.getState();
+	const retainedBaseline = freeze(clone({ data: retained.data, uiState: retained.uiState }).value);
+	const stage = retained.meta.stage;
+	const state = ownedValidationState(data, uiState, stage);
+	const baseline = freeze(clone({ data, uiState }).value);
+	const current = () =>
+		!guard.signal.aborted &&
+		guard.isActive?.() !== false &&
+		guard.revision() === revision &&
+		coordinator.revision() === revision &&
+		unchanged({ data: context.store.getState().data, uiState: context.store.getState().uiState }, retainedBaseline) &&
+		unchanged({ data, uiState }, baseline);
+	const middleware = (context.options.middleware ?? []) as readonly Middleware[];
+	if (!current() || !notify(middleware, "beforeValidate", context.action, state, [], current))
+		return { ok: false, code: "stale" };
+	let validators: readonly ValidatorFn[];
+	try {
+		validators = normalizeValidators(context.options);
+	} catch {
+		return { ok: false, code: "unsafe_candidate" };
+	}
+	const sync = syncValidation(validators, data, uiState, stage, context.submitContext, current);
+	if (!sync || !current()) return { ok: false, code: "unsafe_candidate" };
+	if (!notify(middleware, "afterValidate", context.action, state, sync, current)) return { ok: false, code: "stale" };
+	if (!current()) return { ok: false, code: "stale" };
+	return completeValidation(context, guard, coordinator, submitId, revision, data, uiState, stage, current, sync);
+}
