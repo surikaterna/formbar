@@ -15,6 +15,7 @@ export {
 	zod3Provider,
 } from "@scheman/core";
 export { zod4Provider } from "./providers/zod4.js";
+export type { DefinitionFieldValidator } from "@formbar/declarative";
 export { jsonSchemaProvider } from "./providers/json-schema-provider.js";
 export { createJsonSchemaValidator, preflightJsonSchema } from "./json-schema-validator.js";
 export type {

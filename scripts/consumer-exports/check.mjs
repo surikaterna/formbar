@@ -188,6 +188,11 @@ try {
 		const lifecycleFixture = resolve(directory, "strict-lifecycle.mjs");
 		writeFileSync(lifecycleFixture, readFileSync(resolve(fixtures, "strict-lifecycle.mjs")));
 		console.log(execFileSync(process.execPath, [lifecycleFixture], { cwd: directory, encoding: "utf8" }).trim());
+		for (const format of ["mjs", "cjs"]) {
+			const scopedFixture = resolve(directory, `scoped-sync.${format}`);
+			writeFileSync(scopedFixture, readFileSync(resolve(fixtures, `scoped-sync.${format}`)));
+			console.log(execFileSync(process.execPath, [scopedFixture], { cwd: directory, encoding: "utf8" }).trim());
+		}
 	}
 	console.log(`CONSUMER_PACK source=${root} native_tarballs=${tarballs.length} temporary=${temporary}`);
 } finally {

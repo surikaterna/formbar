@@ -23,6 +23,7 @@ import { executePipeline } from "./pipeline.js";
 import { deactivateFormResources, initializeFormResources, validatePluginIds } from "./plugin-initializer.js";
 import type { FormPlugin } from "./plugin-types.js";
 import { createResetSignal } from "./reset-signal.js";
+import { invalidateScopedSync, runScopedSync } from "./scoped-sync.js";
 import { createFormStateCapture } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { FormStore } from "./store.js";
@@ -97,14 +98,12 @@ export class FormRuntime<TData, TUi> {
 	build(): FormApi<TData, TUi> {
 		return this.api;
 	}
-
 	private get activePlugins(): readonly FormPlugin<TData, TUi>[] {
 		return this.active ? this.plugins : [];
 	}
 	private get activeMiddlewares(): readonly Middleware[] {
 		return this.active ? (this.options.middleware ?? []) : [];
 	}
-	/** Commit-scoped lifecycle for React; imperative forms remain eagerly initialized. */
 	activate(): void {
 		if (this.disposal.isDisposed() || this.active || this.deactivating) return;
 		this.active = true;
@@ -118,6 +117,7 @@ export class FormRuntime<TData, TUi> {
 
 	deactivate(): void {
 		if (!this.deferred || !this.active || this.deactivating) return;
+		invalidateScopedSync(this.api);
 		this.active = false;
 		this.deactivating = true;
 		try {
@@ -237,6 +237,7 @@ export class FormRuntime<TData, TUi> {
 			}
 			allIssues.push(...result);
 		}
+		allIssues.push(...runScopedSync(this.api, activeStage));
 		return allIssues;
 	};
 
@@ -379,7 +380,6 @@ export class FormRuntime<TData, TUi> {
 			permanent();
 		};
 	}
-
 	private initialize(): void {
 		initializeFormResources({
 			plugins: this.plugins,

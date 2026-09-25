@@ -7,6 +7,7 @@ import type {
 } from "@formbar/declarative";
 import type {
 	CompileDefaultFormDefinitionOptions,
+	DefinitionFieldValidator,
 	DescriptorDocument,
 	DescriptorSide,
 	LimitOptions,
@@ -31,6 +32,7 @@ interface SchemaPreparationOptions {
 export type UseSchemaFormOptions<TData, TUi> = Omit<UseFormOptions<TData, TUi>, "schema" | "validators"> &
 	SchemaPreparationOptions & {
 		readonly validators?: readonly SchemaValidator<TData, TUi>[];
+		readonly fieldValidators?: readonly DefinitionFieldValidator<TData, TUi>[];
 	};
 
 export interface SchemaPreparationWarning {
@@ -59,11 +61,14 @@ export function useSchemaForm<TData, TUi>(
 	const validators = [...(sourceValidator ? [sourceValidator] : []), ...prepared.validators];
 	const baseOptions = formOptions(options);
 	const initialData = mergeInitialData(initial.defaults, baseOptions.initialData);
-	const form = useForm<TData, TUi>({
-		...baseOptions,
-		...(Object.keys(initial.defaults).length > 0 ? { initialData: initialData as TData } : {}),
-		...(validators.length > 0 ? { validators } : {}),
-	});
+	const form = useForm<TData, TUi>(
+		{
+			...baseOptions,
+			...(Object.keys(initial.defaults).length > 0 ? { initialData: initialData as TData } : {}),
+			...(validators.length > 0 ? { validators } : {}),
+		},
+		prepared.createDeferredForm,
+	);
 	return Object.freeze({
 		form,
 		descriptors: prepared.descriptors,
@@ -86,6 +91,7 @@ function usePreparedSchema<TData, TUi>(schema: unknown, options: UseSchemaFormOp
 				...(options.definition ? { definition: options.definition } : {}),
 				...(options.generation ? { generation: options.generation } : {}),
 				...(options.validators ? { validators: options.validators } : {}),
+				...(options.fieldValidators ? { fieldValidators: options.fieldValidators } : {}),
 			}),
 		[
 			schema,
@@ -96,6 +102,7 @@ function usePreparedSchema<TData, TUi>(schema: unknown, options: UseSchemaFormOp
 			options.definition,
 			options.generation,
 			options.validators,
+			options.fieldValidators,
 		],
 	);
 }
@@ -109,6 +116,7 @@ function formOptions<TData, TUi>(options: UseSchemaFormOptions<TData, TUi>): Use
 		definition: _definition,
 		generation: _generation,
 		validators: _validators,
+		fieldValidators: _fieldValidators,
 		...form
 	} = options;
 	return form;
