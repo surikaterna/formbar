@@ -14,6 +14,7 @@ export interface DefinitionFieldValidator<TData, TUi> {
 		readonly field: { readonly instance: RuntimeNodeInstance; readonly binding: AbsoluteBinding };
 		readonly stage?: string;
 		readonly context?: SubmitContext;
+		readonly signal?: AbortSignal;
 	}) => readonly ScopedFieldIssueInput[];
 }
 
@@ -80,6 +81,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 								field: { instance: owner.instance, binding: owner.binding },
 								...(input.stage === undefined ? {} : { stage: input.stage }),
 								...(input.context ? { context: input.context } : {}),
+								...(input.signal ? { signal: input.signal } : {}),
 							}),
 					});
 				}),

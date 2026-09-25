@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { prepareScopedSyncHost } from "../../../declarative/src/scoped-sync-host.js";
+import { validateFormDefinition } from "../../../declarative/src/validators/definition.js";
 import { attemptCanSubmit, rebaseAttemptIssues, renderableIssues } from "../attempt-issues.js";
 import type { Middleware, ValidatorFn } from "../contracts.js";
 import { createForm } from "../create-form.js";
@@ -102,6 +104,83 @@ function fixture(
 }
 
 describe("internal final candidate validator orchestration", () => {
+	it("forwards final candidate cancellation to a prepared authored definition host on the same form", async () => {
+		const f = fixture([], [], [], true);
+		const prepared = validateFormDefinition({
+			version: 1,
+			id: "authored",
+			root: { type: "field", id: "included", widget: "text", binding: { namespace: "data", segments: ["included"] } },
+		});
+		if (!prepared.ok) throw new Error("Invalid authored definition");
+		const observed: unknown[] = [];
+		registerScopedSync(
+			f.form,
+			prepareScopedSyncHost(prepared.value, [
+				{
+					fieldId: "included",
+					validate: (input) => {
+						observed.push(input);
+						return [{ code: "scoped", message: "scoped", severity: "error" }];
+					},
+				},
+			]),
+		);
+		const result = await validateGuardedSubmitCandidate(
+			f.context,
+			f.guard,
+			f.adapter,
+			f.coordinator,
+			"attempt",
+			[(value) => ({ ...(value as object), included: "Grace" })],
+			f.form,
+		);
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+		expect(observed).toHaveLength(1);
+		expect(observed[0]).toMatchObject({
+			data: { included: "Grace" },
+			uiState: { tab: 1 },
+			context: { requestId: "candidate", at: "now" },
+		});
+		expect((observed[0] as { signal?: AbortSignal }).signal).toBe(f.controller.signal);
+		expect(f.store.getState().attemptValidation?.issues[0]?.code).toBe("scoped");
+		f.controller.abort();
+		expect((observed[0] as { signal: AbortSignal }).signal.aborted).toBe(true);
+		f.form.dispose();
+		f.coordinator.dispose();
+	});
+	it("consumes an invalid scoped rejected Promise without unhandledRejection", async () => {
+		const f = fixture([], [], [], true);
+		registerScopedSync(f.form, {
+			instances: () => ({
+				current: () => true,
+				fields: [
+					{
+						fieldId: "included",
+						instanceKey: "included",
+						binding: { namespace: "data", segments: ["included"] },
+						validate: (() => Promise.reject(new Error("invalid async scoped result"))) as never,
+					},
+				],
+			}),
+		});
+		const unhandled: unknown[] = [];
+		const onUnhandled = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", onUnhandled);
+		try {
+			expect(
+				await validateGuardedSubmitCandidate(f.context, f.guard, f.adapter, f.coordinator, "attempt", [], f.form),
+			).toMatchObject({
+				ok: false,
+				code: "unsafe_candidate",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(unhandled).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+			f.form.dispose();
+			f.coordinator.dispose();
+		}
+	});
 	it("runs bound scoped sync with legacy on final bytes and retains only the original certificate", async () => {
 		const seen: unknown[] = [];
 		const f = fixture(

@@ -144,7 +144,12 @@ export function runScopedSync<TData, TUi>(
 			...(options?.context ? { context: options.context } : {}),
 			...(options?.signal ? { signal: options.signal } : {}),
 		});
-		if (!Array.isArray(proposed) || !current()) throw new Error("Invalid scoped field result");
+		if (!Array.isArray(proposed)) {
+			if (proposed !== null && (typeof proposed === "object" || typeof proposed === "function"))
+				Promise.resolve(proposed).then(undefined, () => {});
+			throw new Error("Invalid scoped field result");
+		}
+		if (!current()) throw new Error("Invalid scoped field result");
 		const emit = createIssueEmission({
 			fieldId: field.fieldId,
 			instanceKey: field.instanceKey,
