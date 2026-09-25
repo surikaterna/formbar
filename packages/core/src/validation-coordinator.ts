@@ -95,6 +95,7 @@ class ValidationRuntime<TData, TUi> {
 	private readonly active = new Set<RunToken>();
 	private readonly generations = new Map<string, number>();
 	private foreground: RunToken | undefined;
+	private foregroundGeneration = 0;
 	private currentRevision = 0;
 	private lifecycle = 0;
 	private disposed = false;
@@ -122,6 +123,14 @@ class ValidationRuntime<TData, TUi> {
 			if (this.generations.get(id) !== generation) return false;
 		}
 		return token.kind === "foreground" ? this.foreground === token : [...this.automatic.values()].includes(token);
+	}
+	private isSettledCurrent(token: RunToken, generation: number): boolean {
+		if (this.foregroundGeneration !== generation || token.cancellation) return false;
+		if (token.lifecycle !== this.lifecycle || token.revision !== this.currentRevision) return false;
+		for (const [id, version] of token.validatorGenerations) {
+			if (this.generations.get(id) !== version) return false;
+		}
+		return true;
 	}
 	private desiredPaths(): Set<string> {
 		return new Set([...this.active].flatMap((token) => token.paths.map(fieldMetaKey)));
@@ -252,6 +261,7 @@ class ValidationRuntime<TData, TUi> {
 	}
 
 	private startForeground(selected: readonly NormalizedValidator<TData, TUi>[], paths: readonly AbsoluteDataPath[]) {
+		this.foregroundGeneration++;
 		if (this.foreground) this.cancel(this.foreground, "superseded");
 		const tokenGenerations = new Map<string, number>();
 		for (const validator of selected) {
@@ -329,9 +339,12 @@ class ValidationRuntime<TData, TUi> {
 		const issues = normalizeIssues(outcome.flat());
 		if (!candidate) this.replaceIssues(token.validatorIds, issues);
 		const valid = semanticCurrent() && this.isCurrent(token);
+		const generation = this.foregroundGeneration;
 		this.detach(token);
 		this.projectValidating();
-		return valid && semanticCurrent() ? { status: "completed", issues } : { status: "superseded", issues: [] };
+		return valid && this.isSettledCurrent(token, generation) && semanticCurrent()
+			? { status: "completed", issues }
+			: { status: "superseded", issues: [] };
 	}
 
 	private rescheduleUnrelated(selectedIds: ReadonlySet<string>): void {

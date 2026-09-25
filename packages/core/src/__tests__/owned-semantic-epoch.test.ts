@@ -50,6 +50,63 @@ test("full-draft owned async validation retains both certified originals after v
 	form.dispose();
 });
 
+test("foreground started during validating:false supersedes the completed publication without replacing newer issues", async () => {
+	const originals: ValidationIssue[] = [];
+	let calls = 0;
+	let finishSecond!: (issues: readonly ValidationIssue[]) => void;
+	const secondIssues = new Promise<readonly ValidationIssue[]>((resolve) => {
+		finishSecond = resolve;
+	});
+	const emit = (code: string) =>
+		createIssueEmission({
+			fieldId: "value",
+			instanceKey: "value/0",
+			binding: { namespace: "data", segments: ["value"] },
+			revision: 1,
+			run: {},
+			current: () => true,
+		})({ code, message: code, severity: "error" });
+	const form = createForm({
+		initialData: { value: 0 },
+		ownedScheduling: true,
+		asyncValidators: [
+			{
+				id: "value",
+				fields: ["value"],
+				validate: async () => {
+					calls++;
+					if (calls === 2) return secondIssues;
+					const original = emit("FIRST");
+					originals.push(original);
+					return [original];
+				},
+			},
+		],
+	});
+	let newer: ReturnType<typeof form.validateAsync> | undefined;
+	const notices = vi.fn();
+	form.subscribe((state) => {
+		notices(state);
+		if (!state.meta.validation.validating && !newer) newer = form.validateAsync();
+	});
+	const first = form.validateAsync();
+	expect(await first).toEqual({ status: "superseded", issues: [] });
+	expect(originals).toHaveLength(1);
+	expect(form.getState().issues[0]).toBe(originals[0]);
+	expect(issueEmissionId(originals[0] as ValidationIssue)).toBeDefined();
+	expect(newer).toBeDefined();
+	expect(form.getState().meta.validation.validating).toBe(true);
+	const second = emit("SECOND");
+	finishSecond([second]);
+	expect(await newer).toEqual({ status: "completed", issues: [second] });
+	expect(form.getState().issues).toEqual([second]);
+	expect(form.getState().issues[0]).toBe(second);
+	expect(form.getState().meta.validation.validating).toBe(false);
+	expect(calls).toBe(2);
+	expect(notices).toHaveBeenCalledTimes(6);
+	form.dispose();
+});
+
 test("candidate validation settles flags without replacing retained certified draft issues", async () => {
 	const store = new FormStore(
 		{
