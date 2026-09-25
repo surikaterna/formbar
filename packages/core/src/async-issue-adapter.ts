@@ -1,12 +1,26 @@
 import { normalizeDataPath } from "./field-policy.js";
 import type { AbsoluteDataPath } from "./field-policy.js";
+import { issueEmissionId } from "./issue-provenance.js";
 import type { ValidationIssue } from "./state.js";
 
-export function canonicalizeIssue(issue: ValidationIssue, validatorId: string): ValidationIssue {
+export function canonicalizeIssue(
+	issue: ValidationIssue,
+	validatorId: string,
+	preserveCertified = false,
+): ValidationIssue {
 	const path =
 		issue.path.namespace === "data" && issue.path.segments.length > 0
 			? normalizeDataPath({ namespace: "data", segments: issue.path.segments })
 			: issue.path;
+	if (
+		preserveCertified &&
+		issueEmissionId(issue) !== undefined &&
+		issue.source.origin === "function-validator" &&
+		issue.source.validatorId === validatorId &&
+		path.segments.length === issue.path.segments.length &&
+		path.segments.every((segment, index) => segment === issue.path.segments[index])
+	)
+		return issue;
 	return {
 		...issue,
 		path: { ...issue.path, ...path },

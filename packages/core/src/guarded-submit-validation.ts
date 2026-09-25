@@ -6,6 +6,8 @@ import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
 import { runScopedSync } from "./scoped-sync.js";
 import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
+import type { OwnedMetadata } from "./store-metadata.js";
+import { publishOwnedMetadata } from "./store.js";
 import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
 import { clone, freeze, unchanged } from "./submit-candidate-safety.js";
 import type { CandidateEgress } from "./submit-candidate-safety.js";
@@ -20,11 +22,22 @@ type Outcome =
 
 function publish(
 	context: PipelineContext,
+	change: OwnedMetadata,
 	update: (state: FormState<unknown, unknown>) => FormState<unknown, unknown>,
 ) {
+	if (context.store.isOwnedSchedulingMode()) {
+		publishOwnedMetadata(context.store, change);
+		return;
+	}
 	const tx = context.store.beginTransaction();
 	tx.mutate(update);
 	context.store.commitTransaction(tx);
+}
+
+function clearPublication(context: PipelineContext, submitId: string): void {
+	publish(context, { kind: "clearAttempt", submitId }, (draft) =>
+		draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft,
+	);
 }
 
 function rejectSyncReturn(result: unknown): boolean {
@@ -143,9 +156,9 @@ async function completeValidation(
 	current: () => boolean,
 	sync: readonly ValidationIssue[],
 ): Promise<Outcome> {
-	publish(context, (draft) => beginAttempt(draft, submitId, revision));
+	publish(context, { kind: "beginAttempt", submitId, revision }, (draft) => beginAttempt(draft, submitId, revision));
 	if (!current() || context.store.getState().attemptValidation?.submitId !== submitId) {
-		publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+		clearPublication(context, submitId);
 		return { ok: false, code: "stale" };
 	}
 	let asyncResult: AsyncValidationResult;
@@ -156,19 +169,22 @@ async function completeValidation(
 		});
 	} catch (error) {
 		if (error instanceof Error && error.message === "ISSUE_ONLY_UNSUPPORTED_STATE") {
-			publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+			clearPublication(context, submitId);
 			return { ok: false, code: "unsafe_candidate" };
 		}
 		asyncResult = { status: "aborted", issues: [] };
 	}
 	if (!current() || asyncResult.status !== "completed") {
-		publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+		clearPublication(context, submitId);
 		return { ok: false, code: asyncResult.status === "aborted" ? "aborted" : "stale" };
 	}
-	publish(context, (draft) => (current() ? completeAttempt(draft, submitId, revision, asyncResult, sync) : draft));
+	if (current())
+		publish(context, { kind: "completeAttempt", submitId, revision, result: asyncResult, syncIssues: sync }, (draft) =>
+			completeAttempt(draft, submitId, revision, asyncResult, sync),
+		);
 	const attempt = context.store.getState().attemptValidation;
 	if (!current() || attempt?.submitId !== submitId || attempt.status === "running") {
-		publish(context, (draft) => (draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft));
+		clearPublication(context, submitId);
 		return { ok: false, code: "stale" };
 	}
 	return attempt.status === "failed"

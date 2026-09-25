@@ -16,6 +16,11 @@ interface Certificate {
 const certificates = new WeakMap<ValidationIssue, Certificate>();
 let nextId = 0;
 
+/** Origin matching may evict an expired producer emission without treating it as live. */
+export function wasIssueEmission(issue: ValidationIssue): boolean {
+	return certificates.has(issue);
+}
+
 function safeSegments(segments: readonly CanonicalSegment[]): boolean {
 	return segments.every((segment) =>
 		typeof segment === "number"

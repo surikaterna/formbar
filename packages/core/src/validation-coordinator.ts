@@ -1,18 +1,17 @@
 import { automaticFailureIssue, canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
+import { type NormalizedValidator, normalizeAsyncValidators } from "./async-validator-normalization.js";
 import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import { ownIssues } from "./issue-ownership.js";
-import type { FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
+import { ownedSemanticGuard } from "./owned-semantic-guard.js";
+import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
+import { snapshotOwnership } from "./store.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
+import { projectValidationStatus } from "./validation-status-projection.js";
 import { normalizeIssues } from "./validation.js";
 
 const DEFAULT_DEBOUNCE_MS = 300;
 type Cancellation = "superseded" | "aborted";
-
-interface NormalizedValidator<TData, TUi> {
-	readonly config: AsyncValidatorConfig<TData, TUi>;
-	readonly fields: readonly AbsoluteDataPath[];
-}
 
 interface RunToken {
 	readonly kind: "automatic" | "foreground";
@@ -23,6 +22,7 @@ interface RunToken {
 	readonly paths: readonly AbsoluteDataPath[];
 	readonly controller: AbortController;
 	readonly cancelled: Promise<Cancellation>;
+	semanticCurrent?: () => boolean;
 	resolveCancellation(reason: Cancellation): void;
 	cancellation?: Cancellation;
 	timer?: ReturnType<typeof setTimeout> | undefined;
@@ -54,21 +54,14 @@ interface CoordinatorDeps<TData, TUi> {
 	readonly validatorTimeout?: number;
 	readonly getState: () => FormState<TData, TUi>;
 	readonly updateState: (updater: (state: FormState<TData, TUi>) => FormState<TData, TUi>) => void;
+	readonly publishValidationStatus?: (paths: ReadonlySet<string>, validating: boolean) => void;
+	readonly replaceAsyncIssues?: (ids: ReadonlySet<string>, issues: readonly ValidationIssue[]) => void;
 }
 
 function overlaps(a: AbsoluteDataPath, b: AbsoluteDataPath): boolean {
 	const length = Math.min(a.segments.length, b.segments.length);
 	for (let index = 0; index < length; index++) if (a.segments[index] !== b.segments[index]) return false;
 	return true;
-}
-
-function normalizeValidators<TData, TUi>(configs: readonly AsyncValidatorConfig<TData, TUi>[]) {
-	const ids = new Set<string>();
-	return configs.map((config) => {
-		if (!config.id || ids.has(config.id)) throw new Error(`Async validator id must be unique: "${config.id}"`);
-		ids.add(config.id);
-		return { config, fields: Object.freeze((config.fields ?? []).map(normalizeDataPath)) };
-	});
 }
 
 function createToken(
@@ -102,11 +95,12 @@ class ValidationRuntime<TData, TUi> {
 	private readonly active = new Set<RunToken>();
 	private readonly generations = new Map<string, number>();
 	private foreground: RunToken | undefined;
+	private foregroundGeneration = 0;
 	private currentRevision = 0;
 	private lifecycle = 0;
 	private disposed = false;
 	constructor(private readonly deps: CoordinatorDeps<TData, TUi>) {
-		this.validators = normalizeValidators(deps.validators);
+		this.validators = normalizeAsyncValidators(deps.validators);
 	}
 	api(): ValidationCoordinator<TData, TUi> {
 		return {
@@ -124,39 +118,25 @@ class ValidationRuntime<TData, TUi> {
 	private isCurrent(token: RunToken): boolean {
 		if (token.cancellation || token.revision !== this.currentRevision || token.lifecycle !== this.lifecycle)
 			return false;
+		if (token.semanticCurrent && !token.semanticCurrent()) return false;
 		for (const [id, generation] of token.validatorGenerations) {
 			if (this.generations.get(id) !== generation) return false;
 		}
 		return token.kind === "foreground" ? this.foreground === token : [...this.automatic.values()].includes(token);
 	}
+	private isSettledCurrent(token: RunToken, generation: number): boolean {
+		if (this.foregroundGeneration !== generation || token.cancellation) return false;
+		if (token.lifecycle !== this.lifecycle || token.revision !== this.currentRevision) return false;
+		for (const [id, version] of token.validatorGenerations) {
+			if (this.generations.get(id) !== version) return false;
+		}
+		return true;
+	}
 	private desiredPaths(): Set<string> {
 		return new Set([...this.active].flatMap((token) => token.paths.map(fieldMetaKey)));
 	}
-	private projectionChanged(paths: ReadonlySet<string>): boolean {
-		const current = this.deps.getState();
-		if (current.meta.validation.validating !== this.active.size > 0) return true;
-		if ([...paths].some((key) => !(key in current.fieldMeta))) return true;
-		return Object.entries(current.fieldMeta).some(([key, meta]) => meta.isValidating !== paths.has(key));
-	}
 	private projectValidating(): void {
-		const paths = this.desiredPaths();
-		if (!this.projectionChanged(paths)) return;
-		this.deps.updateState((state) => {
-			const fieldMeta = { ...state.fieldMeta } as Record<string, FieldMetaEntry>;
-			for (const [key, meta] of Object.entries(fieldMeta)) {
-				const validating = paths.has(key);
-				if (meta.isValidating !== validating) fieldMeta[key] = { ...meta, isValidating: validating };
-				paths.delete(key);
-			}
-			for (const key of paths) {
-				fieldMeta[key] = { touched: false, dirty: false, listenerTriggered: false, isValidating: true };
-			}
-			return {
-				...state,
-				fieldMeta,
-				meta: { ...state.meta, validation: { ...state.meta.validation, validating: this.active.size > 0 } },
-			};
-		});
+		projectValidationStatus(this.deps, this.desiredPaths(), this.active.size > 0);
 	}
 	private detach(token: RunToken): void {
 		this.active.delete(token);
@@ -182,6 +162,10 @@ class ValidationRuntime<TData, TUi> {
 	}
 
 	private replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[]): void {
+		if (this.deps.replaceAsyncIssues) {
+			this.deps.replaceAsyncIssues(ids, issues);
+			return;
+		}
 		this.deps.updateState((state) => ({
 			...state,
 			issues: normalizeIssues([
@@ -206,7 +190,8 @@ class ValidationRuntime<TData, TUi> {
 			if (!this.isCurrent(token)) return [];
 			return [exceptionIssue(validator, error)];
 		}
-		return ownIssues(issues).map((issue) => canonicalizeIssue(issue, validator.config.id));
+		const owned = snapshotOwnership(this.deps.getState())?.owned === true;
+		return ownIssues(issues).map((issue) => canonicalizeIssue(issue, validator.config.id, owned));
 	}
 
 	private async runAutomatic(token: RunToken, validator: NormalizedValidator<TData, TUi>): Promise<void> {
@@ -220,7 +205,7 @@ class ValidationRuntime<TData, TUi> {
 				this.replaceIssues(token.validatorIds, ownIssues([automaticFailureIssue(validator)]));
 			}
 		} finally {
-			if (this.isCurrent(token)) {
+			if (this.active.has(token)) {
 				this.detach(token);
 				this.projectValidating();
 			}
@@ -253,6 +238,7 @@ class ValidationRuntime<TData, TUi> {
 			validator.fields.length > 0 ? validator.fields : [triggerPath],
 		);
 		this.automatic.set(id, token);
+		token.semanticCurrent = ownedSemanticGuard(this.deps.getState);
 		this.automaticPaths.set(id, triggerPath);
 		this.active.add(token);
 		token.timer = setTimeout(() => {
@@ -275,6 +261,7 @@ class ValidationRuntime<TData, TUi> {
 	}
 
 	private startForeground(selected: readonly NormalizedValidator<TData, TUi>[], paths: readonly AbsoluteDataPath[]) {
+		this.foregroundGeneration++;
 		if (this.foreground) this.cancel(this.foreground, "superseded");
 		const tokenGenerations = new Map<string, number>();
 		for (const validator of selected) {
@@ -306,6 +293,13 @@ class ValidationRuntime<TData, TUi> {
 			signal?.removeEventListener("abort", abort);
 		}
 	}
+	private staleForeground(token: RunToken): AsyncValidationResult {
+		if (this.active.has(token)) {
+			this.cancel(token, "superseded");
+			this.projectValidating();
+		}
+		return { status: token.cancellation ?? "superseded", issues: [] };
+	}
 
 	private async runForeground(
 		selected: readonly NormalizedValidator<TData, TUi>[],
@@ -321,6 +315,7 @@ class ValidationRuntime<TData, TUi> {
 		if (candidate && this.disposed) return { status: "aborted", issues: [] };
 		if (candidate && expectedRevision !== this.currentRevision) return { status: "superseded", issues: [] };
 		if (selected.length === 0) return { status: "completed", issues: [] };
+		const semanticCurrent = ownedSemanticGuard(this.deps.getState);
 		const paths = [...selected.flatMap((validator) => validator.fields), ...(scope ? [scope] : [])];
 		const token = this.startForeground(selected, paths);
 		if (expectedRevision !== this.currentRevision) this.cancel(token, "superseded");
@@ -330,6 +325,7 @@ class ValidationRuntime<TData, TUi> {
 		};
 		signal?.addEventListener("abort", abort, { once: true });
 		this.projectValidating();
+		if (!semanticCurrent()) this.cancel(token, "superseded");
 		if (candidate && !token.cancellation) {
 			const timeout = this.deps.validatorTimeout ?? DEFAULT_RUNTIME_CONSTRAINTS.validatorTimeout;
 			token.timer = setTimeout(abort, Math.max(0, timeout));
@@ -339,12 +335,17 @@ class ValidationRuntime<TData, TUi> {
 		);
 		const outcome = await this.awaitForeground(validation, token, signal, abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
-		if (!this.isCurrent(token)) return { status: token.cancellation ?? "superseded", issues: [] };
+		if (!this.isCurrent(token) || !semanticCurrent()) return this.staleForeground(token);
 		const issues = normalizeIssues(outcome.flat());
 		if (!candidate) this.replaceIssues(token.validatorIds, issues);
+		const valid = !signal?.aborted && semanticCurrent() && this.isCurrent(token);
+		const generation = this.foregroundGeneration;
 		this.detach(token);
 		this.projectValidating();
-		return { status: "completed", issues };
+		if (signal?.aborted) return { status: "aborted", issues: [] };
+		return valid && this.isSettledCurrent(token, generation) && semanticCurrent()
+			? { status: "completed", issues }
+			: { status: "superseded", issues: [] };
 	}
 
 	private rescheduleUnrelated(selectedIds: ReadonlySet<string>): void {

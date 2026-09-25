@@ -6,6 +6,7 @@ import { executePipeline } from "./pipeline.js";
 import type { FormPlugin } from "./plugin-types.js";
 import type { CreateFormOptions, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import type { FormStore } from "./store.js";
+import { publishOwnedMetadata } from "./store.js";
 import { applySubmitOutcome } from "./submit.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS, withTimeout } from "./timeout.js";
 import { type TransformDefinition, runTransforms } from "./transforms.js";
@@ -111,6 +112,10 @@ class SubmitRuntime<TData, TUi> {
 
 	private markRunning(run: ActiveSubmit): void {
 		const clock = this.deps.options.clock ?? (() => new Date().toISOString());
+		if (this.deps.store.isOwnedSchedulingMode()) {
+			publishOwnedMetadata(this.deps.store, { kind: "submitRunning", submitId: run.submitId, at: clock() });
+			return;
+		}
 		const tx = this.deps.store.beginTransaction();
 		tx.mutate((state) => ({
 			...state,
@@ -128,6 +133,19 @@ class SubmitRuntime<TData, TUi> {
 			return { ok: false, submitId: run.submitId, reason: "aborted", message: "Submission aborted" };
 		const canonical = { ...result, submitId: run.submitId };
 		const fieldErrors = canonical.fieldErrors ? normalizeFieldErrors(canonical.fieldErrors) : [];
+		if (this.deps.store.isOwnedSchedulingMode()) {
+			publishOwnedMetadata(this.deps.store, {
+				kind: "submitOutcome",
+				ok: canonical.ok,
+				submitId: run.submitId,
+				issues: commitIssues
+					? [...fieldErrors, ...(canonical.fieldIssues ?? []), ...(canonical.globalIssues ?? [])]
+					: [],
+			});
+			this.removeCallerListener(run);
+			this.active = undefined;
+			return canonical;
+		}
 		const tx = this.deps.store.beginTransaction();
 		tx.mutate((state) => ({
 			...state,
@@ -183,6 +201,10 @@ class SubmitRuntime<TData, TUi> {
 
 	private commitPluginIssues(issues: readonly ValidationIssue[]): readonly ValidationIssue[] {
 		if (issues.length === 0) return issues;
+		if (this.deps.store.isOwnedSchedulingMode()) {
+			publishOwnedMetadata(this.deps.store, { kind: "appendIssues", issues });
+			return issues;
+		}
 		const tx = this.deps.store.beginTransaction();
 		tx.mutate((draft) => ({ ...draft, issues: [...draft.issues, ...issues] }));
 		this.deps.store.commitTransaction(tx);
