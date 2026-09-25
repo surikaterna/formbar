@@ -9,6 +9,19 @@ import { normalizeIssues } from "./validation.js";
 
 export type StateListener<TData, TUi> = (state: FormState<TData, TUi>) => void;
 const issueOnly = Symbol("internal issue-only publication");
+const snapshotOwners = new WeakMap<
+	object,
+	{ readonly store: object; readonly write: number; readonly epoch: number; readonly failure: number }
+>();
+const disposedStores = new WeakSet<object>();
+
+/** Private provenance for captured state; never infer ownership from reference equality. */
+export function snapshotOwnership(
+	state: object,
+): { readonly store: object; readonly write: number; readonly epoch: number; readonly failure: number } | undefined {
+	const owner = snapshotOwners.get(state);
+	return owner && !disposedStores.has(owner.store) ? owner : undefined;
+}
 
 /** Internal host seam; deliberately absent from the public package entry. */
 export function publishIssueOnly<TData, TUi>(store: FormStore<TData, TUi>, issues: readonly ValidationIssue[]): void {
@@ -23,10 +36,14 @@ export class FormStore<TData, TUi> {
 	private _strategy: StateStrategy;
 	private _disposed = false;
 	private _owned = false;
+	private _write = 0;
+	private _epoch = 0;
+	private _failure = 0;
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy) {
 		this._state = this._ownStateIssues(initialState);
 		this._strategy = strategy ?? defaultStrategy;
+		this._stamp();
 	}
 
 	/** Return the current frozen state snapshot. */
@@ -61,12 +78,24 @@ export class FormStore<TData, TUi> {
 
 		this._state = rebaseAttemptIssues(nextState);
 		this._owned = false;
+		this._write++;
+		this._stamp();
 		onCommitted?.(this._state);
 		this._notifyListeners();
 	}
 
 	/** Explicit internal trusted-host issue-only publication; never falls back to a transaction. */
 	[issueOnly](issues: readonly ValidationIssue[]): void {
+		try {
+			this._publishIssues(issues);
+		} catch (error) {
+			this._failure++;
+			this._stamp();
+			throw error;
+		}
+	}
+
+	private _publishIssues(issues: readonly ValidationIssue[]): void {
 		if (this._disposed || this._activeTransaction || this._strategy !== defaultStrategy)
 			throw new Error("ISSUE_ONLY_UNSUPPORTED_STATE");
 		const incoming = ownIssues(issues);
@@ -77,8 +106,14 @@ export class FormStore<TData, TUi> {
 			Object.freeze(next.attemptValidation);
 		}
 		this._state = Object.freeze(next);
+		if (!this._owned) this._epoch++;
 		this._owned = true;
+		this._stamp();
 		this._notifyListeners();
+	}
+
+	private _stamp(): void {
+		snapshotOwners.set(this._state, { store: this, write: this._write, epoch: this._epoch, failure: this._failure });
 	}
 
 	private _ownStateIssues(state: FormState<TData, TUi>): FormState<TData, TUi> {
@@ -115,6 +150,7 @@ export class FormStore<TData, TUi> {
 	dispose(): void {
 		if (this._disposed) return;
 		this._disposed = true;
+		disposedStores.add(this);
 		this._listeners.clear();
 		if (this._activeTransaction && this._activeTransaction.status === "active") {
 			this._activeTransaction.rollback();
