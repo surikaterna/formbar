@@ -1,5 +1,11 @@
 # @formbar/declarative
 
+## 0.22.1
+
+### Patch Changes
+
+- 599f707: Bound concrete ownership overlap lookups during nested-row projections without changing fail-closed binding semantics.
+
 ## 0.22.0
 
 ### Minor Changes
