@@ -90,6 +90,23 @@ describe("internal issue-only ownership", () => {
 		expect(Object.isFrozen(data)).toBe(false);
 	});
 
+	test("symbol-keyed child cannot become a mutable published alias", () => {
+		const hidden = Symbol("hidden");
+		const data = { x: 1, [hidden]: { value: 1 } };
+		const s = store(data);
+		const before = s.getState();
+		const listener = vi.fn();
+		s.subscribe(listener);
+		expect(() => publishIssueOnly(s, [])).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
+		expect(s.getState()).toBe(before);
+		expect(Reflect.ownKeys(s.getState().data as object)).toContain(hidden);
+		expect(Object.isFrozen(data)).toBe(false);
+		expect(Object.isFrozen(data[hidden])).toBe(false);
+		data[hidden].value = 9;
+		expect((s.getState().data as typeof data)[hidden].value).toBe(9);
+		expect(listener).not.toHaveBeenCalled();
+	});
+
 	test("rejects mutable and copied issues and custom strategy", () => {
 		const s = store();
 		const original = issue();
