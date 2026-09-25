@@ -107,6 +107,53 @@ test("foreground started during validating:false supersedes the completed public
 	form.dispose();
 });
 
+test.each(["issues", "validating:false"] as const)(
+	"caller abort during %s publication does not complete owned foreground",
+	async (phase) => {
+		const controller = new AbortController();
+		const emit = createIssueEmission({
+			fieldId: "value",
+			instanceKey: "value/0",
+			binding: { namespace: "data", segments: ["value"] },
+			revision: 1,
+			run: {},
+			current: () => true,
+		});
+		const original = emit({ code: "ORIGINAL", message: "original", severity: "error" });
+		const form = createForm({
+			initialData: { value: 0 },
+			ownedScheduling: true,
+			asyncValidators: [{ id: "value", fields: ["value"], validate: async () => [original] }],
+		});
+		const notices = vi.fn();
+		const unhandled = vi.fn();
+		process.on("unhandledRejection", unhandled);
+		form.subscribe((state) => {
+			notices(state);
+			if (controller.signal.aborted) return;
+			if (phase === "issues" ? state.issues[0] === original : !state.meta.validation.validating) {
+				controller.abort();
+			}
+		});
+		try {
+			const result = await form.validateAsync(undefined, controller.signal);
+			expect(controller.signal.aborted).toBe(true);
+			expect(result).toEqual({ status: "aborted", issues: [] });
+			expect(form.getState().issues).toEqual([original]);
+			expect(form.getState().issues[0]).toBe(original);
+			expect(issueEmissionId(original)).toBeDefined();
+			expect(form.getState().meta.validation.validating).toBe(false);
+			expect(form.getState().fieldMeta.value?.isValidating).toBe(false);
+			expect(notices).toHaveBeenCalledTimes(3);
+			await Promise.resolve();
+			expect(unhandled).not.toHaveBeenCalled();
+		} finally {
+			process.off("unhandledRejection", unhandled);
+			form.dispose();
+		}
+	},
+);
+
 test("candidate validation settles flags without replacing retained certified draft issues", async () => {
 	const store = new FormStore(
 		{

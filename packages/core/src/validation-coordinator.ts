@@ -338,10 +338,11 @@ class ValidationRuntime<TData, TUi> {
 		if (!this.isCurrent(token) || !semanticCurrent()) return this.staleForeground(token);
 		const issues = normalizeIssues(outcome.flat());
 		if (!candidate) this.replaceIssues(token.validatorIds, issues);
-		const valid = semanticCurrent() && this.isCurrent(token);
+		const valid = !signal?.aborted && semanticCurrent() && this.isCurrent(token);
 		const generation = this.foregroundGeneration;
 		this.detach(token);
 		this.projectValidating();
+		if (signal?.aborted) return { status: "aborted", issues: [] };
 		return valid && this.isSettledCurrent(token, generation) && semanticCurrent()
 			? { status: "completed", issues }
 			: { status: "superseded", issues: [] };
