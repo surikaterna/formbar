@@ -26,3 +26,7 @@ function readPath(root: unknown, path: CanonicalPath): unknown {
 	}
 	return current;
 }
+
+export function readInitialValue<TData, TUi>(path: CanonicalPath, data: TData, uiState: TUi): unknown {
+	return readPath(path.namespace === "data" ? data : uiState, path);
+}

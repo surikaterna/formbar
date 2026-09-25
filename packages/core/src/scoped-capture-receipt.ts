@@ -26,18 +26,22 @@ export function scopedCaptureReceipt<TData, TUi>(
 }) => boolean {
 	const origin = capture.state;
 	const owner = snapshotOwnership(origin);
-	const baseline = witness(origin.data, origin.uiState, origin.fieldPolicy);
+	const baseline = owner?.owned ? undefined : witness(origin.data, origin.uiState, origin.fieldPolicy);
 	const stage = origin.meta.stage;
 	let acceptedEpoch = owner?.epoch;
 	return (state) => {
 		const now = snapshotOwnership(state);
 		if (!owner || !now || now.store !== owner.store || now.write !== owner.write || now.failure !== owner.failure)
 			return false;
+		if (now.owned && !owner.owned) return false;
+		if (owner.owned) {
+			return now.owned && now.epoch === owner.epoch && origin.meta.stage === stage && state.meta.stage === stage;
+		}
 		if (now.epoch !== acceptedEpoch) {
 			if (acceptedEpoch !== owner.epoch || now.epoch !== owner.epoch + 1) return false;
 		}
 		if (origin.meta.stage !== stage || state.meta.stage !== stage) return false;
-		if (!matches(baseline, origin.data, origin.uiState, origin.fieldPolicy)) return false;
+		if (!baseline || !matches(baseline, origin.data, origin.uiState, origin.fieldPolicy)) return false;
 		if (!matches(baseline, state.data, state.uiState, state.fieldPolicy)) return false;
 		acceptedEpoch = now.epoch;
 		return true;

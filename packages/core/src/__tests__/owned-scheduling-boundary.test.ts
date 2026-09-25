@@ -1,0 +1,180 @@
+import { describe, expect, test, vi } from "vitest";
+import { createDeferredForm, createForm } from "../create-form.js";
+import { activateOwnedSchedulingBoundary } from "../internal/scoped-sync.js";
+import { scopedCaptureReceipt } from "../scoped-capture-receipt.js";
+import type { FormState } from "../state.js";
+import { FormStore, ownStoreBeforeScheduling, publishIssueOnly, snapshotOwnership } from "../store.js";
+import { defaultStrategy } from "../transaction.js";
+
+function state(data: unknown, uiState: unknown): FormState<unknown, unknown> {
+	return { data, uiState, meta: { validation: {} }, fieldMeta: {}, fieldPolicy: [], issues: [] };
+}
+
+describe("#301 owned scheduling boundary", () => {
+	test("immediate opt-in detaches before a scheduling capture; prior snapshots and caller values stay writable", () => {
+		const caller = { rows: [{ name: "initial" }] };
+		const ui = { tab: "first" };
+		const form = createForm({ initialData: caller, initialUiState: ui });
+		const prior = form.getState();
+		const priorReceipt = scopedCaptureReceipt(form.captureState());
+		const listener = vi.fn();
+		let notifiedReceipt: ((state: typeof prior) => boolean) | undefined;
+		form.subscribe(() => {
+			notifiedReceipt = scopedCaptureReceipt(form.captureState());
+		});
+		form.subscribe(listener);
+		activateOwnedSchedulingBoundary(form);
+		const capture = form.captureState();
+		const current = scopedCaptureReceipt(capture);
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(listener).toHaveBeenCalledWith(capture.state);
+		expect(priorReceipt(capture.state)).toBe(false);
+		expect(notifiedReceipt?.(capture.state)).toBe(true);
+		expect(capture.state.data).not.toBe(prior.data);
+		expect(capture.state.uiState).not.toBe(prior.uiState);
+		expect(Object.isFrozen(capture.state.data)).toBe(true);
+		expect(snapshotOwnership(capture.state)?.owned).toBe(true);
+		caller.rows[0].name = "caller edit";
+		ui.tab = "caller edit";
+		(prior.data as typeof caller).rows[0].name = "prior edit";
+		(prior.uiState as typeof ui).tab = "prior edit";
+		expect(capture.state.data).toEqual({ rows: [{ name: "initial" }] });
+		expect(capture.state.uiState).toEqual({ tab: "first" });
+		expect(current(form.getState())).toBe(true);
+		activateOwnedSchedulingBoundary(form);
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(form.setValue("rows[0].name", "next")).toEqual({ ok: true });
+		expect(current(form.getState())).toBe(false);
+		expect(snapshotOwnership(form.getState())?.epoch).toBeGreaterThan(snapshotOwnership(capture.state)?.epoch);
+		const changed = scopedCaptureReceipt(form.captureState());
+		form.field("rows[0].name").handleBlur();
+		expect(form.field("rows[0].name").isTouched()).toBe(true);
+		expect(changed(form.getState())).toBe(false);
+	});
+
+	test("deferred attach publishes one owned snapshot before activation; many receipts avoid data reinspection", () => {
+		const runtime = createDeferredForm({ initialData: { rows: Array.from({ length: 100 }, (_, i) => ({ n: i })) } });
+		const { form } = runtime;
+		const before = form.getState();
+		let rowVisits = 0;
+		const ownKeys = Reflect.ownKeys;
+		const rows = (before.data as { rows: unknown[] }).rows;
+		const spy = vi.spyOn(Reflect, "ownKeys").mockImplementation((target) => {
+			if (target === rows) rowVisits++;
+			return ownKeys(target);
+		});
+		const subscriber = vi.fn();
+		form.subscribe(subscriber);
+		activateOwnedSchedulingBoundary(form);
+		expect(subscriber).toHaveBeenCalledTimes(1);
+		expect(form.getState()).not.toBe(before);
+		expect(rowVisits).toBe(1);
+		const receipts = Array.from({ length: 20 }, () => scopedCaptureReceipt(form.captureState()));
+		runtime.activate();
+		for (const receipt of receipts) expect(receipt(form.getState())).toBe(true);
+		expect(rowVisits).toBe(1);
+		spy.mockRestore();
+		form.reset();
+		for (const receipt of receipts) expect(receipt(form.getState())).toBe(false);
+		form.dispose();
+	});
+
+	test("issue-only publication shares the owned branches and epoch; a committed policy write invalidates captures", () => {
+		const store = new FormStore(state({ rows: [1] }, { tab: "a" }));
+		ownStoreBeforeScheduling(store);
+		const capture = { state: store.getState(), isFormDirty: () => false, isFieldDirty: () => false };
+		const receipt = scopedCaptureReceipt(capture);
+		const first = capture.state;
+		publishIssueOnly(store, []);
+		expect(store.getState().data).toBe(first.data);
+		expect(store.getState().uiState).toBe(first.uiState);
+		expect(store.getState().fieldPolicy).toBe(first.fieldPolicy);
+		expect(snapshotOwnership(store.getState())?.epoch).toBe(snapshotOwnership(first)?.epoch);
+		expect(receipt(store.getState())).toBe(true);
+		const tx = store.beginTransaction();
+		tx.mutate((draft) => ({ ...draft, meta: { ...draft.meta, stage: "discarded" } }));
+		store.rollbackTransaction(tx);
+		expect(receipt(store.getState())).toBe(true);
+		const next = store.beginTransaction();
+		const policy = [{ path: { namespace: "data" as const, segments: ["rows"] }, producerId: "owner", visible: false }];
+		next.mutate((draft) => ({ ...draft, fieldPolicy: policy }));
+		store.commitTransaction(next);
+		expect(receipt(store.getState())).toBe(false);
+		policy[0].visible = true;
+		expect(store.getState().fieldPolicy[0]?.visible).toBe(false);
+	});
+
+	test("unsupported activation and writes reject atomically without notification and recover", () => {
+		const malformed = new FormStore(state({ safe: true }, { x: 1 }));
+		const tx = malformed.beginTransaction();
+		tx.mutate((draft) => ({ ...draft, data: new Date() }));
+		malformed.commitTransaction(tx);
+		const prior = malformed.getState();
+		const notice = vi.fn();
+		malformed.subscribe(notice);
+		expect(() => ownStoreBeforeScheduling(malformed)).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
+		expect(malformed.getState()).toBe(prior);
+		expect(notice).not.toHaveBeenCalled();
+		const classForm = createForm({
+			initialData: {
+				opaque: new (class Payload {
+					value = 1;
+				})(),
+			},
+		});
+		const classState = classForm.getState();
+		const classNotice = vi.fn();
+		classForm.subscribe(classNotice);
+		expect(() => activateOwnedSchedulingBoundary(classForm)).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
+		expect(classForm.getState()).toBe(classState);
+		expect(classNotice).not.toHaveBeenCalled();
+		const form = createForm({ initialData: { ok: 1 } });
+		activateOwnedSchedulingBoundary(form);
+		const old = form.getState();
+		const callback = vi.fn();
+		form.subscribe(callback);
+		const bad = form.setValue("ok", new Date() as never);
+		expect(bad).toEqual({ ok: false, error: "ISSUE_ONLY_UNSUPPORTED_STATE" });
+		expect(form.getState()).toBe(old);
+		expect(callback).not.toHaveBeenCalled();
+		expect(() => form.reset({ data: { ok: new Date() } as never })).toThrow("ISSUE_ONLY_UNSUPPORTED_STATE");
+		expect(form.getState()).toBe(old);
+		expect(callback).not.toHaveBeenCalled();
+		expect(form.setValue("ok", 2)).toEqual({ ok: true });
+		expect(form.getState().data).toEqual({ ok: 2 });
+	});
+
+	test("custom strategy and malformed descriptor, sparse array, or plugin write never activate/publish", () => {
+		const custom = new FormStore(state({}, {}), { ...defaultStrategy });
+		const listener = vi.fn();
+		custom.subscribe(listener);
+		expect(() => ownStoreBeforeScheduling(custom)).toThrow("OWNED_STATE_UNSUPPORTED");
+		expect(listener).not.toHaveBeenCalled();
+		const form = createForm({ initialData: { ok: 1 } });
+		activateOwnedSchedulingBoundary(form);
+		const original = form.getState();
+		const notify = vi.fn();
+		form.subscribe(notify);
+		const getter = Object.defineProperty({}, "unsafe", { enumerable: true, get: () => 1 });
+		for (const value of [getter, Array(2), { nested: Number.NaN }, { constructor: 1 }]) {
+			expect(form.setValue("ok", value)).toEqual({ ok: false, error: "ISSUE_ONLY_UNSUPPORTED_STATE" });
+			expect(form.getState()).toBe(original);
+		}
+		expect(notify).not.toHaveBeenCalled();
+		const supplied = { nested: 2 };
+		expect(form.setValue("ok", supplied)).toEqual({ ok: true });
+		supplied.nested = 3;
+		expect(form.getState().data).toEqual({ ok: { nested: 2 } });
+		const pluginForm = createForm({
+			initialData: { ok: 1 },
+			plugins: [{ id: "unsafe", evaluate: () => ({ writes: [{ path: "bad", value: new Date(), mode: "set" }] }) }],
+		});
+		activateOwnedSchedulingBoundary(pluginForm);
+		const pluginState = pluginForm.getState();
+		const pluginNotice = vi.fn();
+		pluginForm.subscribe(pluginNotice);
+		expect(pluginForm.setValue("ok", 2)).toEqual({ ok: false, error: "ISSUE_ONLY_UNSUPPORTED_STATE" });
+		expect(pluginForm.getState()).toBe(pluginState);
+		expect(pluginNotice).not.toHaveBeenCalled();
+	});
+});

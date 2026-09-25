@@ -9,16 +9,29 @@ import { normalizeIssues } from "./validation.js";
 
 export type StateListener<TData, TUi> = (state: FormState<TData, TUi>) => void;
 const issueOnly = Symbol("internal issue-only publication");
+const enableOwnership = Symbol("internal nonissue ownership activation");
 const snapshotOwners = new WeakMap<
 	object,
-	{ readonly store: object; readonly write: number; readonly epoch: number; readonly failure: number }
+	{
+		readonly store: object;
+		readonly write: number;
+		readonly epoch: number;
+		readonly failure: number;
+		readonly owned: boolean;
+	}
 >();
 const disposedStores = new WeakSet<object>();
 
 /** Private provenance for captured state; never infer ownership from reference equality. */
-export function snapshotOwnership(
-	state: object,
-): { readonly store: object; readonly write: number; readonly epoch: number; readonly failure: number } | undefined {
+export function snapshotOwnership(state: object):
+	| {
+			readonly store: object;
+			readonly write: number;
+			readonly epoch: number;
+			readonly failure: number;
+			readonly owned: boolean;
+	  }
+	| undefined {
 	const owner = snapshotOwners.get(state);
 	return owner && !disposedStores.has(owner.store) ? owner : undefined;
 }
@@ -26,6 +39,11 @@ export function snapshotOwnership(
 /** Internal host seam; deliberately absent from the public package entry. */
 export function publishIssueOnly<TData, TUi>(store: FormStore<TData, TUi>, issues: readonly ValidationIssue[]): void {
 	store[issueOnly](issues);
+}
+
+/** Opt-in trusted-host boundary. A failed activation leaves the store and subscriptions untouched. */
+export function ownStoreBeforeScheduling<TData, TUi>(store: FormStore<TData, TUi>, invalidate?: () => void): void {
+	store[enableOwnership](invalidate);
 }
 
 /** Synchronous reactive store with transactional semantics — only one transaction active at a time. */
@@ -36,6 +54,7 @@ export class FormStore<TData, TUi> {
 	private _strategy: StateStrategy;
 	private _disposed = false;
 	private _owned = false;
+	private _ownedMode = false;
 	private _write = 0;
 	private _epoch = 0;
 	private _failure = 0;
@@ -46,9 +65,33 @@ export class FormStore<TData, TUi> {
 		this._stamp();
 	}
 
+	[enableOwnership](invalidate?: () => void): void {
+		if (this._disposed || this._activeTransaction || this._strategy !== defaultStrategy)
+			throw new Error("OWNED_STATE_UNSUPPORTED");
+		if (this._ownedMode) return;
+		const next = Object.freeze(ownNonIssueState(this._state));
+		this._state = next;
+		this._ownedMode = true;
+		this._owned = true;
+		this._epoch++;
+		this._stamp();
+		invalidate?.();
+		this._notifyListeners();
+	}
+
 	/** Return the current frozen state snapshot. */
 	getState(): FormState<TData, TUi> {
 		return this._state;
+	}
+
+	isOwnedSchedulingMode(): boolean {
+		return this._ownedMode;
+	}
+
+	/** Internal reset preflight: reject unsupported replacements before aborting pending work. */
+	preflightOwnedReplacement(data: TData, uiState: TUi): void {
+		if (!this._ownedMode) return;
+		ownNonIssueState({ ...this._state, data, uiState });
 	}
 
 	/** Clone current state into a mutable draft context. Only one transaction may be active at a time. */
@@ -66,9 +109,10 @@ export class FormStore<TData, TUi> {
 			throw new Error("Transaction does not belong to this store");
 		}
 		const committed = tx.dirty ? this._ownStateIssues(tx.draftState) : tx.draftState;
-		const nextState = structuredEqual(this._state.fieldPolicy, committed.fieldPolicy)
-			? { ...committed, fieldPolicy: this._state.fieldPolicy }
-			: committed;
+		const candidate = tx.dirty && this._ownedMode ? ownNonIssueState(committed) : committed;
+		const nextState = structuredEqual(this._state.fieldPolicy, candidate.fieldPolicy)
+			? { ...candidate, fieldPolicy: this._state.fieldPolicy }
+			: candidate;
 		tx.commit();
 		this._activeTransaction = null;
 
@@ -76,9 +120,15 @@ export class FormStore<TData, TUi> {
 			return;
 		}
 
-		this._state = rebaseAttemptIssues(nextState);
-		this._owned = false;
+		const rebased = rebaseAttemptIssues(nextState);
+		if (this._ownedMode && rebased.attemptValidation) {
+			Object.freeze(rebased.attemptValidation.renderableIssues);
+			Object.freeze(rebased.attemptValidation);
+		}
+		this._state = this._ownedMode ? Object.freeze(rebased) : rebased;
+		this._owned = this._ownedMode;
 		this._write++;
+		if (this._ownedMode) this._epoch++;
 		this._stamp();
 		onCommitted?.(this._state);
 		this._notifyListeners();
@@ -113,7 +163,13 @@ export class FormStore<TData, TUi> {
 	}
 
 	private _stamp(): void {
-		snapshotOwners.set(this._state, { store: this, write: this._write, epoch: this._epoch, failure: this._failure });
+		snapshotOwners.set(this._state, {
+			store: this,
+			write: this._write,
+			epoch: this._epoch,
+			failure: this._failure,
+			owned: this._ownedMode,
+		});
 	}
 
 	private _ownStateIssues(state: FormState<TData, TUi>): FormState<TData, TUi> {

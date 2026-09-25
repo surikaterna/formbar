@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createForm, normalizeIssues } from "@formbar/core";
 import * as core from "@formbar/core";
-import { registerScopedSync } from "@formbar/core/internal/scoped-sync";
+import { activateOwnedSchedulingBoundary, registerScopedSync } from "@formbar/core/internal/scoped-sync";
 import * as declarative from "@formbar/declarative";
 import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { useSchemaForm } from "@formbar/react-schema";
@@ -22,6 +22,13 @@ assert.equal(declarative.prepareScopedSyncHost, undefined);
 assert.equal(typeof registerScopedSync, "function"); // Importable trusted adapter, not a JS sandbox.
 const data = { "a.b": Object.fromEntries([["0", "x"]]) };
 const form = prepared.createForm({ initialData: data });
+const prior = form.getState();
+activateOwnedSchedulingBoundary(form);
+const owned = form.getState();
+assert.notStrictEqual(owned.data, prior.data);
+assert.equal(Object.isFrozen(owned.data), true);
+prior.data["a.b"]["0"] = "old alias";
+assert.equal(owned.data["a.b"]["0"], "x");
 const [issue] = form.validate();
 assert.deepEqual(issue.path.segments, ["a.b", "0"]);
 assert.strictEqual(normalizeIssues([issue])[0], issue);
@@ -32,6 +39,7 @@ const plain = {
 	details: { nested: { value: 1 } },
 };
 const bare = createForm({ initialData: data, validators: [() => [plain]] });
+assert.equal(Object.isFrozen(bare.getState().data), false);
 assert.strictEqual(bare.validate()[0], plain);
 bare.setValue("new", 1);
 const [detached] = bare.getState().issues;
@@ -47,6 +55,11 @@ assert.equal(
 	2,
 );
 let deferred;
+const deferredRuntime = prepared.createDeferredForm({ initialData: data });
+activateOwnedSchedulingBoundary(deferredRuntime.form);
+assert.equal(Object.isFrozen(deferredRuntime.form.getState().data), true);
+deferredRuntime.activate();
+assert.equal(deferredRuntime.form.validate().length, 1);
 function Hook() {
 	deferred = useSchemaForm({}, { ...options, initialData: data }).form;
 	return null;
@@ -60,6 +73,7 @@ const require = createRequire(import.meta.url);
 const cjs = require("@formbar/core");
 assert.equal(cjs.normalizeIssues([issue, { ...issue }]).length, 1);
 form.dispose();
+deferredRuntime.form.dispose();
 deferred.dispose();
 bare.dispose();
 console.log("SCOPED_SYNC same-format=esm immediate+deferred=pass mixed-format=independent");
