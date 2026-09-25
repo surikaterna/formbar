@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.21.0
+
+### Minor Changes
+
+- 4ad7834: Add opt-in, definition-field-scoped synchronous draft validation through prepared schema forms, including deferred React construction and concrete typed field bindings. Submission and async validation are unchanged.
+
 ## 0.20.0
 
 ### Minor Changes
