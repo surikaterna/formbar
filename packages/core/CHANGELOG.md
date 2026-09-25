@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.22.2
+
+### Patch Changes
+
+- 7505793: Clear finished or cancelled submit attempts by omitting the optional attempt state, keeping strict TypeScript state typing valid without changing attempt eligibility or retained issues (#265).
+
 ## 0.22.0
 
 ### Minor Changes
