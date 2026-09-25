@@ -1,0 +1,81 @@
+# FormDefinition V1 Kalada expression slots (proposal, #179)
+
+**Status: Draft / Proposed, not accepted or executable.** Formbar engineering and Kalada owners must sign off on the admission, old-data, and result policies before [real FSX lowering (#184)](https://github.com/surikaterna/formbar/issues/184). This document designs an in-place, greenfield replacement of Kuery `ValueExpression<StateRef>` slots, not a claim that today's V1 runtime accepts Kalada. See [schema compilation architecture](./schema-compilation.md) for the existing category boundaries.
+
+## Baseline and decision boundary
+
+At Formbar `origin/main` 3fcfcd0, `FormDefinition` has `{version: 1, id, root, computations?}`. `@formbar/declarative` is 0.22.1 and `@formbar/expressions` is 0.14.3 (package manifests). Validation copies finite safe JSON, compiles Kuery expressions, validates references and repeater scopes, and rejects duplicate computation IDs/targets, self-dependencies, and cycles. Runtime projects a captured form snapshot and evaluates via the Kuery service. Kalada main's `@kalada/core` manifest is 0.5.0; its generated [0.6.0 release PR #63](https://github.com/surikaterna/kalada/pull/63) is held, not a published dependency to assume. Confirm the exact released core feature set and package graph before implementation. This design uses the public `KaladaV1Program` / `compileKaladaV1Program` contract; it does not assume every node on unreleased main is available in 0.5.0.
+
+**Proposed choice:** keep `FormDefinition.version: 1` and replace *only* expression-bearing slots with a full Kalada canonical program envelope. A V1 document written by the old Kuery client is incompatible: reject it at admission, with a declaration-path diagnostic and guidance to explicitly convert/re-author under a tested tool; never reinterpret its `kind`/`op` tree as Kalada and never silently keep a second engine. An explicit converter may only support proven equivalent cases; general lossless Kuery-to-Kalada translation is not promised. Version 1 alone is therefore insufficient for legacy compatibility. Existing stored documents, API clients, type exports, schema-generated definitions, demos and runtime consumers need a coordinated breaking release. If reject-on-read is unacceptable, revisit the version/dual-engine choice *before* coding, rather than quietly weakening the boundary.
+
+## Slot inventory (exact declaration paths)
+
+`node` means every node type; `props` exists only on field/action/output/custom nodes. Each expression slot holds a whole program, not a source string or an expression subtree.
+
+| Path in V1 definition | Proposed kind / runtime result | Not an expression slot |
+| --- | --- | --- |
+| `computations[i].expression` | Program; finite safe JSON value for stored target | `computations[i].id` literal ID, `.target` structured binding |
+| `root...node.visible`, `.disabled`, `.readOnly` | Program; strict boolean | `id`, `type`, `presentation`, labels/titles/descriptions, children/branch arrays |
+| `root...field.required` | Program; strict boolean | field `binding` structured target, `widget` ID |
+| `root...action.payload` | Program; finite safe JSON value, subject to action's payload rules | action `action` ID, `target` binding, `concurrency` literal |
+| `root...output.value` | Program; finite safe JSON value | output `format`/`label` literals |
+| `root...conditional.condition` | Program; strict boolean | `then` / `else` child arrays |
+| `root...{field,action,output,custom}.props[name]` with `mode: "read"`: `.expression` | Program; finite safe JSON value | `mode: "literal"` `.value` stays JSON data; `mode: "write"` stays a *direct structured reference* (today shaped as `{kind:"ref",ref:StateRef}`), never an evaluated program. Write semantics are out of scope ([#180](https://github.com/surikaterna/formbar/issues/180)). |
+
+`root...` includes descendants under group/section/repeater/custom `children`, conditional `then`/`else`, tabs `tabs[i].children` and accordion `items[i].children`. Repeater `binding`/`scope`/`minItems`/`maxItems`, validation `binding`/`messages`, and presentation attributes remain non-expression data. Preserve optional/required status and structural validation of each path. No whole-node or arbitrary attribute expression inference.
+
+## Portable program and admission
+
+Each slot stores exactly `{ "format": "kalada-program", "version": 1, "profile": "kalada-v1", "expression": <canonical Kalada V1 expression> }` (the Kalada public `KaladaV1Program` envelope). For example, a read-only sample with a condition, stored computation and displayed output (illustrative, subject to installed core admission):
+
+```json
+{
+  "version": 1, "id": "sample",
+  "root": { "type": "group", "id": "root", "children": [
+    { "type": "conditional", "id": "gate",
+      "condition": { "format": "kalada-program", "version": 1, "profile": "kalada-v1",
+        "expression": { "kind": "ref", "ref": { "namespace": "data", "segments": ["show"] } } },
+      "then": [ { "type": "output", "id": "total-display",
+        "value": { "format": "kalada-program", "version": 1, "profile": "kalada-v1",
+          "expression": { "kind": "ref", "ref": { "namespace": "data", "segments": ["total"] } } } } ] }
+  ] },
+  "computations": [ { "id": "total", "target": { "namespace": "data", "segments": ["total"] },
+    "expression": { "format": "kalada-program", "version": 1, "profile": "kalada-v1",
+      "expression": { "kind": "ref", "ref": { "namespace": "data", "segments": ["amount"] } } } } ]
+}
+```
+
+Admission does **not** evaluate this example: copy/validate safe finite JSON (no getters, cycles, prototypes, functions, sparse arrays, nonfinite numbers), check the exact envelope discriminator/version/profile and reject extra/unknown data, then call core `compileKaladaV1Program` with Formbar's reference codec and bounded limits. Store the *canonical data program* returned by core, never a compiled closure, `WeakMap` key, linked host object or live snapshot. Reject malformed envelopes and unsupported core node forms/versions; do not invent an implicit translation or drop unknown keys. Prefix core diagnostic paths with the slot path (e.g. `root.children[0].condition.expression...`), retain a stable Formbar code and actionable reason; legacy `{kind:"literal"|"ref"|"op",...}` at the slot fails specifically as a legacy expression with re-author/explicit migration guidance. `FormDefinition.version !== 1` remains unsupported. Only accept features actually supplied by the installed **released** `@kalada/core` at implementation time.
+
+## References, graph and scope
+
+Use core's public `KaladaV1ReferenceCodec` with a Formbar structured `StateRef` as JSON ref payload, **not** Kalada's default string refs: `{namespace: string, segments: (string | nonnegative safe integer)[], scope?: string}`. Exact keys, safe names (no prototype-polluting path segments), bounded path length, permitted namespaces and scoped/absolute shape are validated at declaration time. Do not treat a dotted string as a path. Restrict runtime reads to `data`, `ui`, `form`, `field`; `form` permits only one status key (`valid`, `validating`, `submitting`, `dirty`, `touched`, `submitted`), and `field` requires `[nodeId, key]` with key `valid`/`validating`/`dirty`/`touched`. Validate those shapes and field ID membership/context at the Formbar boundary, not as arbitrary Kalada evaluator semantics; do not grant namespace access based solely on syntax. `field` reads remain contextual to a concrete instance at use time; reject unresolvable field IDs rather than silently reading another instance. `data`/`ui` reads still require available snapshots and use-time authorization. Bindings/targets additionally retain their existing write/target namespace restrictions; read allowlisting never authorizes a write.
+
+During tree validation, check every scoped dependency against **lexically enclosing** repeater scopes, with matching namespace and a resolvable parent chain. Top-level computations compile/validate with empty scopes: no scoped targets or scoped dependencies. Resolve relative references against concrete per-instance repeater bindings only at runtime; the stored canonical program and its static scope tokens stay index-free. No current array index or contextual field value is serialized into the program. Revalidate namespace availability, authorization and membership at use time after expansion (including removal/reordering); missing/denied is a diagnosed failure, not an empty/null/false value.
+
+Use core's compiled **static** `dependencies` (including conditional branches), canonicalize each structured ref through Formbar's codec, normalize resolved absolute keys as `[namespace, segments]` (preserve segment types), deduplicate, and feed the existing computation-ID/target/self/cycle checks. Validate the graph before any evaluation, so a lazy branch cannot hide a cycle. For computations, compare absolute targets to absolute dependencies; for scoped node expressions keep lexical descriptors until each instance is resolved. An invalid/unknown scope or duplicate target is a definition error, not a runtime scheduling hint. Runtime recomputes/projected values from captured snapshots with Formbar-owned dependency subscriptions and scheduling; no compile-time evaluation.
+
+## Results, diagnostics and ownership
+
+Kalada core owns parsing-independent canonical AST semantics, static dependency discovery and evaluation diagnostics. Formbar owns definition admission, reference codec and capability policy, captured snapshot/resolver, computation scheduling, repeater expansion, contextual `field` reference resolution, node/output/prop result gates and fallback. The evaluator receives only an authorized resolver returning explicit `found`/`missing`/`denied` outcomes. At use time, a strict boolean is required for visible/disabled/readOnly/required/condition: no truthiness conversion. On evaluation/type failure emit a property/instance diagnostic; use current fail-closed fallbacks (visible false, disabled/readOnly true, required true, conditional no branch). Absent optional slots keep existing defaults (visible true, disabled/readOnly false, required true). Output failures retain `error` status rather than a fabricated value; payload/read-prop/computation failures do not silently emit values or write targets. Review fallback behavior per consumer in implementation tests.
+
+For JSON-valued slots accept only *finite, safe JSON* results after evaluation. Reject Option.some/none, Result, temporal values, functions/closures and other non-JSON Kalada values at the Formbar result boundary, **even if** a wrapper contains a JSON primitive; no implicit unwrap, null, omission or `undefined`. `null` is an explicit JSON value, not missing. This is a **proposed default, not product approval**: whether `Option.none` should mean omission and how to distinguish it from failure needs an explicit owner decision and separate reviewed conversion contract before broadening acceptance. Pure expressions that provably produce unsupported types may be rejected at admission where core exposes sufficient static evidence; otherwise reject at evaluation with a typed diagnostic. No arbitrary JS, parser/editor/host dependency, or serialized execution capability enters the runtime.
+
+Definition diagnostics use structural paths today. For [#184](https://github.com/surikaterna/formbar/issues/184), FSX source lowering should attach a separate mapping from definition slot/inner core diagnostic paths to original source UTF-16 ranges; missing mapping falls back to the definition path. Do not persist source maps or require syntax/editor packages for portable runtime admission. The future source adapter owns source ranges; core owns inner expression paths; Formbar combines them without pretending current JSON definitions have FSX ranges.
+
+## Proposed acceptance matrix and implementation sequence
+
+| Case | Expected future evidence (not currently passing) |
+| --- | --- |
+| Field `visible`/`required`, conditional `condition`, output `value`, read-only prop, and computed target read primitive JSON/booleans | Validate program data, extract deps, defer evaluation to captured snapshot, preserve node/instance output and fallback behavior; sample above exercises conditional + computation + output. |
+| Old Kuery literal/ref/op and wrong/missing format/version/profile, extra keys, non-JSON AST | Deterministic rejection at exact declaration slot path with actionable legacy/invalid-program diagnostic; explicit converter fixtures only for proven mappings. |
+| Malformed structured ref, namespace/field key or unknown/out-of-lexical-scope repeater ref | Definition path failure; top-level computation rejects scopes, runtime checks authorization and concrete instance again. |
+| Repeated dependencies, duplicate computation ID/target, self-edge, two-node cycle (including lazy branch) | Stable deduped graph keys; diagnosed duplicate/self/cycle before evaluation. |
+| Missing or denied ref, non-boolean gate, non-JSON/Option result, numeric/type evaluator error | Property/instance diagnostic with fail-closed default or output error; no coercion, omission, write or hidden fallback. |
+
+1. **Admission/ref codec:** define portable slot types, exact envelope and JSON/codec checks; pin a released Kalada core and test legacy rejects and unsupported nodes. No parser/editor dependency in runtime.
+2. **Validator/graph:** replace Kuery slot validation; check lexical scopes, namespace/field references and normalize static dependencies for duplicate/self/cycle checks; update schema-generated definitions and public client contracts.
+3. **Runtime evaluation/fallback:** integrate core evaluation with Formbar snapshot resolver, authorized namespaces, computation scheduling and per-instance repeater/field context; test failures and result gates without changing write semantics.
+4. **Remaining slots/exports/release:** cover payload/read props and all public surfaces, consumer/build tests and explicit migration/rejection guidance. Publishable incompatible packages require **major Changesets when implemented** and release-owner review; no Changeset for this docs-only proposal and no publication authorization here.
+
+The [component registry design (#183)](https://github.com/surikaterna/formbar/issues/183) decides renderable component IDs/props separately. [Real FSX (#184)](https://github.com/surikaterna/formbar/issues/184) owns source lowering/range mapping; [writes (#180)](https://github.com/surikaterna/formbar/issues/180) owns repeated-item stable write semantics. None is implemented by this document. Outstanding signoff: confirm installed core capabilities, Formbar engineering's V1 reject-on-read choice, client/schema/runtime release impact, and the Option.none vs omission product tradeoff before treating this proposal as acceptance.
