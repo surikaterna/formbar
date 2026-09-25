@@ -93,14 +93,23 @@ export function validateExportTargets(
 	files: readonly string[],
 ): void {
 	const expected = policy.directory === "core" ? exportEntries : exportEntries.slice(0, 1);
-	deepStrictEqual(Object.keys(manifest.exports ?? {}), [...expected], `${policy.name}: export subpaths`);
+	const subpaths = [
+		...expected,
+		...(["core", "declarative"].includes(policy.directory) ? ["./internal/scoped-sync"] : []),
+	];
+	deepStrictEqual(Object.keys(manifest.exports ?? {}), subpaths, `${policy.name}: export subpaths`);
 	deepStrictEqual(
 		{ types: manifest.types, module: manifest.module, main: manifest.main },
 		{ types: "./dist/index.d.ts", module: "./dist/index.js", main: "./dist/index.cjs" },
 		`${policy.name}: root entry metadata`,
 	);
 	for (const [subpath, conditions] of Object.entries(manifest.exports)) {
-		const stem = subpath === "." ? "index" : `${subpath.slice(2)}.entry`;
+		const stem =
+			subpath === "."
+				? "index"
+				: subpath === "./internal/scoped-sync"
+					? "internal/scoped-sync"
+					: `${subpath.slice(2)}.entry`;
 		deepStrictEqual(Object.keys(conditions), ["import", "require"], `${policy.name}: ${subpath} condition order`);
 		for (const condition of ["import", "require"] as const)
 			validateExportBranch(policy, subpath, condition, conditions[condition], stem, files);

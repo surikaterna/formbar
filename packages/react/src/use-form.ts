@@ -33,12 +33,17 @@ export interface UseFormOptions<TData, TUi> extends CreateFormOptions<TData, TUi
  * }
  * ```
  */
-export function useForm<TData, TUi>(options?: UseFormOptions<TData, TUi>): FormApi<TData, TUi> {
+export function useForm<TData, TUi>(
+	options?: UseFormOptions<TData, TUi>,
+	construct: (
+		options: CreateFormOptions<TData, TUi>,
+	) => ReturnType<typeof createDeferredForm<TData, TUi>> = createDeferredForm,
+): FormApi<TData, TUi> {
 	const autoFocus = options?.autoFocusOnError ?? true;
 	const runtimeRef = useRef<ReturnType<typeof createDeferredForm<TData, TUi>> | null>(null);
 
 	if (runtimeRef.current === null) {
-		runtimeRef.current = createDeferredForm<TData, TUi>(getCoreFormOptions(options));
+		runtimeRef.current = construct(getCoreFormOptions(options) ?? ({} as CreateFormOptions<TData, TUi>));
 	}
 
 	const runtime = runtimeRef.current;

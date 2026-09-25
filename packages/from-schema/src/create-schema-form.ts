@@ -1,12 +1,16 @@
-import type { SchemaValidator } from "@formbar/core";
+import { createDeferredForm, createForm } from "@formbar/core";
+import type { CreateFormOptions, SchemaValidator } from "@formbar/core";
+import { registerScopedSync } from "@formbar/core/internal/scoped-sync";
 import {
 	type DefinitionDiagnostic,
+	type DefinitionFieldValidator,
 	type FormDefinition,
 	type RuntimeFieldBaseline,
 	type RuntimeRepeaterBaseline,
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
+import { prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
 import type { LimitOptions, SchemaDocumentProvider, StandardSchemaV1 } from "@scheman/core";
 import {
 	type CompileDefaultFormDefinitionOptions,
@@ -28,6 +32,8 @@ export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
 	readonly validators?: readonly SchemaValidator<TData, TUi>[];
 	readonly definition?: FormDefinition;
 	readonly generation?: CompileDefaultFormDefinitionOptions;
+	/** V1 definition FieldNode IDs only; never data paths or concrete row identities. */
+	readonly fieldValidators?: readonly DefinitionFieldValidator<TData, TUi>[];
 }
 
 export interface SchemaFormResult<TData = unknown, TUi = unknown> {
@@ -38,6 +44,10 @@ export interface SchemaFormResult<TData = unknown, TUi = unknown> {
 	readonly sourceValidator?: StandardSchemaV1;
 	readonly validators: readonly SchemaValidator<TData, TUi>[];
 	readonly diagnostics: SchemaFormDiagnostics;
+	readonly createForm: (options: CreateFormOptions<TData, TUi>) => ReturnType<typeof createForm<TData, TUi>>;
+	readonly createDeferredForm: (
+		options: CreateFormOptions<TData, TUi>,
+	) => ReturnType<typeof createDeferredForm<TData, TUi>>;
 }
 
 /**
@@ -73,7 +83,20 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		? validateAuthoredDefinition(options.definition, projected.descriptors)
 		: compileDefaultFormDefinition(projected.descriptors, options.generation);
 	if (!prepared.definition) throw new InvalidFormDefinitionError(prepared.definitionDiagnostics);
+	const scoped = options.fieldValidators
+		? prepareScopedSyncHost(prepared.definition, options.fieldValidators)
+		: undefined;
+	const attach = (form: ReturnType<typeof createForm<TData, TUi>>) => {
+		if (scoped) registerScopedSync(form, scoped);
+		return form;
+	};
 	return Object.freeze({
+		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => attach(createForm(coreOptions)),
+		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
+			const runtime = createDeferredForm(coreOptions);
+			attach(runtime.form);
+			return runtime;
+		},
 		descriptors: projected.descriptors,
 		definition: prepared.definition,
 		baseline: prepared.baseline,

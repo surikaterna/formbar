@@ -27,6 +27,36 @@ function mountSchema(schema: unknown, onSubmit: ReturnType<typeof vi.fn>) {
 }
 
 describe("plain JSON Schema hook submission", () => {
+	it("attaches prepared scoped sync before the deferred form's first validation", () => {
+		let form: FormApi<{ name: string }, object> | undefined;
+		function Hook() {
+			form = useSchemaForm<{ name: string }, object>(
+				{ type: "object", properties: { name: { type: "string" } } },
+				{
+					provider,
+					side: "input",
+					initialData: { name: "Ada" },
+					definition: {
+						version: 1,
+						id: "authored",
+						root: {
+							type: "field",
+							id: "name-field",
+							widget: "text",
+							binding: { namespace: "data", segments: ["name"] },
+						},
+					},
+					fieldValidators: [
+						{ fieldId: "name-field", validate: () => [{ code: "scoped", message: "bad", severity: "error" }] },
+					],
+				},
+			).form;
+			return null;
+		}
+		renderToString(<Hook />);
+		expect(form?.validate().map((issue) => issue.code)).toEqual(["scoped"]);
+		form?.dispose();
+	});
 	it.each([
 		["inherited required root", Object.create({ type: "object", required: ["name"] })],
 		["Date root", new Date("2026-01-01")],

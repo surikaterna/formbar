@@ -52,6 +52,16 @@
 				"types": "./dist/validation.entry.d.cts",
 				"default": "./dist/validation.entry.cjs"
 			}
+		},
+		"./internal/scoped-sync": {
+			"import": {
+				"types": "./dist/internal/scoped-sync.d.ts",
+				"default": "./dist/internal/scoped-sync.js"
+			},
+			"require": {
+				"types": "./dist/internal/scoped-sync.d.cts",
+				"default": "./dist/internal/scoped-sync.cjs"
+			}
 		}
 	},
 	"files": ["dist"],

@@ -27,8 +27,13 @@ function exportFixture(): PackageManifest {
 		module: "./dist/index.js",
 		types: "./dist/index.d.ts",
 		exports: Object.fromEntries(
-			[".", "./path", "./transforms", "./validation"].map((subpath) => {
-				const stem = subpath === "." ? "index" : `${subpath.slice(2)}.entry`;
+			[".", "./path", "./transforms", "./validation", "./internal/scoped-sync"].map((subpath) => {
+				const stem =
+					subpath === "."
+						? "index"
+						: subpath === "./internal/scoped-sync"
+							? "internal/scoped-sync"
+							: `${subpath.slice(2)}.entry`;
 				return [
 					subpath,
 					{
