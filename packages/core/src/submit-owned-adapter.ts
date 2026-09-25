@@ -7,27 +7,53 @@ type Result =
 	| { readonly ok: true; readonly data: SubmitJson; readonly uiState: SubmitJson }
 	| { readonly ok: false; readonly code: "unsafe_candidate" | "invalid_witness" };
 
+type OwnedState = {
+	readonly data: unknown;
+	readonly uiState: unknown;
+	readonly fieldPolicy?: unknown;
+	readonly stage?: string;
+};
+
+function captureOwned(state: OwnedState) {
+	const dataDescriptor = Object.getOwnPropertyDescriptor(state, "data");
+	const uiDescriptor = Object.getOwnPropertyDescriptor(state, "uiState");
+	if (!dataDescriptor || !("value" in dataDescriptor) || !uiDescriptor || !("value" in uiDescriptor))
+		throw new Error("state");
+	const retained = new Boundary();
+	const original = retained.copy(dataDescriptor.value);
+	const ui = retained.copy(uiDescriptor.value);
+	const policy = state.fieldPolicy === undefined ? undefined : retained.copy(state.fieldPolicy);
+	const capture = Object.freeze({
+		data: freeze(original),
+		uiState: freeze(ui),
+		...(policy === undefined ? {} : { fieldPolicy: freeze(policy) }),
+		...(state.stage === undefined ? {} : { stage: state.stage }),
+	});
+	const blocked = new Set(retained.refs);
+	blocked.add(state);
+	add(blocked, clone(capture).refs);
+	blocked.add(capture);
+	const retainedUnchanged = () =>
+		unchanged(dataDescriptor.value, original) &&
+		unchanged(uiDescriptor.value, ui) &&
+		(policy === undefined || unchanged(state.fieldPolicy, policy));
+	return { original, ui, capture, blocked, retainedUnchanged };
+}
+
 /** Internal one-capture seam. Trusted callbacks are not a same-realm sandbox. */
 export function prepareOwnedSubmitAdapter(
-	state: { readonly data: unknown; readonly uiState: unknown },
+	state: OwnedState,
 	adapter: SubmitDefinitionAdapter,
 	transforms: readonly CandidateEgress[] = [],
+	checkpoint: () => boolean = () => true,
 ): Result {
 	try {
-		const dataDescriptor = Object.getOwnPropertyDescriptor(state, "data");
-		const uiDescriptor = Object.getOwnPropertyDescriptor(state, "uiState");
-		if (!dataDescriptor || !("value" in dataDescriptor) || !uiDescriptor || !("value" in uiDescriptor))
-			throw new Error("state");
-		const retained = new Boundary();
-		const original = retained.copy(dataDescriptor.value);
-		const ui = retained.copy(uiDescriptor.value);
-		const capture = Object.freeze({ data: freeze(original), uiState: freeze(ui) });
-		const blocked = new Set(retained.refs);
-		blocked.add(state);
-		add(blocked, clone(capture).refs);
-		blocked.add(capture);
+		if (!checkpoint()) throw new Error("stale");
+		const { original, ui, capture, blocked, retainedUnchanged } = captureOwned(state);
 		const supplied = adapter(capture);
-		if (!unchanged(capture, { data: original, uiState: ui })) throw new Error("mutation");
+		if (!checkpoint()) throw new Error("stale");
+		const captureBaseline = clone(capture).value;
+		if (!unchanged(capture, captureBaseline) || !retainedUnchanged()) throw new Error("mutation");
 		if (!supplied || typeof supplied !== "object") throw new Error("adapter");
 		if (blocked.has(supplied)) throw new Error("alias");
 		if (!("witness" in supplied)) return { ok: false, code: "invalid_witness" };
@@ -41,7 +67,9 @@ export function prepareOwnedSubmitAdapter(
 		const snapshot = clone(supplied).value;
 		const { context, snapshot: contextSnapshot } = makeContext(projection.value, ui, blocked);
 		const check = () =>
-			unchanged(capture, { data: original, uiState: ui }) &&
+			checkpoint() &&
+			retainedUnchanged() &&
+			unchanged(capture, captureBaseline) &&
 			unchanged(supplied, snapshot) &&
 			unchanged(context, contextSnapshot);
 		if (!check()) throw new Error("mutation");

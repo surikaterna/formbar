@@ -1,0 +1,76 @@
+import type { PipelineContext } from "./pipeline.js";
+import { executeSubmitPreparation } from "./pipeline.js";
+import type { FormState } from "./state.js";
+import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
+import type { CandidateEgress } from "./submit-candidate-safety.js";
+import { prepareOwnedSubmitAdapter } from "./submit-owned-adapter.js";
+import type { SubmitPreparationGuard } from "./submit-preparation-checkpoint.js";
+
+type Candidate = ReturnType<typeof prepareOwnedSubmitAdapter>;
+type Preparation =
+	| { readonly ok: true; readonly revision: number; readonly candidate: Extract<Candidate, { ok: true }> }
+	| { readonly ok: false; readonly code: "stale" | "vetoed" | "unsafe_candidate" | "invalid_witness" };
+
+function pluginGates(
+	context: PipelineContext,
+	snapshot: FormState<unknown, unknown>,
+	current: () => boolean,
+): "stale" | "vetoed" | undefined {
+	for (const plugin of context.plugins ?? []) {
+		if (!current()) return "stale";
+		try {
+			const issues = plugin.beforeSubmit?.({
+				data: snapshot.data as Readonly<unknown>,
+				uiState: snapshot.uiState as Readonly<unknown>,
+			});
+			if (!current()) return "stale";
+			if (
+				issues &&
+				(typeof issues !== "object" || typeof (issues as unknown as Promise<unknown>).then === "function")
+			) {
+				void Promise.resolve(issues).then(
+					() => undefined,
+					() => undefined,
+				);
+				return "vetoed";
+			}
+			if (issues?.some((issue) => issue.severity === "error")) return "vetoed";
+		} catch {
+			return current() ? "vetoed" : "stale";
+		}
+	}
+}
+
+/** Internal B handoff only: C/D own validation, handler and public activation. */
+export function prepareGuardedSubmitCandidate(
+	context: PipelineContext,
+	guard: SubmitPreparationGuard,
+	adapter: SubmitDefinitionAdapter,
+	transforms: readonly CandidateEgress[] = [],
+): Preparation {
+	const prepared = executeSubmitPreparation(context, guard);
+	if (prepared.stage === "rejected") return { ok: false, code: "vetoed" };
+	const { snapshot, revision } = prepared;
+	const current = () =>
+		!guard.signal.aborted &&
+		guard.isActive?.() !== false &&
+		guard.revision() === revision &&
+		context.store.getState() === snapshot;
+	if (!current()) return { ok: false, code: "stale" };
+	const gate = pluginGates(context, snapshot, current);
+	if (gate) return { ok: false, code: gate };
+	if (!current()) return { ok: false, code: "stale" };
+	const candidate = prepareOwnedSubmitAdapter(
+		{
+			data: snapshot.data,
+			uiState: snapshot.uiState,
+			fieldPolicy: snapshot.fieldPolicy,
+			...(snapshot.meta.stage === undefined ? {} : { stage: snapshot.meta.stage }),
+		},
+		adapter,
+		transforms,
+		current,
+	);
+	if (!current()) return { ok: false, code: "stale" };
+	return candidate.ok ? { ok: true, revision, candidate } : candidate;
+}
