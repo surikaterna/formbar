@@ -1,4 +1,5 @@
 import type { FormApi, FormStateCapture } from "@formbar/core";
+import { scopedCaptureCurrent, scopedLifecycleRevision } from "@formbar/core/internal/scoped-sync";
 import { inspectDataContainer } from "@formbar/expressions";
 import type { Segment } from "@formbar/expressions";
 import type { AbsoluteBinding } from "./bindings.js";
@@ -152,6 +153,7 @@ export function projectConcreteOwnership(options: {
 	const ids = new Map<string, "field" | "other">();
 	definitionFields(options.definition.root, ids);
 	const snapshot = projectRuntime(options);
+	const lifecycle = scopedLifecycleRevision(options.form);
 	const { fields, repeaters } = owners(snapshot, options.capture.state.data);
 	const unknown = Object.freeze(unknownBindings(options.capture.state.data, fields, repeaters));
 	const diagnostics = snapshot.diagnostics.length > 0;
@@ -182,7 +184,8 @@ export function projectConcreteOwnership(options: {
 		repeaters: ownedRepeaters,
 		unknown,
 		diagnostics,
-		current: () => !options.form.isDisposed() && options.form.captureState().state === options.capture.state,
+		current: () =>
+			scopedLifecycleRevision(options.form) === lifecycle && scopedCaptureCurrent(options.form, options.capture),
 		forField: (id: string) =>
 			ids.get(id) === "field" ? Object.freeze(ownedFields.filter((item) => item.instance.nodeId === id)) : undefined,
 	});

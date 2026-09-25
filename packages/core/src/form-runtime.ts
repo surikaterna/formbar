@@ -49,15 +49,13 @@ export class FormRuntime<TData, TUi> {
 	private readonly resetSignal = createResetSignal();
 	private readonly api: FormApi<TData, TUi>;
 	private active = false;
-	private readonly deferred: boolean;
 	private readonly activationSubscriptions: (() => void)[] = [];
 	private readonly initializedMiddlewares: Middleware[] = [];
 	private deactivating = false;
 	constructor(
 		private readonly options: CreateFormOptions<TData, TUi>,
-		deferred = false,
+		private readonly deferred = false,
 	) {
-		this.deferred = deferred;
 		warnUnknownCreateFormOptionsAtRuntime(options);
 		this.initialDataSnapshot = structuredClone((options.initialData ?? {}) as TData);
 		this.initialUiStateSnapshot = structuredClone((options.initialUiState ?? {}) as TUi);
@@ -304,6 +302,7 @@ export class FormRuntime<TData, TUi> {
 	}
 
 	private reset = (nextInitial?: { readonly data?: TData; readonly uiState?: TUi }): void => {
+		invalidateScopedSync(this.api);
 		this.submitHandler.reset();
 		this.coordinator.reset();
 		if (nextInitial?.data !== undefined) this.initialDataSnapshot = structuredClone(nextInitial.data);
