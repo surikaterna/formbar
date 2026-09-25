@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/core",
-	"version": "0.19.0",
+	"version": "0.20.0",
 	"type": "module",
 	"description": "Headless form state engine with validation, transforms, and middleware",
 	"license": "MIT",
