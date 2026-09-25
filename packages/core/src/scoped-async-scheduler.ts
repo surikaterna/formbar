@@ -36,8 +36,7 @@ export interface ScopedAsyncDeps<TData, TUi> {
 export interface ScopedForeground {
 	readonly paths: readonly AbsoluteDataPath[];
 	run(): Promise<readonly ValidationIssue[]>;
-	previous(): ReadonlySet<ValidationIssue>;
-	commit(): void;
+	stage(): { readonly previous: ReadonlySet<ValidationIssue>; finish(): void; rollback(): void };
 }
 
 function scopeSegments(scope: DataPathInput | undefined): readonly CanonicalSegment[] | undefined {
@@ -73,6 +72,7 @@ function failure(field: ScopedAsyncField, error: unknown): ValidationIssue {
 export class ScopedAsyncScheduler<TData, TUi> {
 	private readonly pending = new Map<string, Pending<TData, TUi>>();
 	private readonly emitted = new Map<string, readonly ValidationIssue[]>();
+	private readonly publishing = new Set<string>();
 	private lifecycle = 0;
 	private foregroundGeneration = 0;
 	private disposed = false;
@@ -197,6 +197,10 @@ export class ScopedAsyncScheduler<TData, TUi> {
 	onEvent(path: AbsoluteDataPath | undefined, trigger: Trigger): void {
 		if (this.disposed) return;
 		this.foregroundGeneration += 1;
+		for (const key of [...this.publishing]) {
+			this.publishing.delete(key);
+			this.publish(key, []);
+		}
 		const previous = [...this.pending.values()].filter((token) => !token.finished);
 		if (trigger === "onChange") for (const token of [...this.pending.values()]) this.cancel(token);
 		const resolved = this.project();
@@ -257,9 +261,29 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		return {
 			paths: fields.map((field) => field.binding),
 			run,
-			previous: () => new Set([...keys].flatMap((key) => this.emitted.get(key) ?? [])),
-			commit: () => {
-				for (const key of keys) this.emitted.set(key, results.get(key) ?? []);
+			stage: () => {
+				const old = new Map([...keys].map((key) => [key, this.emitted.get(key)] as const));
+				const previous = new Set([...old.values()].flatMap((issues) => issues ?? []));
+				const staged = new Map([...keys].map((key) => [key, results.get(key) ?? []] as const));
+				for (const [key, issues] of staged) {
+					this.emitted.set(key, issues);
+					this.publishing.add(key);
+				}
+				return {
+					previous,
+					finish: () => {
+						for (const key of keys) this.publishing.delete(key);
+					},
+					rollback: () => {
+						for (const key of keys) this.publishing.delete(key);
+						for (const [key, issues] of staged) {
+							if (this.emitted.get(key) !== issues) continue;
+							const prior = old.get(key);
+							if (prior === undefined) this.emitted.delete(key);
+							else this.emitted.set(key, prior);
+						}
+					},
+				};
 			},
 		};
 	}
@@ -270,5 +294,6 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		if (dispose) this.disposed = true;
 		for (const token of [...this.pending.values()]) this.cancel(token);
 		this.emitted.clear();
+		this.publishing.clear();
 	}
 }
