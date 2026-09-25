@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FormApi } from "../contracts.js";
+import { observationContext, observationCurrent, observe } from "../scoped-async-observation.js";
 import { ScopedAsyncScheduler } from "../scoped-async-scheduler.js";
 import { type ScopedAsyncField, registerScopedAsync } from "../scoped-async.js";
 import type { FormState, ValidationIssue } from "../state.js";
@@ -55,4 +56,46 @@ describe("scoped async observation ownership", () => {
 		for (const issue of originals ?? []) expect(state.issues).not.toContain(issue);
 		scheduler.reset(true);
 	});
+});
+
+describe("bounded scoped async parent observation", () => {
+	for (const count of [100, 300, 600]) {
+		it(`shares parent snapshots and comparisons across ${count} nested rows`, () => {
+			const data = { groups: [{ rows: Array.from({ length: count }, (_, index) => ({ value: String(index) })) }] };
+			const fields: ScopedAsyncField[] = Array.from({ length: count }, (_, index) => ({
+				id: "scoped",
+				fieldId: "value",
+				instanceKey: `group:0:row:${index}`,
+				binding: { namespace: "data", segments: ["groups", 0, "rows", index, "value"] },
+				trigger: "onBlur",
+				debounceMs: 0,
+				validate: async () => [{ code: "bad", message: "bad", severity: "error" }],
+			}));
+			const clone = vi.spyOn(globalThis, "structuredClone");
+			try {
+				const context = observationContext();
+				const observations = fields.map((field) => observe(field, data, context));
+				const rows = data.groups[0].rows;
+				expect(clone.mock.calls.filter(([value]) => value === rows)).toHaveLength(1);
+				const keys = vi.spyOn(Reflect, "ownKeys");
+				try {
+					const compared = new Map<object, boolean>();
+					expect(observations.every((item) => observationCurrent(item, data, compared))).toBe(true);
+					expect(keys.mock.calls.filter(([value]) => value === rows)).toHaveLength(2);
+				} finally {
+					keys.mockRestore();
+				}
+				const replacement = {
+					groups: [{ rows: Array.from({ length: count }, (_, index) => ({ value: String(index) })) }],
+				};
+				const replaced = new Map<object, boolean>();
+				expect(observations.every((item) => !observationCurrent(item, replacement, replaced))).toBe(true);
+				data.groups[0].rows[0].value = "changed";
+				const mutated = new Map<object, boolean>();
+				expect(observations.every((item) => !observationCurrent(item, data, mutated))).toBe(true);
+			} finally {
+				clone.mockRestore();
+			}
+		});
+	}
 });
