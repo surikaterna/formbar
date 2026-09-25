@@ -1,3 +1,4 @@
+import { issueEmissionId } from "./issue-provenance.js";
 import type { CanonicalSegment } from "./path.js";
 import type { ValidationIssue } from "./state.js";
 
@@ -61,7 +62,8 @@ function buildDedupeKey(issue: ValidationIssue): string {
 export function dedupeIssues(issues: readonly ValidationIssue[]): readonly ValidationIssue[] {
 	const seen = new Set<string>();
 	return issues.filter((issue) => {
-		const key = buildDedupeKey(issue);
+		const emission = issueEmissionId(issue);
+		const key = emission === undefined ? buildDedupeKey(issue) : `emission:${emission}`;
 		if (seen.has(key)) return false;
 		seen.add(key);
 		return true;
