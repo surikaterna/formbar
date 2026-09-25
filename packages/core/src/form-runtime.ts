@@ -16,6 +16,8 @@ import { emptyFieldPolicy, fieldMetaKey, normalizeDataPath } from "./field-polic
 import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
 import { normalizeValidators } from "./normalize-validators.js";
+import { bindOwnedSchedulingBoundary } from "./owned-scheduling-boundary.js";
+import { preflightOwnedCreation } from "./owned-scheduling-preflight.js";
 import { parsePath } from "./path-parser.js";
 import { issuesForPath } from "./path-relations.js";
 import type { CanonicalPath } from "./path.js";
@@ -24,7 +26,7 @@ import { deactivateFormResources, initializeFormResources, validatePluginIds } f
 import type { FormPlugin } from "./plugin-types.js";
 import { createResetSignal } from "./reset-signal.js";
 import { invalidateScopedSync, runScopedSync } from "./scoped-sync.js";
-import { createFormStateCapture } from "./state-capture.js";
+import { createFormStateCapture, readInitialValue } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { FormStore } from "./store.js";
 import { createSubmitHandler } from "./submit-handler.js";
@@ -57,10 +59,12 @@ export class FormRuntime<TData, TUi> {
 		private readonly deferred = false,
 	) {
 		warnUnknownCreateFormOptionsAtRuntime(options);
+		preflightOwnedCreation(options);
 		this.initialDataSnapshot = structuredClone((options.initialData ?? {}) as TData);
 		this.initialUiStateSnapshot = structuredClone((options.initialUiState ?? {}) as TUi);
 		this.initialState = this.createInitialState();
-		this.store = new FormStore(this.initialState, options.stateStrategy);
+		this.store = new FormStore(this.initialState, options.stateStrategy, options.ownedScheduling === true);
+		if (options.ownedScheduling) this.initialDataSnapshot = this.store.getState().data;
 		this.normalizedValidators = normalizeValidators(options as CreateFormOptions<unknown, unknown>);
 		this.plugins = options.plugins ?? [];
 		validatePluginIds(this.plugins);
@@ -88,6 +92,10 @@ export class FormRuntime<TData, TUi> {
 			getApi: () => this.api,
 		});
 		this.api = this.createApi();
+		bindOwnedSchedulingBoundary(this.api, this.store, {
+			data: (options.initialData ?? {}) as TData,
+			uiState: (options.initialUiState ?? {}) as TUi,
+		});
 		if (!deferred) {
 			this.active = true;
 			this.initialize();
@@ -137,20 +145,10 @@ export class FormRuntime<TData, TUi> {
 			issues: [],
 		};
 	}
-
 	private updateState(updater: (draft: FormState<TData, TUi>) => FormState<TData, TUi>): void {
 		const tx = this.store.beginTransaction();
 		tx.mutate(updater);
 		this.store.commitTransaction(tx);
-	}
-
-	private resolveInitialValue(path: CanonicalPath): unknown {
-		let current: unknown = path.namespace === "data" ? this.initialDataSnapshot : this.initialUiStateSnapshot;
-		for (const segment of path.segments) {
-			if (current === null || current === undefined) return undefined;
-			current = (current as Record<string | number, unknown>)[segment];
-		}
-		return current;
 	}
 
 	private propagateListeners(pathKey: string, trigger: "change" | "blur"): void {
@@ -199,7 +197,6 @@ export class FormRuntime<TData, TUi> {
 			this.coordinator.onMutation(dataPath, "onChange");
 		} else if (mutated) this.coordinator.onMutation();
 	}
-
 	private dispatch = (action: FormAction): FormDispatchResult => {
 		if (action.type === "set-value" && action.path !== undefined)
 			return this.dispatchSetValue(action.path, action.value);
@@ -289,7 +286,7 @@ export class FormRuntime<TData, TUi> {
 			setValue: this.dispatchSetValue as unknown as (path: string, value: unknown) => FormDispatchResult,
 			getIssues: (value) => issuesForPath(this.store.getState().issues, value),
 			getAttemptIssues: (value) => failedAttemptIssuesForPath(this.store.getState(), value),
-			getInitialValue: () => this.resolveInitialValue(canonical),
+			getInitialValue: () => readInitialValue(canonical, this.initialDataSnapshot, this.initialUiStateSnapshot),
 			getFieldMeta: (key) => (this.store.getState().fieldMeta as Record<string, FieldMetaEntry>)[key],
 			markTouched: this.markFieldTouched,
 			getFormSubmitted: () => this.store.getState().meta.submitted ?? false,
@@ -302,6 +299,10 @@ export class FormRuntime<TData, TUi> {
 	}
 
 	private reset = (nextInitial?: { readonly data?: TData; readonly uiState?: TUi }): void => {
+		this.store.preflightOwnedReplacement(
+			nextInitial?.data ?? this.initialDataSnapshot,
+			nextInitial?.uiState ?? this.initialUiStateSnapshot,
+		);
 		invalidateScopedSync(this.api);
 		this.submitHandler.reset();
 		this.coordinator.reset();

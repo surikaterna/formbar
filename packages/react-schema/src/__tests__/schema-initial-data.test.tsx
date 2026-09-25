@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { jsonSchemaProvider } from "@formbar/from-schema";
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -42,6 +42,37 @@ function mount(source: unknown = schema, initialData?: Record<string, unknown>, 
 }
 
 describe("historical shallow schema initialization", () => {
+	it("owns the first SSR and StrictMode render snapshot before deferred plugin initialization", async () => {
+		const observed: boolean[] = [];
+		const init = vi.fn(({ getState }) => observed.push(Object.isFrozen(getState().data)));
+		const options = {
+			provider,
+			side: "input" as const,
+			ownedScheduling: true as const,
+			plugins: [{ id: "init", onInit: init }],
+		};
+		const Schema = { type: "object", properties: { name: { type: "string", default: "Ada" } } };
+		function Hook() {
+			const { form } = useSchemaForm<Record<string, unknown>, Record<string, unknown>>(Schema, options);
+			observed.push(Object.isFrozen(form.getState().data) && Object.isFrozen(form.getState().fieldPolicy));
+			return null;
+		}
+		renderToString(<Hook />);
+		expect(observed).toEqual([true]);
+		expect(init).not.toHaveBeenCalled();
+		globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+		const root = createRoot(document.createElement("div"));
+		await act(async () =>
+			root.render(
+				<StrictMode>
+					<Hook />
+				</StrictMode>,
+			),
+		);
+		expect(observed.every(Boolean)).toBe(true);
+		expect(init).toHaveBeenCalled();
+		await act(async () => root.unmount());
+	});
 	it("copies direct properties, submits real core data and resets the original snapshot", async () => {
 		const { form, onSubmit } = mount();
 		const original = {

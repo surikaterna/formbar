@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSchemaForm, jsonSchemaProvider } from "../index.js";
 
 const definition = {
@@ -35,6 +35,35 @@ const definition = {
 };
 
 describe("prepared definition scoped sync", () => {
+	it("owns authored and generated prepared factories before eager init or deferred activation", () => {
+		const schema = { type: "object", properties: { name: { type: "string" } } };
+		for (const preparation of [
+			{ generation: {} },
+			{
+				definition: { version: 1 as const, id: "authored", root: { type: "group" as const, id: "root", children: [] } },
+			},
+		]) {
+			const prepared = createSchemaForm(schema, { provider: jsonSchemaProvider(), side: "input", ...preparation });
+			const init = vi.fn(({ getState, initialData }) => {
+				expect(Object.isFrozen(getState().data)).toBe(true);
+				expect(Object.isFrozen(initialData)).toBe(true);
+			});
+			const options = {
+				initialData: { name: "Ada" },
+				ownedScheduling: true as const,
+				plugins: [{ id: "init", onInit: init }],
+			};
+			const eager = prepared.createForm(options);
+			expect(init).toHaveBeenCalledTimes(1);
+			const deferred = prepared.createDeferredForm(options);
+			expect(Object.isFrozen(deferred.form.getState().data)).toBe(true);
+			expect(init).toHaveBeenCalledTimes(1);
+			deferred.activate();
+			expect(init).toHaveBeenCalledTimes(2);
+			eager.dispose();
+			deferred.form.dispose();
+		}
+	});
 	it("registers the generated field ID, not its data path", () => {
 		const schema = { type: "object", properties: { name: { type: "string" } } };
 		const generated = createSchemaForm(schema, { provider: jsonSchemaProvider(), side: "input", generation: {} });

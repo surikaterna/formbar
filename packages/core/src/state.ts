@@ -95,6 +95,8 @@ export interface CreateFormOptions<TData, TUi> {
 	readonly uiStateSchema?: unknown;
 	readonly initialData?: TData;
 	readonly initialUiState?: TUi;
+	/** Own and freeze initial state before any initialization callback or first snapshot. */
+	readonly ownedScheduling?: true;
 	readonly validators?: readonly SchemaValidator<TData, TUi>[];
 	readonly middleware?: readonly Middleware<TData, TUi>[];
 	readonly transforms?: readonly TransformDefinition<TData>[];
