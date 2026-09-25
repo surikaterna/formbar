@@ -1,5 +1,11 @@
 # @formbar/core
 
+## 0.22.3
+
+### Patch Changes
+
+- 4090575: Isolate trusted internal issue-only publications from caller-owned state without changing ordinary transactions.
+
 ## 0.22.2
 
 ### Patch Changes
