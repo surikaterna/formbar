@@ -124,6 +124,38 @@ describe("private concrete ownership projection", () => {
 		expect(ownership.current()).toBe(false);
 	});
 
+	it("invalidates ownership on disposal even when the core state identity is retained", () => {
+		const validated = definition([field("secret", ["secret"], { visible: { kind: "literal", value: false } })]);
+		const { form } = runtime(validated, { initialData: { secret: "private" } });
+		const capture = form.captureState();
+		const ownership = projectConcreteOwnership({ form, definition: validated, capture });
+		expect(ownership.current()).toBe(true);
+		form.dispose();
+		expect(form.isDisposed()).toBe(true);
+		expect(form.captureState().state).toBe(capture.state);
+		expect(ownership.current()).toBe(false);
+		const afterDispose = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
+		expect(afterDispose.current()).toBe(false);
+	});
+
+	it("invalidates old ownership on reset/replacement and never revives it after later writes", () => {
+		const validated = definition([field("secret", ["secret"])]);
+		const { form } = runtime(validated, { initialData: { secret: "private" } });
+		const capture = form.captureState();
+		const ownership = projectConcreteOwnership({ form, definition: validated, capture });
+		expect(ownership.current()).toBe(true);
+		form.reset();
+		expect(ownership.current()).toBe(false);
+		const replacement = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
+		expect(replacement.current()).toBe(true);
+		form.setValue("secret", "changed");
+		expect(replacement.current()).toBe(false);
+		expect(ownership.current()).toBe(false);
+		const beforeReplace = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
+		form.reset({ data: { secret: "replacement" } });
+		expect(beforeReplace.current()).toBe(false);
+	});
+
 	it("reprojects reordered rows; malformed repeaters fail closed without a cell certificate", () => {
 		const validated = definition([
 			{

@@ -182,7 +182,7 @@ export function projectConcreteOwnership(options: {
 		repeaters: ownedRepeaters,
 		unknown,
 		diagnostics,
-		current: () => options.form.captureState().state === options.capture.state,
+		current: () => !options.form.isDisposed() && options.form.captureState().state === options.capture.state,
 		forField: (id: string) =>
 			ids.get(id) === "field" ? Object.freeze(ownedFields.filter((item) => item.instance.nodeId === id)) : undefined,
 	});
