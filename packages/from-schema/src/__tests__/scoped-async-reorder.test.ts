@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { OwnershipOverlapIndex } from "../../../declarative/src/ownership-overlap-index.js";
 import { createSchemaForm, jsonSchemaProvider } from "../index.js";
 
 const definition = {
@@ -181,34 +182,70 @@ describe("completed scoped issue ownership on recycled indices", () => {
 			form.dispose();
 		}
 	});
-	it.each([100, 300, 600])("bounds async-host owner scans during real %i-row blur replacement", async (count) => {
-		const form = nestedForm(count);
+	it.each(
+		[100, 300, 600].flatMap((count) => (["onBlur", "onChange"] as const).map((trigger) => [count, trigger] as const)),
+	)("bounds total projection and host visits for %i real nested %s rows", async (count, trigger) => {
+		const form = nestedForm(count, trigger);
 		try {
 			await form.validateAsync();
-			let hostVisits = 0;
-			let projectionVisits = 0;
+			let indexVisits = 0;
+			let mapVisits = 0;
+			let ownerScans = 0;
+			let rowEnumerations = 0;
 			let notifications = 0;
 			const unsubscribe = form.subscribe(() => notifications++);
+			const add = OwnershipOverlapIndex.prototype.add;
+			const query = OwnershipOverlapIndex.prototype.query;
+			const get = Map.prototype.get;
 			const some = Array.prototype.some;
-			const spy = vi.spyOn(Array.prototype, "some").mockImplementation(function (
+			const ownKeys = Reflect.ownKeys;
+			const addSpy = vi.spyOn(OwnershipOverlapIndex.prototype, "add").mockImplementation(function (path) {
+				indexVisits++;
+				return add.call(this, path);
+			});
+			const querySpy = vi.spyOn(OwnershipOverlapIndex.prototype, "query").mockImplementation(function (path) {
+				indexVisits++;
+				return query.call(this, path);
+			});
+			const mapSpy = vi.spyOn(Map.prototype, "get").mockImplementation(function (key) {
+				mapVisits++;
+				return get.call(this, key);
+			});
+			const someSpy = vi.spyOn(Array.prototype, "some").mockImplementation(function (
 				this: unknown[],
 				...args: Parameters<typeof some>
 			) {
-				if (this.length === count && (this[0] as { instance?: { nodeId?: string } })?.instance?.nodeId === "value") {
-					const caller = new Error().stack?.split("\n")[4];
-					if (caller?.includes("scoped-async-host.ts")) hostVisits += this.length;
-					if (caller?.includes("runtime-ownership.ts")) projectionVisits += this.length;
-				}
+				if (this.length === count && (this[0] as { instance?: { nodeId?: string } })?.instance?.nodeId === "value")
+					ownerScans += this.length;
 				return some.apply(this, args);
+			});
+			const keysSpy = vi.spyOn(Reflect, "ownKeys").mockImplementation((value) => {
+				if (Array.isArray(value) && value.length === count) rowEnumerations++;
+				return ownKeys(value);
 			});
 			try {
 				form.setValue("groups", [{ rows: Array.from({ length: count }, (_, index) => ({ value: String(index) })) }]);
 			} finally {
-				spy.mockRestore();
+				someSpy.mockRestore();
+				keysSpy.mockRestore();
+				mapSpy.mockRestore();
+				querySpy.mockRestore();
+				addSpy.mockRestore();
 				unsubscribe();
 			}
-			expect(hostVisits).toBe(0);
-			expect(projectionVisits).toBeGreaterThan(0);
+			console.info("#274 total projection+host index/map visits", {
+				count,
+				trigger,
+				indexVisits,
+				mapVisits,
+				ownerScans,
+				rowEnumerations,
+			});
+			expect(indexVisits).toBeGreaterThan(count);
+			expect(indexVisits).toBeLessThan(40 * count);
+			expect(mapVisits).toBeLessThan(100 * count);
+			expect(ownerScans).toBe(0);
+			expect(rowEnumerations).toBeLessThan(10);
 			expect(notifications).toBe(2);
 			expect(form.getState().issues).toEqual([]);
 		} finally {
