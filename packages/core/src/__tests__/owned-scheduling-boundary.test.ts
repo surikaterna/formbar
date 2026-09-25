@@ -104,6 +104,32 @@ describe("#301 owned scheduling boundary", () => {
 		expect(store.getState().fieldPolicy[0]?.visible).toBe(false);
 	});
 
+	test("a failed issue-only publication does not mint an epoch or notify, and revokes pending receipts", () => {
+		const store = new FormStore(state({ row: "a" }, {}));
+		ownStoreBeforeScheduling(store);
+		const capture = { state: store.getState(), isFormDirty: () => false, isFieldDirty: () => false };
+		const receipt = scopedCaptureReceipt(capture);
+		const listener = vi.fn();
+		store.subscribe(listener);
+		const issue = {
+			code: "bad",
+			message: "bad",
+			severity: "error" as const,
+			path: { namespace: "data" as const, segments: ["row"], canonical: "row" },
+			source: { origin: "function-validator" as const, validatorId: "test" },
+			details: { unsafe: new Date() },
+		};
+		expect(() => publishIssueOnly(store, [issue])).toThrow();
+		expect(store.getState()).toBe(capture.state);
+		expect(snapshotOwnership(store.getState())?.epoch).toBe(snapshotOwnership(capture.state)?.epoch);
+		expect(listener).not.toHaveBeenCalled();
+		expect(receipt(store.getState())).toBe(false);
+		const fresh = scopedCaptureReceipt({ ...capture, state: store.getState() });
+		publishIssueOnly(store, []);
+		expect(fresh(store.getState())).toBe(true);
+		expect(listener).toHaveBeenCalledTimes(1);
+	});
+
 	test("unsupported activation and writes reject atomically without notification and recover", () => {
 		const malformed = new FormStore(state({ safe: true }, { x: 1 }));
 		const tx = malformed.beginTransaction();
