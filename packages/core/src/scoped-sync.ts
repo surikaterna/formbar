@@ -100,6 +100,88 @@ function diagnostic(input: ScopedFieldIssueInput): boolean {
 	);
 }
 
+interface ScopedEmissionContext {
+	readonly captureData: unknown;
+	readonly snapshotData: unknown;
+	readonly stage: string | undefined;
+	readonly current: () => boolean;
+	readonly generation: number;
+	readonly run: object;
+	readonly guarded: boolean;
+}
+
+function emitScopedIssues(
+	field: ScopedFieldInstance,
+	proposed: readonly ScopedFieldIssueInput[],
+	context: ScopedEmissionContext,
+): ValidationIssue[] {
+	const { snapshotData, stage, current, generation, run, guarded } = context;
+	const emit = createIssueEmission({
+		fieldId: field.fieldId,
+		instanceKey: field.instanceKey,
+		binding: field.binding,
+		revision: generation,
+		run,
+		current,
+	});
+	const issues: ValidationIssue[] = [];
+	for (const input of proposed) {
+		if (
+			!diagnostic(input) ||
+			(input.descendant && !valueAt(snapshotData, [...field.binding.segments, ...input.descendant])) ||
+			(!guarded && !valueAt(snapshotData, field.binding.segments))
+		)
+			throw new Error("Invalid scoped field issue");
+		issues.push(
+			emit({
+				code: input.code,
+				message: input.message,
+				severity: input.severity,
+				...(stage === undefined ? {} : { stage }),
+				...(input.descendant ? { descendant: input.descendant } : {}),
+			}),
+		);
+	}
+	return issues;
+}
+
+function runScopedField<TData, TUi>(
+	field: ScopedFieldInstance,
+	input: ScopedValidationInput<TData, TUi>,
+	context: ScopedEmissionContext,
+): ValidationIssue[] {
+	if (
+		!context.current() ||
+		field.binding.namespace !== "data" ||
+		!field.binding.segments.length ||
+		!valueAt(context.captureData, field.binding.segments)
+	)
+		throw new Error("Invalid scoped field binding");
+	const proposed = field.validate(input);
+	if (!Array.isArray(proposed)) {
+		if (proposed !== null && (typeof proposed === "object" || typeof proposed === "function"))
+			Promise.resolve(proposed).then(undefined, () => {});
+		throw new Error("Invalid scoped field result");
+	}
+	if (!context.current()) throw new Error("Invalid scoped field result");
+	return emitScopedIssues(field, proposed, context);
+}
+
+function scopedFieldInput<TData, TUi>(
+	snapshot: { readonly data: TData; readonly uiState: TUi },
+	stage?: string,
+	context?: SubmitContext,
+	signal?: AbortSignal,
+): ScopedValidationInput<TData, TUi> {
+	return {
+		data: snapshot.data,
+		uiState: snapshot.uiState,
+		...(stage === undefined ? {} : { stage }),
+		...(context ? { context } : {}),
+		...(signal ? { signal } : {}),
+	};
+}
+
 /** Called only by the core form's full-draft synchronous validation entry. */
 export function runScopedSync<TData, TUi>(
 	form: FormApi<TData, TUi>,
@@ -130,51 +212,16 @@ export function runScopedSync<TData, TUi>(
 	const run = {};
 	const issues: ValidationIssue[] = [];
 	for (const field of projection.fields) {
-		if (
-			!current() ||
-			field.binding.namespace !== "data" ||
-			!field.binding.segments.length ||
-			!valueAt(capture.state.data, field.binding.segments)
-		)
-			throw new Error("Invalid scoped field binding");
-		const proposed = field.validate({
-			data: snapshot.data,
-			uiState: snapshot.uiState,
-			...(stage === undefined ? {} : { stage }),
-			...(options?.context ? { context: options.context } : {}),
-			...(options?.signal ? { signal: options.signal } : {}),
-		});
-		if (!Array.isArray(proposed)) {
-			if (proposed !== null && (typeof proposed === "object" || typeof proposed === "function"))
-				Promise.resolve(proposed).then(undefined, () => {});
-			throw new Error("Invalid scoped field result");
-		}
-		if (!current()) throw new Error("Invalid scoped field result");
-		const emit = createIssueEmission({
-			fieldId: field.fieldId,
-			instanceKey: field.instanceKey,
-			binding: field.binding,
-			revision: generation,
-			run,
+		const fieldIssues = runScopedField(field, scopedFieldInput(snapshot, stage, options?.context, options?.signal), {
+			captureData: capture.state.data,
+			snapshotData: snapshot.data,
+			stage,
 			current,
+			generation,
+			run,
+			guarded: !!options,
 		});
-		for (const input of proposed) {
-			if (
-				!diagnostic(input) ||
-				(input.descendant && !valueAt(snapshot.data, [...field.binding.segments, ...input.descendant])) ||
-				(!options && !valueAt(snapshot.data, field.binding.segments))
-			)
-				throw new Error("Invalid scoped field issue");
-			issues.push(
-				emit({
-					code: input.code,
-					message: input.message,
-					severity: input.severity,
-					...(stage === undefined ? {} : { stage }),
-					...(input.descendant ? { descendant: input.descendant } : {}),
-				}),
-			);
-		}
+		for (const issue of fieldIssues) issues.push(issue);
 	}
 	return issues;
 }
