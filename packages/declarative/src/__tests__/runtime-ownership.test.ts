@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { OwnershipOverlapIndex } from "../ownership-overlap-index.js";
 import { projectConcreteOwnership } from "../runtime-ownership.js";
 import { binding, definition, field, runtime } from "./runtime-fixtures.js";
 
@@ -10,6 +11,69 @@ function project(children: Parameters<typeof definition>[0], data: object) {
 }
 
 describe("private concrete ownership projection", () => {
+	it("bounds real nested-row projection owner/unknown visits on replacement and reorder", () => {
+		const validated = definition([
+			{
+				type: "repeater",
+				id: "groups",
+				scope: "group",
+				binding: binding(["groups"]),
+				children: [
+					{
+						type: "repeater",
+						id: "rows",
+						scope: "row",
+						binding: { namespace: "data", scope: "group", segments: ["rows"] },
+						children: [field("value", [], { binding: { namespace: "data", scope: "row", segments: ["value"] } })],
+					},
+				],
+			},
+		]);
+		const counts: { rows: number; indexVisits: number; arrayEnumerations: number }[] = [];
+		for (const size of [100, 300, 600]) {
+			const rows = Array.from({ length: size }, (_, index) => ({ value: String(index) }));
+			const { form } = runtime(validated, { initialData: { groups: [{ rows }] } });
+			let visits = 0;
+			let rowArrayEnumerations = 0;
+			const ownKeys = Reflect.ownKeys;
+			const keysSpy = vi.spyOn(Reflect, "ownKeys").mockImplementation((value) => {
+				if (Array.isArray(value) && value.length === size) rowArrayEnumerations++;
+				return ownKeys(value);
+			});
+			const add = OwnershipOverlapIndex.prototype.add;
+			const query = OwnershipOverlapIndex.prototype.query;
+			const addSpy = vi.spyOn(OwnershipOverlapIndex.prototype, "add").mockImplementation(function (path) {
+				visits++;
+				return add.call(this, path);
+			});
+			const querySpy = vi.spyOn(OwnershipOverlapIndex.prototype, "query").mockImplementation(function (path) {
+				visits++;
+				return query.call(this, path);
+			});
+			let latest: ReturnType<typeof projectConcreteOwnership> | undefined;
+			const unsubscribe = form.subscribe(() => {
+				latest = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
+			});
+			form.setValue("groups", [{ rows: rows.map((row) => ({ ...row })) }]);
+			if (!latest) latest = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
+			counts.push({ rows: size, indexVisits: visits, arrayEnumerations: rowArrayEnumerations });
+			expect(latest.forField("value")).toHaveLength(size);
+			expect(latest.unknown).toEqual([]);
+			expect(visits).toBeGreaterThan(size);
+			expect(visits).toBeLessThan(30 * size);
+			expect(rowArrayEnumerations).toBeLessThan(10);
+			const before = latest;
+			form.setValue("groups", [{ rows: [...rows].reverse() }]);
+			expect(before.current()).toBe(false);
+			expect(latest.forField("value")?.[0]?.binding.segments).toEqual(["groups", 0, "rows", 0, "value"]);
+			unsubscribe();
+			addSpy.mockRestore();
+			querySpy.mockRestore();
+			keysSpy.mockRestore();
+			form.dispose();
+		}
+		console.info("#279 projection owner/unknown visits 100/300/600", counts);
+	});
 	it("rejects unknown/non-field and duplicate definition IDs; zero rows have no instance", () => {
 		const { ownership } = project(
 			[

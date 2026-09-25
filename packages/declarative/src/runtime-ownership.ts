@@ -5,6 +5,7 @@ import type { Segment } from "@formbar/expressions";
 import type { AbsoluteBinding } from "./bindings.js";
 import type { ValidatedFormDefinition } from "./definition.js";
 import type { FormNode } from "./nodes.js";
+import { OwnershipOverlapIndex } from "./ownership-overlap-index.js";
 import type { RuntimeNodeInstance, RuntimeSnapshot } from "./runtime-contracts.js";
 import { projectRuntime } from "./runtime-projection.js";
 
@@ -27,15 +28,24 @@ export interface ConcreteOwnership {
 
 const unsafe = new Set(["__proto__", "constructor", "prototype"]);
 
-function prefix(a: readonly Segment[], b: readonly Segment[]): boolean {
-	return a.length <= b.length && a.every((part, index) => part === b[index]);
+type Entries = ReadonlyMap<string, unknown> | undefined;
+
+function captureEntries(): (value: object) => Entries {
+	const cache = new WeakMap<object, Entries>();
+	return (value) => {
+		if (cache.has(value)) return cache.get(value);
+		let entries: Entries;
+		try {
+			entries = new Map(inspectDataContainer(value));
+		} catch {
+			entries = undefined;
+		}
+		cache.set(value, entries);
+		return entries;
+	};
 }
 
-function overlaps(a: AbsoluteBinding, b: AbsoluteBinding): boolean {
-	return a.namespace === b.namespace && (prefix(a.segments, b.segments) || prefix(b.segments, a.segments));
-}
-
-function bound(root: unknown, binding: AbsoluteBinding): boolean {
+function bound(root: unknown, binding: AbsoluteBinding, entries: (value: object) => Entries): boolean {
 	if (binding.namespace !== "data" || !binding.segments.length) return false;
 	let value = root;
 	try {
@@ -46,10 +56,9 @@ function bound(root: unknown, binding: AbsoluteBinding): boolean {
 			if (array && index === binding.segments.length - 1) return false;
 			if (typeof segment === "string" && (!segment || unsafe.has(segment))) return false;
 			if (typeof segment === "number" && (!Number.isSafeInteger(segment) || segment < 0)) return false;
-			const entries = inspectDataContainer(value);
-			const entry = entries.find(([key]) => key === String(segment));
-			if (!entry) return false;
-			value = entry[1];
+			const container = entries(value);
+			if (!container?.has(String(segment))) return false;
+			value = container.get(String(segment));
 		}
 		return value !== undefined;
 	} catch {
@@ -82,19 +91,23 @@ function definitionFields(node: FormNode, ids: Map<string, "field" | "other">): 
 	for (const child of node.children) definitionFields(child, ids);
 }
 
-function owners(snapshot: RuntimeSnapshot, root: unknown): { fields: ConcreteOwner[]; repeaters: ConcreteOwner[] } {
+function owners(
+	snapshot: RuntimeSnapshot,
+	root: unknown,
+	entries: (value: object) => Entries,
+): { fields: ConcreteOwner[]; repeaters: ConcreteOwner[] } {
 	const fields = snapshot.fields.map((field) => ({
 		instance: copyInstance(field.instance),
 		binding: copyBinding(field.binding),
 		visible: field.visible,
-		eligible: bound(root, field.binding),
+		eligible: bound(root, field.binding, entries),
 		protected: false,
 	}));
 	const repeaters = snapshot.repeaters.map((repeater) => ({
 		instance: copyInstance(repeater.instance),
 		binding: copyBinding(repeater.binding ?? { namespace: "", segments: [] }),
 		visible: repeater.visible,
-		eligible: repeater.status === "ready" && !!repeater.binding && bound(root, repeater.binding),
+		eligible: repeater.status === "ready" && !!repeater.binding && bound(root, repeater.binding, entries),
 		protected: false,
 	}));
 	return { fields, repeaters };
@@ -102,16 +115,15 @@ function owners(snapshot: RuntimeSnapshot, root: unknown): { fields: ConcreteOwn
 
 function unknownBindings(
 	root: unknown,
-	fields: readonly ConcreteOwner[],
-	repeaters: readonly ConcreteOwner[],
+	fields: OwnershipOverlapIndex,
+	repeaters: OwnershipOverlapIndex,
+	entriesFor: (value: object) => Entries,
 ): AbsoluteBinding[] {
 	const unknown: AbsoluteBinding[] = [];
 	function visit(value: unknown, segments: readonly Segment[]): void {
 		if (value === null || typeof value !== "object") return;
-		let entries: readonly (readonly [string, unknown])[];
-		try {
-			entries = inspectDataContainer(value);
-		} catch {
+		const entries = entriesFor(value);
+		if (!entries) {
 			unknown.push(copyBinding({ namespace: "data", segments }));
 			return;
 		}
@@ -119,20 +131,10 @@ function unknownBindings(
 			const segment = Array.isArray(value) ? Number(key) : key;
 			const path = [...segments, segment];
 			const binding = { namespace: "data", segments: path };
-			const exact = fields.some(
-				(field) =>
-					field.binding.namespace === "data" &&
-					field.binding.segments.length === path.length &&
-					prefix(path, field.binding.segments),
-			);
-			const descendant = fields.some(
-				(field) => field.binding.namespace === "data" && prefix(path, field.binding.segments),
-			);
-			const structural = repeaters.some(
-				(item) =>
-					item.binding.namespace === "data" &&
-					(prefix(path, item.binding.segments) || prefix(item.binding.segments, path)),
-			);
+			const fieldMatches = fields.query(binding);
+			const exact = fieldMatches.exact > 0;
+			const descendant = fieldMatches.descendants > 0;
+			const structural = repeaters.query(binding).overlaps > 0;
 			if (!exact && !descendant && (!structural || child === null || typeof child !== "object")) {
 				unknown.push(copyBinding(binding));
 				continue;
@@ -142,6 +144,22 @@ function unknownBindings(
 	}
 	visit(root, []);
 	return unknown;
+}
+
+function ownerIndexes(fields: readonly ConcreteOwner[], repeaters: readonly ConcreteOwner[]) {
+	const allFields = new OwnershipOverlapIndex();
+	const allRepeaters = new OwnershipOverlapIndex();
+	const visibleFields = new OwnershipOverlapIndex();
+	const visibleRepeaters = new OwnershipOverlapIndex();
+	for (const field of fields) {
+		allFields.add(field.binding);
+		if (field.visible) visibleFields.add(field.binding);
+	}
+	for (const repeater of repeaters) {
+		allRepeaters.add(repeater.binding);
+		if (repeater.visible) visibleRepeaters.add(repeater.binding);
+	}
+	return { allFields, allRepeaters, visibleFields, visibleRepeaters };
 }
 
 /** Private, attempt-local read model; the caller supplies the one already captured core state. */
@@ -154,26 +172,20 @@ export function projectConcreteOwnership(options: {
 	definitionFields(options.definition.root, ids);
 	const snapshot = projectRuntime(options);
 	const lifecycle = scopedLifecycleRevision(options.form);
-	const { fields, repeaters } = owners(snapshot, options.capture.state.data);
-	const unknown = Object.freeze(unknownBindings(options.capture.state.data, fields, repeaters));
+	const entries = captureEntries();
+	const { fields, repeaters } = owners(snapshot, options.capture.state.data, entries);
+	const { allFields, allRepeaters, visibleFields, visibleRepeaters } = ownerIndexes(fields, repeaters);
+	const unknown = Object.freeze(unknownBindings(options.capture.state.data, allFields, allRepeaters, entries));
+	const unknownIndex = new OwnershipOverlapIndex();
+	for (const path of unknown) unknownIndex.add(path);
 	const diagnostics = snapshot.diagnostics.length > 0;
 	const protect = (item: ConcreteOwner, container: boolean): ConcreteOwner => {
-		const protectedByField = fields.some(
-			(field) => field !== item && field.visible && overlaps(field.binding, item.binding),
-		);
-		const protectedByContainer =
-			!container &&
-			repeaters.some(
-				(repeater) =>
-					!prefix(repeater.binding.segments, item.binding.segments) &&
-					repeater.visible &&
-					overlaps(repeater.binding, item.binding),
-			);
+		const protectedByField = visibleFields.query(item.binding).overlaps > (container || !item.visible ? 0 : 1);
+		const protectedByContainer = !container && visibleRepeaters.query(item.binding).descendants > 0;
 		const protectedPath = protectedByField || protectedByContainer;
 		return Object.freeze({
 			...item,
-			eligible:
-				item.eligible && !diagnostics && !protectedPath && !unknown.some((path) => overlaps(path, item.binding)),
+			eligible: item.eligible && !diagnostics && !protectedPath && unknownIndex.query(item.binding).overlaps === 0,
 			protected: protectedPath,
 		});
 	};
