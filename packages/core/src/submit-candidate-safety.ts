@@ -89,7 +89,7 @@ export class Boundary {
 	}
 }
 
-function clone(value: unknown, forbidden?: ReadonlySet<object>): { value: Json; refs: Set<object> } {
+export function clone(value: unknown, forbidden?: ReadonlySet<object>): { value: Json; refs: Set<object> } {
 	const boundary = new Boundary();
 	return { value: boundary.copy(value, forbidden), refs: boundary.refs };
 }
@@ -102,7 +102,7 @@ export function freeze<T extends Json>(value: T): T {
 	return value;
 }
 
-function add(target: Set<object>, refs: ReadonlySet<object>): void {
+export function add(target: Set<object>, refs: ReadonlySet<object>): void {
 	for (const ref of refs) target.add(ref);
 }
 
@@ -110,7 +110,7 @@ export function unchanged(value: unknown, baseline: Json): boolean {
 	return JSON.stringify(clone(value).value) === JSON.stringify(baseline);
 }
 
-function applyEgress(
+export function applyEgress(
 	initial: Json,
 	context: CandidateEgressContext,
 	transforms: readonly CandidateEgress[],
@@ -132,7 +132,7 @@ function applyEgress(
 	return current;
 }
 
-function makeContext(projection: Json, ui: Json, refs: Set<object>) {
+export function makeContext(projection: Json, ui: Json, refs: Set<object>) {
 	const context: CandidateEgressContext = Object.freeze({
 		phase: "egress",
 		data: freeze(clone(projection).value),
