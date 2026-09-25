@@ -33,7 +33,7 @@ export class FormStore<TData, TUi> {
 	}
 
 	/** Apply draft state and notify subscribers if state was mutated. */
-	commitTransaction(tx: Transaction<TData, TUi>): void {
+	commitTransaction(tx: Transaction<TData, TUi>, onCommitted?: (state: FormState<TData, TUi>) => void): void {
 		if (tx !== this._activeTransaction) {
 			throw new Error("Transaction does not belong to this store");
 		}
@@ -48,6 +48,7 @@ export class FormStore<TData, TUi> {
 		}
 
 		this._state = rebaseAttemptIssues(nextState);
+		onCommitted?.(this._state);
 		this._notifyListeners();
 	}
 

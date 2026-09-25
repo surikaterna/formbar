@@ -376,8 +376,16 @@ describe("internal submit preparation (not reachable via createForm)", () => {
 		return { store, ctx };
 	}
 
-	function guard(signal = new AbortController().signal, revision = () => 0) {
-		return { signal, expectedRevision: 0, revision };
+	function guard(signal = new AbortController().signal, externalRevision = () => 0) {
+		let owned = 0;
+		return {
+			signal,
+			expectedRevision: 0,
+			revision: () => owned + externalRevision(),
+			onCommittedMutation: () => {
+				owned++;
+			},
+		};
 	}
 
 	it("commits evaluate writes, preserves draft issues, and defers sync validation hooks", () => {
@@ -387,7 +395,7 @@ describe("internal submit preparation (not reachable via createForm)", () => {
 		expect(result.stage).toBe("prepared");
 		if (result.stage !== "prepared") return;
 		expect(result.snapshot).toBe(store.getState());
-		expect(result.revision).toBe(0);
+		expect(result.revision).toBe(1);
 		expect(result.snapshot.data).toEqual({ value: 1, computed: 42 });
 		expect(result.snapshot.issues).toEqual([retained]);
 		expect(log).toEqual([

@@ -13,8 +13,10 @@ export function runVetoHooksSync<K extends keyof VetoHookContextMap>(
 	middlewares: readonly Middleware[],
 	hookName: K,
 	context: VetoHookContextMap[K],
+	checkpoint?: () => boolean,
 ): MiddlewareDecision {
 	for (const mw of middlewares) {
+		if (checkpoint && !checkpoint()) return { action: "continue" };
 		const hook = mw[hookName];
 		if (!hook) continue;
 		try {
@@ -23,6 +25,7 @@ export function runVetoHooksSync<K extends keyof VetoHookContextMap>(
 			const result = (hook as (ctx: VetoHookContextMap[K]) => MiddlewareDecision | Promise<MiddlewareDecision>)(
 				context,
 			);
+			if (checkpoint && !checkpoint()) return { action: "continue" };
 			if (isPromiseLike(result)) {
 				throw new FormbarError(
 					"FORMBAR_ASYNC_IN_SYNC_PIPELINE",
@@ -35,6 +38,7 @@ export function runVetoHooksSync<K extends keyof VetoHookContextMap>(
 				}
 			}
 		} catch (err) {
+			if (checkpoint && !checkpoint()) return { action: "continue" };
 			if (err instanceof FormbarError) throw err;
 			return { action: "veto", reason: `Middleware "${mw.id}" threw in ${String(hookName)}` };
 		}
@@ -47,8 +51,10 @@ export function runNotifyHooksSync<K extends keyof NotifyHookContextMap>(
 	middlewares: readonly Middleware[],
 	hookName: K,
 	context: NotifyHookContextMap[K],
+	checkpoint?: () => boolean,
 ): void {
 	for (const mw of middlewares) {
+		if (checkpoint && !checkpoint()) return;
 		const hook = mw[hookName];
 		if (!hook) continue;
 		try {
@@ -57,6 +63,7 @@ export function runNotifyHooksSync<K extends keyof NotifyHookContextMap>(
 		} catch {
 			// Swallow errors in sync notify hooks to match async variant behavior
 		}
+		if (checkpoint && !checkpoint()) return;
 	}
 }
 

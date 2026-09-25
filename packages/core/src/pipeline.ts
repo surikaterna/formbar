@@ -13,6 +13,11 @@ import { parsePath } from "./path-parser.js";
 import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
 import type { FormStore } from "./store.js";
+import {
+	type PreparationCheckpoint,
+	type SubmitPreparationGuard,
+	createCheckpoint,
+} from "./submit-preparation-checkpoint.js";
 import type { Transaction } from "./transaction.js";
 import type { TransformDefinition } from "./transforms.js";
 import { runTransforms } from "./transforms.js";
@@ -52,17 +57,6 @@ export interface PipelineResult {
 export type SubmitPreparation =
 	| { readonly stage: "rejected"; readonly result: PipelineResult }
 	| { readonly stage: "prepared"; readonly snapshot: FormState<unknown, unknown>; readonly revision: number };
-
-export interface SubmitPreparationGuard {
-	readonly signal: AbortSignal;
-	readonly expectedRevision: number;
-	readonly revision: () => number;
-}
-
-function preparationFailure(guard: SubmitPreparationGuard): PipelineResult | undefined {
-	if (guard.signal.aborted) return { ok: false, error: "Submit preparation aborted" };
-	if (guard.revision() !== guard.expectedRevision) return { ok: false, error: "Submit preparation superseded" };
-}
 
 /** Resolve TransformDefinitions from options.transforms (duck-type check) */
 function getTransformDefs(options: CreateFormOptions<unknown, unknown>): readonly TransformDefinition[] {
@@ -147,6 +141,7 @@ function evaluatePlugins(
 	action: FormAction,
 	draftState: { readonly data: unknown; readonly uiState: unknown; readonly issues: readonly ValidationIssue[] },
 	prevState: { readonly data: unknown; readonly uiState: unknown },
+	checkpoint?: PreparationCheckpoint,
 ): {
 	writes: readonly PluginWrite[];
 	policyReplacements: ReadonlyMap<string, ReturnType<typeof normalizePolicySnapshot>>;
@@ -155,8 +150,10 @@ function evaluatePlugins(
 	const policyReplacements = new Map<string, ReturnType<typeof normalizePolicySnapshot>>();
 	const context = createPluginContext(action, draftState, prevState);
 	for (const plugin of plugins) {
+		if (checkpoint && !checkpoint.valid()) break;
 		if (!plugin.evaluate) continue;
 		const result = plugin.evaluate(context);
+		if (checkpoint && !checkpoint.valid()) break;
 		if (!result) continue;
 		if (result.writes) allWrites.push(...result.writes);
 		if (result.fieldPolicy !== undefined) {
@@ -218,10 +215,12 @@ function runPluginPhase(
 	ctx: PipelineContext,
 	tx: Transaction<unknown, unknown>,
 	previousPolicy: import("./state.js").FormState<unknown, unknown>["fieldPolicy"],
+	checkpoint?: PreparationCheckpoint,
 ): import("./state.js").FormState<unknown, unknown>["fieldPolicy"] {
 	const plugins = ctx.plugins ?? [];
 	if (plugins.length === 0) return previousPolicy;
-	const result = evaluatePlugins(plugins, ctx.action, tx.draftState, tx.prevState);
+	const result = evaluatePlugins(plugins, ctx.action, tx.draftState, tx.prevState, checkpoint);
+	if (checkpoint && !checkpoint.valid()) return previousPolicy;
 	if (result.writes.length > 0) tx.mutate((draft) => applyRuleWrites(draft, result.writes));
 	return result.policyReplacements.size > 0
 		? replacePolicyContributions(previousPolicy, plugins, result.policyReplacements)
@@ -247,56 +246,93 @@ function runValidationPhase(
 	return issues;
 }
 
-function submitVeto(ctx: PipelineContext, tx: Transaction<unknown, unknown>, middlewares: readonly Middleware[]) {
+function submitVeto(
+	ctx: PipelineContext,
+	tx: Transaction<unknown, unknown>,
+	middlewares: readonly Middleware[],
+	checkpoint?: PreparationCheckpoint,
+) {
 	if (!ctx.isSubmit || !ctx.submitContext) return;
-	const decision = runVetoHooksSync(middlewares, "beforeSubmit", {
-		action: ctx.action,
-		state: tx.draftState,
-		submitContext: ctx.submitContext,
-	});
-	return decision.action === "veto" ? decision.reason : undefined;
+	const decision = runVetoHooksSync(
+		middlewares,
+		"beforeSubmit",
+		{
+			action: ctx.action,
+			state: tx.draftState,
+			submitContext: ctx.submitContext,
+		},
+		checkpoint?.valid,
+	);
+	return decision.action === "veto" ? (decision.reason ?? (checkpoint ? "Submit vetoed" : undefined)) : undefined;
+}
+
+function commitAndNotify(
+	ctx: PipelineContext,
+	tx: Transaction<unknown, unknown>,
+	fieldPolicy: FormState<unknown, unknown>["fieldPolicy"],
+	issues: readonly ValidationIssue[],
+	middlewares: readonly Middleware[],
+	checkpoint?: PreparationCheckpoint,
+): PipelineResult {
+	tx.mutate((draft) => ({
+		...draft,
+		fieldPolicy,
+		issues: checkpoint
+			? draft.issues
+			: mergePipelineIssues(draft.issues, issues, Boolean(ctx.options.validators?.length)),
+	}));
+	ctx.store.commitTransaction(tx, checkpoint ? (state) => checkpoint.committed(state, tx.prevState) : undefined);
+	const commitFailure = checkpoint?.failure();
+	if (commitFailure) return commitFailure;
+	runNotifyHooksSync(
+		middlewares,
+		"afterAction",
+		{
+			action: ctx.action,
+			prevState: tx.prevState,
+			nextState: ctx.store.getState(),
+		},
+		checkpoint?.valid,
+	);
+	// A postcommit interruption rejects the handoff, not the already committed write.
+	const failure = checkpoint?.failure();
+	return failure ?? { ok: true, issues: ctx.store.getState().issues };
 }
 
 function executeTransaction(
 	ctx: PipelineContext,
 	tx: Transaction<unknown, unknown>,
 	previousPolicy: import("./state.js").FormState<unknown, unknown>["fieldPolicy"],
-	guard?: SubmitPreparationGuard,
+	checkpoint?: PreparationCheckpoint,
 ): PipelineResult {
-	const deferValidation = guard !== undefined;
 	const middlewares = (ctx.options.middleware ?? []) as readonly Middleware[];
-	const before = runVetoHooksSync(middlewares, "beforeAction", { action: ctx.action, state: tx.prevState });
+	const before = runVetoHooksSync(
+		middlewares,
+		"beforeAction",
+		{ action: ctx.action, state: tx.prevState },
+		checkpoint?.valid,
+	);
+	if (checkpoint) {
+		const failure = checkpoint.failure();
+		if (failure) return failure;
+	}
 	if (before.action === "veto") return { ok: false, vetoed: true, vetoReason: before.reason };
 	applyBaseMutation(ctx, tx);
-	runNotifyHooksSync(middlewares, "beforeEvaluate", { action: ctx.action, state: tx.draftState });
-	const fieldPolicy = runPluginPhase(ctx, tx, previousPolicy);
-	runNotifyHooksSync(middlewares, "afterEvaluate", { action: ctx.action, state: tx.draftState });
-	const issues = deferValidation ? [] : runValidationPhase(ctx, tx, middlewares);
-	const vetoReason = submitVeto(ctx, tx, middlewares);
+	runNotifyHooksSync(middlewares, "beforeEvaluate", { action: ctx.action, state: tx.draftState }, checkpoint?.valid);
+	const beforeEvaluateFailure = checkpoint?.failure();
+	if (beforeEvaluateFailure) return beforeEvaluateFailure;
+	const fieldPolicy = runPluginPhase(ctx, tx, previousPolicy, checkpoint);
+	const pluginFailure = checkpoint?.failure();
+	if (pluginFailure) return pluginFailure;
+	runNotifyHooksSync(middlewares, "afterEvaluate", { action: ctx.action, state: tx.draftState }, checkpoint?.valid);
+	const afterEvaluateFailure = checkpoint?.failure();
+	if (afterEvaluateFailure) return afterEvaluateFailure;
+	const issues = checkpoint ? [] : runValidationPhase(ctx, tx, middlewares);
+	const vetoReason = submitVeto(ctx, tx, middlewares, checkpoint);
+	const vetoFailure = checkpoint?.failure();
+	if (vetoFailure) return vetoFailure;
 	if (vetoReason) return { ok: false, vetoed: true, vetoReason };
-	if (guard) {
-		const failure = preparationFailure(guard);
-		if (failure) return failure;
-	}
-	tx.mutate((draft) => ({
-		...draft,
-		fieldPolicy,
-		issues: deferValidation
-			? draft.issues
-			: mergePipelineIssues(draft.issues, issues, Boolean(ctx.options.validators?.length)),
-	}));
-	ctx.store.commitTransaction(tx);
-	runNotifyHooksSync(middlewares, "afterAction", {
-		action: ctx.action,
-		prevState: tx.prevState,
-		nextState: ctx.store.getState(),
-	});
-	// A synchronous afterAction listener may reset or cancel after the commit; never advance its candidate.
-	if (guard) {
-		const failure = preparationFailure(guard);
-		if (failure) return failure;
-	}
-	return { ok: true, issues: ctx.store.getState().issues };
+	return commitAndNotify(ctx, tx, fieldPolicy, issues, middlewares, checkpoint);
 }
 
 function rollback(store: FormStore<unknown, unknown>, tx: Transaction<unknown, unknown>): void {
@@ -309,13 +345,13 @@ function rollback(store: FormStore<unknown, unknown>, tx: Transaction<unknown, u
 
 /**
  * Executes the 18-step transactional pipeline for a form action.
- * All-or-nothing semantics: partial commits never occur.
+ * Vetoes roll back; postcommit callbacks may reject preparation without undoing a commit.
  */
-function runPipeline(ctx: PipelineContext, guard?: SubmitPreparationGuard): PipelineResult {
+function runPipeline(ctx: PipelineContext, checkpoint?: PreparationCheckpoint): PipelineResult {
 	let tx: Transaction<unknown, unknown> | undefined;
 	try {
-		if (guard) {
-			const failure = preparationFailure(guard);
+		if (checkpoint) {
+			const failure = checkpoint.failure();
 			if (failure) return failure;
 		}
 		if (ctx.action.path !== undefined) {
@@ -323,7 +359,7 @@ function runPipeline(ctx: PipelineContext, guard?: SubmitPreparationGuard): Pipe
 		}
 		const previousPolicy = ctx.store.getState().fieldPolicy;
 		tx = ctx.store.beginTransaction();
-		const result = executeTransaction(ctx, tx, previousPolicy, guard);
+		const result = executeTransaction(ctx, tx, previousPolicy, checkpoint);
 		if (!result.ok) rollback(ctx.store, tx);
 		return result;
 	} catch (err) {
@@ -340,7 +376,10 @@ export function executeSubmitPreparation(ctx: PipelineContext, guard: SubmitPrep
 			result: { ok: false, error: "Submit preparation requires a submit action and context" },
 		};
 	}
-	const result = runPipeline(ctx, guard);
+	const checkpoint = createCheckpoint(ctx, guard);
+	const result = runPipeline(ctx, checkpoint);
+	const failure = checkpoint.failure();
+	if (failure) return { stage: "rejected", result: failure };
 	return result.ok
 		? { stage: "prepared", snapshot: ctx.store.getState(), revision: guard.revision() }
 		: { stage: "rejected", result };
