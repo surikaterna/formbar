@@ -310,7 +310,7 @@ describe("#301 owned scheduling boundary", () => {
 		const changed = scopedCaptureReceipt(form.captureState());
 		form.field("rows[0].name").handleBlur();
 		expect(form.field("rows[0].name").isTouched()).toBe(true);
-		expect(changed(form.getState())).toBe(false);
+		expect(changed(form.getState())).toBe(true);
 	});
 
 	test("deferred attach publishes one owned snapshot before activation; many receipts avoid data reinspection", () => {

@@ -2,8 +2,9 @@ import { rebaseAttemptIssues } from "./attempt-issues.js";
 import { structuredEqual } from "./equality.js";
 import { ownIssues } from "./issue-ownership.js";
 import { ownNonIssueState } from "./owned-issue-snapshot.js";
-import type { FormState } from "./state.js";
+import type { FieldMetaEntry, FormState } from "./state.js";
 import type { ValidationIssue } from "./state.js";
+import { type OwnedMetadata, applyOwnedMetadata } from "./store-metadata.js";
 import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.js";
 import { normalizeIssues } from "./validation.js";
 
@@ -16,6 +17,8 @@ export class OwnedNotificationOverflow extends Error {
 const MAX_OWNED_NOTIFICATIONS = 1024;
 const issueOnly = Symbol("internal issue-only publication");
 const enableOwnership = Symbol("internal nonissue ownership activation");
+const projectValidationMetadata = Symbol("internal validation-status projection");
+const publishMetadata = Symbol("internal metadata publication");
 const snapshotOwners = new WeakMap<
 	object,
 	{
@@ -50,6 +53,19 @@ export function publishIssueOnly<TData, TUi>(store: FormStore<TData, TUi>, issue
 /** Opt-in trusted-host boundary. A failed activation leaves the store and subscriptions untouched. */
 export function ownStoreBeforeScheduling<TData, TUi>(store: FormStore<TData, TUi>, invalidate?: () => void): void {
 	store[enableOwnership](invalidate);
+}
+
+/** Only the coordinator may publish validation-status metadata without a semantic write. */
+export function publishValidationStatus<TData, TUi>(
+	store: FormStore<TData, TUi>,
+	paths: ReadonlySet<string>,
+	validating: boolean,
+): void {
+	store[projectValidationMetadata](paths, validating);
+}
+
+export function publishOwnedMetadata<TData, TUi>(store: FormStore<TData, TUi>, change: OwnedMetadata): void {
+	store[publishMetadata](change);
 }
 
 /** Synchronous reactive store with transactional semantics — only one transaction active at a time. */
@@ -87,6 +103,59 @@ export class FormStore<TData, TUi> {
 		this._epoch++;
 		this._stamp();
 		invalidate?.();
+		this._notifyListeners();
+	}
+
+	[projectValidationMetadata](paths: ReadonlySet<string>, validating: boolean): void {
+		if (this._ownedMode && (this._disposed || this._activeTransaction || this._strategy !== defaultStrategy))
+			throw new Error("OWNED_STATE_UNSUPPORTED");
+		const fieldMeta = { ...this._state.fieldMeta } as Record<string, FieldMetaEntry>;
+		const remaining = new Set(paths);
+		for (const [key, meta] of Object.entries(fieldMeta)) {
+			const active = remaining.delete(key);
+			if (meta.isValidating !== active) fieldMeta[key] = { ...meta, isValidating: active };
+		}
+		for (const key of remaining) {
+			fieldMeta[key] = { touched: false, dirty: false, listenerTriggered: false, isValidating: true };
+		}
+		if (!this._ownedMode) {
+			const tx = this.beginTransaction();
+			tx.mutate((state) => ({
+				...state,
+				fieldMeta,
+				meta: { ...state.meta, validation: { ...state.meta.validation, validating } },
+			}));
+			this.commitTransaction(tx);
+			return;
+		}
+		for (const meta of Object.values(fieldMeta)) Object.freeze(meta);
+		const next = Object.freeze({
+			...this._state,
+			fieldMeta: Object.freeze(fieldMeta),
+			meta: Object.freeze({
+				...this._state.meta,
+				validation: Object.freeze({ ...this._state.meta.validation, validating }),
+			}),
+		});
+		this._state = next;
+		this._stamp();
+		this._notifyListeners();
+	}
+
+	[publishMetadata](change: OwnedMetadata): void {
+		if (!this._ownedMode || this._disposed || this._activeTransaction || this._strategy !== defaultStrategy)
+			throw new Error("OWNED_STATE_UNSUPPORTED");
+		let next: FormState<TData, TUi>;
+		try {
+			next = applyOwnedMetadata(this._state, change);
+		} catch (error) {
+			this._failure++;
+			this._stamp();
+			throw error;
+		}
+		if (next === this._state) return;
+		this._state = next;
+		this._stamp();
 		this._notifyListeners();
 	}
 

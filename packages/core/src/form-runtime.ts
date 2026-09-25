@@ -1,4 +1,4 @@
-import { clearAttempt, failedAttemptIssuesForPath } from "./attempt-issues.js";
+import { failedAttemptIssuesForPath } from "./attempt-issues.js";
 import type {
 	FieldApi,
 	FieldConfig,
@@ -15,6 +15,7 @@ import { createFieldApi } from "./field-api.js";
 import { emptyFieldPolicy, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import { createFormDisposer } from "./form-disposer.js";
 import { createListenerRegistry } from "./listener-registry.js";
+import { markListenerTriggers } from "./listener-trigger-metadata.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import { bindOwnedSchedulingBoundary } from "./owned-scheduling-boundary.js";
 import { preflightOwnedCreation } from "./owned-scheduling-preflight.js";
@@ -28,11 +29,11 @@ import { createResetSignal } from "./reset-signal.js";
 import { invalidateScopedSync, runScopedSync } from "./scoped-sync.js";
 import { createFormStateCapture, readInitialValue } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
-import { FormStore } from "./store.js";
+import { clearRuntimeAttempt, ownedAsyncIssuePublisher } from "./store-async-issues.js";
+import { FormStore, publishOwnedMetadata, publishValidationStatus } from "./store.js";
 import { createSubmitHandler } from "./submit-handler.js";
 import { warnUnknownCreateFormOptionsAtRuntime } from "./unknown-options-warning.js";
 import { type ValidationCoordinator, createValidationCoordinator } from "./validation-coordinator.js";
-
 export class FormRuntime<TData, TUi> {
 	private initialDataSnapshot: TData;
 	private initialUiStateSnapshot: TUi;
@@ -78,6 +79,8 @@ export class FormRuntime<TData, TUi> {
 			...(options.timeouts?.validator === undefined ? {} : { validatorTimeout: options.timeouts.validator }),
 			getState: () => this.store.getState(),
 			updateState: (updater) => this.updateState(updater),
+			publishValidationStatus: (paths, validating) => publishValidationStatus(this.store, paths, validating),
+			...ownedAsyncIssuePublisher(this.store),
 		});
 		const runtime = this;
 		this.submitHandler = createSubmitHandler({
@@ -129,7 +132,7 @@ export class FormRuntime<TData, TUi> {
 		try {
 			this.submitHandler.reset();
 			this.coordinator.reset();
-			if (this.store.getState().attemptValidation) this.updateState(clearAttempt);
+			if (this.store.getState().attemptValidation) clearRuntimeAttempt(this.store);
 			deactivateFormResources(this.initializedMiddlewares, this.pluginDisposers, this.activationSubscriptions);
 		} finally {
 			this.deactivating = false;
@@ -150,25 +153,12 @@ export class FormRuntime<TData, TUi> {
 		tx.mutate(updater);
 		this.store.commitTransaction(tx);
 	}
-
 	private propagateListeners(pathKey: string, trigger: "change" | "blur"): void {
 		const targets = this.listeners.getListeners(pathKey, trigger);
-		if (targets.length === 0) return;
-		const tx = this.store.beginTransaction();
-		tx.mutate((draft) => {
-			const fieldMeta = { ...draft.fieldMeta } as Record<string, FieldMetaEntry>;
-			for (const target of targets) {
-				const existing = fieldMeta[target.path];
-				fieldMeta[target.path] = {
-					touched: existing?.touched ?? false,
-					isValidating: existing?.isValidating ?? false,
-					dirty: existing?.dirty ?? false,
-					listenerTriggered: true,
-				};
-			}
-			return { ...draft, fieldMeta };
-		});
-		this.store.commitTransaction(tx);
+		markListenerTriggers(
+			this.store,
+			targets.map((target) => target.path),
+		);
 	}
 
 	private dispatchSetValue = (rawPath: string, value: unknown): FormDispatchResult => {
@@ -189,7 +179,7 @@ export class FormRuntime<TData, TUi> {
 		const canonical = parsePath(rawPath);
 		const after = this.store.getState();
 		const mutated = before.data !== after.data || before.uiState !== after.uiState;
-		if (mutated && after.attemptValidation) this.updateState(clearAttempt);
+		if (mutated && after.attemptValidation) clearRuntimeAttempt(this.store);
 		if (mutated && canonical.namespace === "data") {
 			const dataPath = normalizeDataPath({ namespace: "data", segments: canonical.segments });
 			const pathKey = fieldMetaKey(dataPath);
@@ -210,7 +200,7 @@ export class FormRuntime<TData, TUi> {
 		});
 		const after = this.store.getState();
 		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState) && after.attemptValidation)
-			this.updateState(clearAttempt);
+			clearRuntimeAttempt(this.store);
 		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState)) this.coordinator.onMutation();
 		const error = result.error ?? result.vetoReason;
 		return error ? { ok: result.ok, error } : { ok: result.ok };
@@ -237,8 +227,7 @@ export class FormRuntime<TData, TUi> {
 	};
 
 	private markFieldTouched = (pathKey: string, canonical: CanonicalPath): void => {
-		const tx = this.store.beginTransaction();
-		tx.mutate((draft) => {
+		const touched = (draft: FormState<TData, TUi>) => {
 			const existing = (draft.fieldMeta as Record<string, FieldMetaEntry>)[pathKey];
 			if (existing?.touched) return draft;
 			return {
@@ -253,8 +242,16 @@ export class FormRuntime<TData, TUi> {
 					},
 				},
 			};
-		});
-		this.store.commitTransaction(tx);
+		};
+		if (this.store.isOwnedSchedulingMode()) {
+			const before = this.store.getState();
+			const after = touched(before);
+			if (after !== before) publishOwnedMetadata(this.store, { kind: "fieldMeta", entries: after.fieldMeta });
+		} else {
+			const tx = this.store.beginTransaction();
+			tx.mutate(touched);
+			this.store.commitTransaction(tx);
+		}
 		this.propagateListeners(pathKey, "blur");
 		if (canonical.namespace === "data") {
 			this.coordinator.onBlur(normalizeDataPath({ namespace: "data", segments: canonical.segments }));
@@ -376,7 +373,7 @@ export class FormRuntime<TData, TUi> {
 		});
 		return () => {
 			this.deactivate();
-			if (this.store.getState().attemptValidation) this.updateState(clearAttempt);
+			if (this.store.getState().attemptValidation) clearRuntimeAttempt(this.store);
 			permanent();
 		};
 	}
