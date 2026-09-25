@@ -52,8 +52,8 @@ export class FormStore<TData, TUi> {
 		const nextState = structuredEqual(this._state.fieldPolicy, committed.fieldPolicy)
 			? { ...committed, fieldPolicy: this._state.fieldPolicy }
 			: committed;
-		this._activeTransaction = null;
 		tx.commit();
+		this._activeTransaction = null;
 
 		if (!tx.dirty) {
 			return;
