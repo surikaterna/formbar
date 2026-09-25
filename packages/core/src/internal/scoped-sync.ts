@@ -2,6 +2,8 @@
 export { registerScopedSync, scopedCaptureCurrent, scopedLifecycleRevision } from "../scoped-sync.js";
 export { scopedCaptureReceipt } from "../scoped-capture-receipt.js";
 export { activateOwnedSchedulingBoundary } from "../owned-scheduling-boundary.js";
+export { assertScopedAsyncIds, registerScopedAsync } from "../scoped-async.js";
+export type { ScopedAsyncField, ScopedAsyncHost } from "../scoped-async.js";
 export type {
 	ScopedSyncHost,
 	ScopedFieldInstance,

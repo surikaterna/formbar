@@ -20,5 +20,14 @@ const scoped: fromSchema.DefinitionFieldValidator<{ name: string }, object> = {
 		{ code: String(data.name.length), message: field.instance.nodeId, severity: "error" },
 	],
 };
-export { scoped, registerScopedSync, prepareScopedSyncHost, publicRegister, publicPrepare };
+const scopedAsync: fromSchema.DefinitionAsyncFieldValidator<{ name: string }, object> = {
+	id: "name-async",
+	fieldId: "name-field",
+	trigger: "onBlur",
+	debounceMs: 0,
+	validate: async ({ data, field, signal }) => [
+		{ code: String(data.name.length), message: field.instance.nodeId + signal.aborted, severity: "error" },
+	],
+};
+export { scoped, scopedAsync, registerScopedSync, prepareScopedSyncHost, publicRegister, publicPrepare };
 export { expressions, core, path, transforms, validation, declarative, fromSchema, react, arbiter, reactSchema };

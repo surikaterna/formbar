@@ -36,5 +36,6 @@ export type * from "./presentation.js";
 export type * from "./renderer-contracts.js";
 export type * from "./runtime-contracts.js";
 export { createFormRuntime, type CreateFormRuntimeOptions } from "./runtime.js";
+export type { DefinitionAsyncFieldValidator } from "./scoped-async-host.js";
 export type { DefinitionFieldValidator } from "./scoped-sync-host.js";
 export { validateFormDefinition } from "./validators/definition.js";

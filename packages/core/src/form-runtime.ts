@@ -26,6 +26,9 @@ import { executePipeline } from "./pipeline.js";
 import { deactivateFormResources, initializeFormResources, validatePluginIds } from "./plugin-initializer.js";
 import type { FormPlugin } from "./plugin-types.js";
 import { createResetSignal } from "./reset-signal.js";
+import { createRuntimeScopedAsync, publishRuntimeScopedForeground } from "./runtime-scoped-async.js";
+import { canRuntimeSubmit, createRuntimeInitialState, updateRuntimeState } from "./runtime-state.js";
+import type { ScopedAsyncScheduler } from "./scoped-async-scheduler.js";
 import { invalidateScopedSync, runScopedSync } from "./scoped-sync.js";
 import { createFormStateCapture, readInitialValue } from "./state-capture.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, FormStateCapture, ValidationIssue } from "./state.js";
@@ -51,6 +54,7 @@ export class FormRuntime<TData, TUi> {
 	private readonly disposal = createDisposalSignal();
 	private readonly resetSignal = createResetSignal();
 	private readonly api: FormApi<TData, TUi>;
+	private readonly scopedAsync: ScopedAsyncScheduler<TData, TUi>;
 	private active = false;
 	private readonly activationSubscriptions: (() => void)[] = [];
 	private readonly initializedMiddlewares: Middleware[] = [];
@@ -63,7 +67,7 @@ export class FormRuntime<TData, TUi> {
 		preflightOwnedCreation(options);
 		this.initialDataSnapshot = structuredClone((options.initialData ?? {}) as TData);
 		this.initialUiStateSnapshot = structuredClone((options.initialUiState ?? {}) as TUi);
-		this.initialState = this.createInitialState();
+		this.initialState = createRuntimeInitialState(this.initialDataSnapshot, this.initialUiStateSnapshot);
 		this.store = new FormStore(this.initialState, options.stateStrategy, options.ownedScheduling === true);
 		if (options.ownedScheduling) this.initialDataSnapshot = this.store.getState().data;
 		this.normalizedValidators = normalizeValidators(options as CreateFormOptions<unknown, unknown>);
@@ -78,9 +82,13 @@ export class FormRuntime<TData, TUi> {
 			validators: options.asyncValidators ?? [],
 			...(options.timeouts?.validator === undefined ? {} : { validatorTimeout: options.timeouts.validator }),
 			getState: () => this.store.getState(),
-			updateState: (updater) => this.updateState(updater),
+			updateState: (updater) => updateRuntimeState(this.store, updater),
 			publishValidationStatus: (paths, validating) => publishValidationStatus(this.store, paths, validating),
 			...ownedAsyncIssuePublisher(this.store),
+			hasScopedAsync: () => this.scopedAsync.hasHost(),
+			prepareScopedForeground: (scope, signal, snapshot) => this.scopedAsync.prepareForeground(scope, signal, snapshot),
+			publishScopedForeground: (ids, previous, issues) =>
+				publishRuntimeScopedForeground(this.store, ids, previous, issues),
 		});
 		const runtime = this;
 		this.submitHandler = createSubmitHandler({
@@ -95,6 +103,7 @@ export class FormRuntime<TData, TUi> {
 			getApi: () => this.api,
 		});
 		this.api = this.createApi();
+		this.scopedAsync = createRuntimeScopedAsync(() => this.api, this.store, options.timeouts?.validator);
 		bindOwnedSchedulingBoundary(this.api, this.store, {
 			data: (options.initialData ?? {}) as TData,
 			uiState: (options.initialUiState ?? {}) as TUi,
@@ -127,6 +136,7 @@ export class FormRuntime<TData, TUi> {
 	deactivate(): void {
 		if (!this.deferred || !this.active || this.deactivating) return;
 		invalidateScopedSync(this.api);
+		this.scopedAsync.reset();
 		this.active = false;
 		this.deactivating = true;
 		try {
@@ -137,21 +147,6 @@ export class FormRuntime<TData, TUi> {
 		} finally {
 			this.deactivating = false;
 		}
-	}
-	private createInitialState(): FormState<TData, TUi> {
-		return {
-			data: structuredClone(this.initialDataSnapshot),
-			uiState: structuredClone(this.initialUiStateSnapshot),
-			meta: { validation: { validating: false } },
-			fieldMeta: {},
-			fieldPolicy: emptyFieldPolicy(),
-			issues: [],
-		};
-	}
-	private updateState(updater: (draft: FormState<TData, TUi>) => FormState<TData, TUi>): void {
-		const tx = this.store.beginTransaction();
-		tx.mutate(updater);
-		this.store.commitTransaction(tx);
 	}
 	private propagateListeners(pathKey: string, trigger: "change" | "blur"): void {
 		const targets = this.listeners.getListeners(pathKey, trigger);
@@ -185,7 +180,11 @@ export class FormRuntime<TData, TUi> {
 			const pathKey = fieldMetaKey(dataPath);
 			this.propagateListeners(pathKey, "change");
 			this.coordinator.onMutation(dataPath, "onChange");
-		} else if (mutated) this.coordinator.onMutation();
+			this.scopedAsync.onEvent(dataPath, "onChange");
+		} else if (mutated) {
+			this.coordinator.onMutation();
+			this.scopedAsync.onEvent(undefined, "onChange");
+		}
 	}
 	private dispatch = (action: FormAction): FormDispatchResult => {
 		if (action.type === "set-value" && action.path !== undefined)
@@ -201,7 +200,10 @@ export class FormRuntime<TData, TUi> {
 		const after = this.store.getState();
 		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState) && after.attemptValidation)
 			clearRuntimeAttempt(this.store);
-		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState)) this.coordinator.onMutation();
+		if (result.ok && (before.data !== after.data || before.uiState !== after.uiState)) {
+			this.coordinator.onMutation();
+			this.scopedAsync.onEvent(undefined, "onChange");
+		}
 		const error = result.error ?? result.vetoReason;
 		return error ? { ok: result.ok, error } : { ok: result.ok };
 	};
@@ -255,6 +257,7 @@ export class FormRuntime<TData, TUi> {
 		this.propagateListeners(pathKey, "blur");
 		if (canonical.namespace === "data") {
 			this.coordinator.onBlur(normalizeDataPath({ namespace: "data", segments: canonical.segments }));
+			this.scopedAsync.onEvent(normalizeDataPath({ namespace: "data", segments: canonical.segments }), "onBlur");
 		}
 	};
 
@@ -301,6 +304,7 @@ export class FormRuntime<TData, TUi> {
 			nextInitial?.uiState ?? this.initialUiStateSnapshot,
 		);
 		invalidateScopedSync(this.api);
+		this.scopedAsync.reset();
 		this.submitHandler.reset();
 		this.coordinator.reset();
 		if (nextInitial?.data !== undefined) this.initialDataSnapshot = structuredClone(nextInitial.data);
@@ -339,7 +343,7 @@ export class FormRuntime<TData, TUi> {
 			fieldDynamic: this.field.bind(this) as FormApi<TData, TUi>["fieldDynamic"],
 			subscribe: (listener) => this.store.subscribe(listener),
 			reset: this.reset,
-			canSubmit: () => this.canSubmit(),
+			canSubmit: () => canRuntimeSubmit(this.store.getState()),
 			isPristine: () => !this.captureState().isFormDirty(),
 			isDirty: () => this.captureState().isFormDirty(),
 			isValid: () => computeIsValid(this.store.getState()),
@@ -355,10 +359,6 @@ export class FormRuntime<TData, TUi> {
 
 	private captureState = (): FormStateCapture<TData, TUi> =>
 		createFormStateCapture(this.store.getState(), this.initialDataSnapshot, this.initialUiStateSnapshot);
-	private canSubmit(): boolean {
-		const state = this.store.getState();
-		return !computeIsSubmitting(state) && !state.meta.validation.validating && computeIsValid(state);
-	}
 
 	private createDispose(): () => void {
 		const permanent = createFormDisposer(this.disposal, {
@@ -372,6 +372,7 @@ export class FormRuntime<TData, TUi> {
 			disposeStore: () => this.store.dispose(),
 		});
 		return () => {
+			this.scopedAsync.reset(true);
 			this.deactivate();
 			if (this.store.getState().attemptValidation) clearRuntimeAttempt(this.store);
 			permanent();

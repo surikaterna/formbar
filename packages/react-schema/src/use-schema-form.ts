@@ -7,6 +7,7 @@ import type {
 } from "@formbar/declarative";
 import type {
 	CompileDefaultFormDefinitionOptions,
+	DefinitionAsyncFieldValidator,
 	DefinitionFieldValidator,
 	DescriptorDocument,
 	DescriptorSide,
@@ -33,6 +34,7 @@ export type UseSchemaFormOptions<TData, TUi> = Omit<UseFormOptions<TData, TUi>, 
 	SchemaPreparationOptions & {
 		readonly validators?: readonly SchemaValidator<TData, TUi>[];
 		readonly fieldValidators?: readonly DefinitionFieldValidator<TData, TUi>[];
+		readonly asyncFieldValidators?: readonly DefinitionAsyncFieldValidator<TData, TUi>[];
 	};
 
 export interface SchemaPreparationWarning {
@@ -92,6 +94,7 @@ function usePreparedSchema<TData, TUi>(schema: unknown, options: UseSchemaFormOp
 				...(options.generation ? { generation: options.generation } : {}),
 				...(options.validators ? { validators: options.validators } : {}),
 				...(options.fieldValidators ? { fieldValidators: options.fieldValidators } : {}),
+				...(options.asyncFieldValidators ? { asyncFieldValidators: options.asyncFieldValidators } : {}),
 			}),
 		[
 			schema,
@@ -103,6 +106,7 @@ function usePreparedSchema<TData, TUi>(schema: unknown, options: UseSchemaFormOp
 			options.generation,
 			options.validators,
 			options.fieldValidators,
+			options.asyncFieldValidators,
 		],
 	);
 }
@@ -117,6 +121,7 @@ function formOptions<TData, TUi>(options: UseSchemaFormOptions<TData, TUi>): Use
 		generation: _generation,
 		validators: _validators,
 		fieldValidators: _fieldValidators,
+		asyncFieldValidators: _asyncFieldValidators,
 		...form
 	} = options;
 	return form;
