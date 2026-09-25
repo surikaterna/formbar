@@ -1,9 +1,18 @@
 import { rebaseAttemptIssues } from "./attempt-issues.js";
 import { structuredEqual } from "./equality.js";
+import { assertCertifiedIssues, ownNonIssueState } from "./owned-issue-snapshot.js";
 import type { FormState } from "./state.js";
+import type { ValidationIssue } from "./state.js";
 import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.js";
+import { normalizeIssues } from "./validation.js";
 
 export type StateListener<TData, TUi> = (state: FormState<TData, TUi>) => void;
+const issueOnly = Symbol("internal issue-only publication");
+
+/** Internal host seam; deliberately absent from the public package entry. */
+export function publishIssueOnly<TData, TUi>(store: FormStore<TData, TUi>, issues: readonly ValidationIssue[]): void {
+	store[issueOnly](issues);
+}
 
 /** Synchronous reactive store with transactional semantics — only one transaction active at a time. */
 export class FormStore<TData, TUi> {
@@ -12,6 +21,7 @@ export class FormStore<TData, TUi> {
 	private _activeTransaction: Transaction<TData, TUi> | null = null;
 	private _strategy: StateStrategy;
 	private _disposed = false;
+	private _owned = false;
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy) {
 		this._state = initialState;
@@ -48,7 +58,24 @@ export class FormStore<TData, TUi> {
 		}
 
 		this._state = rebaseAttemptIssues(nextState);
+		this._owned = false;
 		onCommitted?.(this._state);
+		this._notifyListeners();
+	}
+
+	/** Explicit internal trusted-host issue-only publication; never falls back to a transaction. */
+	[issueOnly](issues: readonly ValidationIssue[]): void {
+		if (this._disposed || this._activeTransaction || this._strategy !== defaultStrategy)
+			throw new Error("ISSUE_ONLY_UNSUPPORTED_STATE");
+		assertCertifiedIssues(issues);
+		const base = this._owned ? this._state : ownNonIssueState(this._state);
+		const next = rebaseAttemptIssues({ ...base, issues: Object.freeze([...normalizeIssues(issues)]) });
+		if (next.attemptValidation) {
+			Object.freeze(next.attemptValidation.renderableIssues);
+			Object.freeze(next.attemptValidation);
+		}
+		this._state = Object.freeze(next);
+		this._owned = true;
 		this._notifyListeners();
 	}
 
