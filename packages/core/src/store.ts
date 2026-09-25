@@ -1,9 +1,21 @@
 import { rebaseAttemptIssues } from "./attempt-issues.js";
 import { structuredEqual } from "./equality.js";
-import type { FormState } from "./state.js";
+import { assertShareable } from "./issue-only-safety.js";
+import type { FormState, ValidationIssue } from "./state.js";
 import { type StateStrategy, Transaction, defaultStrategy } from "./transaction.js";
+import { deepFreeze } from "./utils.js";
+import { normalizeIssues } from "./validation.js";
 
 export type StateListener<TData, TUi> = (state: FormState<TData, TUi>) => void;
+
+const issuePublishers = new WeakMap<object, (issues: readonly ValidationIssue[]) => void>();
+
+/** Internal-only, trusted issue-list replacement; never accepts a state updater. */
+export function publishIssueOnly<TData, TUi>(store: FormStore<TData, TUi>, issues: readonly ValidationIssue[]): void {
+	const publish = issuePublishers.get(store);
+	if (!publish) throw new Error("Unknown form store");
+	publish(issues);
+}
 
 /** Synchronous reactive store with transactional semantics — only one transaction active at a time. */
 export class FormStore<TData, TUi> {
@@ -12,10 +24,12 @@ export class FormStore<TData, TUi> {
 	private _activeTransaction: Transaction<TData, TUi> | null = null;
 	private _strategy: StateStrategy;
 	private _disposed = false;
+	private _shareableState = false;
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy) {
 		this._state = initialState;
 		this._strategy = strategy ?? defaultStrategy;
+		issuePublishers.set(this, (issues) => this._publishIssues(issues));
 	}
 
 	/** Return the current frozen state snapshot. */
@@ -48,7 +62,23 @@ export class FormStore<TData, TUi> {
 		}
 
 		this._state = rebaseAttemptIssues(nextState);
+		this._shareableState = false;
 		onCommitted?.(this._state);
+		this._notifyListeners();
+	}
+
+	private _publishIssues(issues: readonly ValidationIssue[]): void {
+		if (this._disposed) return;
+		if (this._activeTransaction) throw new Error("Cannot publish issues while a transaction is active");
+		// The ordinary transaction may leave a mutable draft. Seal it once before sharing any branch.
+		if (!this._shareableState) assertShareable(this._state);
+		assertShareable(issues);
+		if (!this._shareableState) deepFreeze(this._state);
+		const nextIssues = deepFreeze(normalizeIssues(issues));
+		const next = rebaseAttemptIssues({ ...this._state, issues: nextIssues });
+		deepFreeze(next.attemptValidation);
+		this._state = Object.freeze(next);
+		this._shareableState = true;
 		this._notifyListeners();
 	}
 
