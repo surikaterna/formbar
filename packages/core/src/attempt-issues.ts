@@ -56,7 +56,7 @@ export function completeAttempt<TData, TUi>(
 ): FormState<TData, TUi> {
 	const attempt = state.attemptValidation;
 	if (attempt?.submitId !== submitId || attempt.revision !== revision || attempt.status !== "running") return state;
-	if (result.status !== "completed") return { ...state, attemptValidation: undefined };
+	if (result.status !== "completed") return clearAttempt(state);
 	const issues = normalizeIssues([...syncIssues, ...result.issues]);
 	const failed = issues.some((issue) => issue.severity === "error");
 	return {
@@ -85,5 +85,7 @@ export function rebaseAttemptIssues<TData, TUi>(state: FormState<TData, TUi>): F
 }
 
 export function clearAttempt<TData, TUi>(state: FormState<TData, TUi>): FormState<TData, TUi> {
-	return state.attemptValidation ? { ...state, attemptValidation: undefined } : state;
+	if (!state.attemptValidation) return state;
+	const { attemptValidation: _attempt, ...withoutAttempt } = state;
+	return withoutAttempt;
 }
