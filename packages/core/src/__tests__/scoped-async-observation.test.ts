@@ -6,6 +6,55 @@ import { type ScopedAsyncField, registerScopedAsync } from "../scoped-async.js";
 import type { FormState, ValidationIssue } from "../state.js";
 
 describe("scoped async observation ownership", () => {
+	it("does not let an outer batched event schedule over a reentrant mutation", async () => {
+		vi.useFakeTimers();
+		type Data = { rows: { value: string }[] };
+		let state = {
+			data: { rows: [{ value: "a" }, { value: "b" }] },
+			uiState: {},
+			meta: { stage: undefined },
+			issues: [] as readonly ValidationIssue[],
+		} as FormState<Data, object>;
+		const form = {
+			getState: () => state,
+			captureState: () => ({ state }),
+			isDisposed: () => false,
+		} as unknown as FormApi<Data, object>;
+		const fields: ScopedAsyncField[] = [0, 1].map((index) => ({
+			id: "scoped",
+			fieldId: "value",
+			instanceKey: `row:${index}`,
+			binding: { namespace: "data", segments: ["rows", index, "value"] },
+			trigger: "onChange",
+			debounceMs: 0,
+			validate: async () => [{ code: "bad", message: "bad", severity: "error" }],
+		}));
+		registerScopedAsync(form, { ids: new Set(["scoped"]), instances: () => ({ current: () => true, fields }) }, []);
+		let reentered = false;
+		const scheduler = new ScopedAsyncScheduler({
+			form: () => form,
+			revision: () => 0,
+			updateState: (update) => {
+				state = update(state);
+				if (reentered || state.issues.length) return;
+				reentered = true;
+				state = { ...state, data: { rows: [{ value: "c" }, { value: "d" }] } };
+				scheduler.onEvent({ namespace: "data", segments: ["rows"] }, "onChange");
+			},
+		});
+		const foreground = scheduler.prepareForeground(undefined, new AbortController().signal);
+		const originals = await foreground?.run();
+		foreground?.stage().finish();
+		state = { ...state, issues: originals ?? [], data: { rows: [{ value: "b" }, { value: "a" }] } };
+		scheduler.onEvent({ namespace: "data", segments: ["rows"] }, "onChange");
+		expect(reentered).toBe(true);
+		expect(state.issues).toEqual([]);
+		for (const original of originals ?? []) expect(state.issues).not.toContain(original);
+		await vi.runAllTimersAsync();
+		expect(state.issues).toHaveLength(2);
+		scheduler.reset(true);
+		vi.useRealTimers();
+	});
 	it("revokes only original certified issues, preserving an equal copied issue and unowned legacy", async () => {
 		type Data = { rows: { value: string }[] };
 		let state = {
