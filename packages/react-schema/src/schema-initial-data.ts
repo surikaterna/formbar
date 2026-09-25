@@ -41,7 +41,7 @@ function copyJson(
 		const copied = copyJson(descriptor.value, seen, budget, depth + 1, allowUndefined, allowTypeKey);
 		Object.defineProperty(result, key, {
 			value: copied,
-			enumerable: descriptor.enumerable,
+			enumerable: descriptor.enumerable === true,
 			writable: true,
 			configurable: true,
 		});
@@ -62,7 +62,7 @@ function transparentChild(
 }
 
 function directProperties(document: DescriptorDocument): readonly DescriptorOccurrence[] {
-	let current = document.occurrences[document.rootOccurrenceId];
+	let current: DescriptorOccurrence | undefined = document.occurrences[document.rootOccurrenceId];
 	const visited = new Set<string>();
 	while (current && current.expansion === "expanded" && !visited.has(current.id)) {
 		visited.add(current.id);
