@@ -5,6 +5,7 @@ import { normalizeDataPath } from "./field-policy.js";
 import { parsePath } from "./path-parser.js";
 import type { CanonicalSegment } from "./path.js";
 import { type AsyncProjection, runScopedAsyncField } from "./scoped-async-execution.js";
+import { type Observation, observationCurrent, observe } from "./scoped-async-observation.js";
 import { type ScopedAsyncField, scopedAsyncHost } from "./scoped-async.js";
 import type { FormState, FormStateCapture, ValidationIssue } from "./state.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
@@ -72,6 +73,7 @@ function failure(field: ScopedAsyncField, error: unknown): ValidationIssue {
 export class ScopedAsyncScheduler<TData, TUi> {
 	private readonly pending = new Map<string, Pending<TData, TUi>>();
 	private readonly emitted = new Map<string, readonly ValidationIssue[]>();
+	private readonly observations = new Map<string, Observation>();
 	private readonly publishing = new Set<string>();
 	private lifecycle = 0;
 	private foregroundGeneration = 0;
@@ -109,11 +111,14 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		if (this.pending.get(token.key) === token) this.pending.delete(token.key);
 	}
 
-	private publish(key: string, issues: readonly ValidationIssue[]): void {
+	private publish(key: string, issues: readonly ValidationIssue[], observation?: Observation): void {
 		const owned = this.emitted.get(key);
+		const priorObservation = this.observations.get(key);
 		const previous = new Set(owned ?? []);
 		// Subscribers run during commit; reentrant events must see the ownership being published.
 		this.emitted.set(key, issues);
+		if (observation && issues.length) this.observations.set(key, observation);
+		else this.observations.delete(key);
 		try {
 			this.deps.updateState((state) => ({
 				...state,
@@ -123,6 +128,8 @@ export class ScopedAsyncScheduler<TData, TUi> {
 			if (this.emitted.get(key) === issues) {
 				if (owned === undefined) this.emitted.delete(key);
 				else this.emitted.set(key, owned);
+				if (priorObservation) this.observations.set(key, priorObservation);
+				else this.observations.delete(key);
 			}
 			throw error;
 		}
@@ -165,7 +172,7 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		}
 		if (!this.current(token) || !token.projection.current()) return;
 		try {
-			this.publish(token.key, issues);
+			this.publish(token.key, issues, observe(token.field, token.capture.state.data));
 		} catch {
 			this.cancel(token);
 			return;
@@ -206,7 +213,10 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		const resolved = this.project();
 		if (!resolved) return;
 		const present = new Set(resolved.projection.fields.map(keyOf));
-		for (const key of this.emitted.keys()) if (!present.has(key)) this.publish(key, []);
+		for (const key of this.emitted.keys()) {
+			if (!present.has(key) || !observationCurrent(this.observations.get(key), resolved.capture.state.data))
+				this.publish(key, []);
+		}
 		if (trigger === "onChange") {
 			for (const token of previous) {
 				if (present.has(token.key) && this.emitted.get(token.key)?.length) this.publish(token.key, []);
@@ -263,10 +273,15 @@ export class ScopedAsyncScheduler<TData, TUi> {
 			run,
 			stage: () => {
 				const old = new Map([...keys].map((key) => [key, this.emitted.get(key)] as const));
+				const oldObservations = new Map([...keys].map((key) => [key, this.observations.get(key)] as const));
 				const previous = new Set([...old.values()].flatMap((issues) => issues ?? []));
 				const staged = new Map([...keys].map((key) => [key, results.get(key) ?? []] as const));
+				const fieldsByKey = new Map(fields.map((field) => [keyOf(field), field] as const));
 				for (const [key, issues] of staged) {
 					this.emitted.set(key, issues);
+					const field = fieldsByKey.get(key);
+					if (field && issues.length) this.observations.set(key, observe(field, resolved.capture.state.data));
+					else this.observations.delete(key);
 					this.publishing.add(key);
 				}
 				return {
@@ -281,6 +296,9 @@ export class ScopedAsyncScheduler<TData, TUi> {
 							const prior = old.get(key);
 							if (prior === undefined) this.emitted.delete(key);
 							else this.emitted.set(key, prior);
+							const observation = oldObservations.get(key);
+							if (observation) this.observations.set(key, observation);
+							else this.observations.delete(key);
 						}
 					},
 				};
@@ -294,6 +312,7 @@ export class ScopedAsyncScheduler<TData, TUi> {
 		if (dispose) this.disposed = true;
 		for (const token of [...this.pending.values()]) this.cancel(token);
 		this.emitted.clear();
+		this.observations.clear();
 		this.publishing.clear();
 	}
 }
