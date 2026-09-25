@@ -5,7 +5,8 @@ import type { AbsoluteBinding } from "./bindings.js";
 import type { ValidatedFormDefinition } from "./definition.js";
 import type { RuntimeNodeInstance } from "./runtime-contracts.js";
 import { projectConcreteOwnership } from "./runtime-ownership.js";
-import { collect, overlaps } from "./scoped-sync-host.js";
+import { overlappingOwners } from "./scoped-async-overlaps.js";
+import { collect } from "./scoped-sync-host.js";
 
 export interface DefinitionAsyncFieldValidator<TData, TUi> {
 	readonly id: string;
@@ -58,13 +59,10 @@ export function prepareScopedAsyncHost<TData, TUi>(
 				capture: capture as Parameters<typeof projectConcreteOwnership>[0]["capture"],
 			});
 			if (!ownership.current() || ownership.diagnostics) throw new Error("Stale or ambiguous async field projection");
+			const overlaps = overlappingOwners(ownership.fields);
 			const fields: ScopedAsyncField[] = entries.flatMap((entry) =>
 				(ownership.forField(entry.fieldId) ?? []).map((owner) => {
-					if (
-						!owner.eligible ||
-						ownership.fields.some((other) => other !== owner && overlaps(other.binding, owner.binding))
-					)
-						throw new Error("Unowned or overlapping async field binding");
+					if (!owner.eligible || overlaps.has(owner)) throw new Error("Unowned or overlapping async field binding");
 					if (owner.binding.namespace !== "data") throw new Error("Invalid scoped async field namespace");
 					return Object.freeze({
 						id: entry.id,

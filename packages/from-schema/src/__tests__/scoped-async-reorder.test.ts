@@ -181,6 +181,40 @@ describe("completed scoped issue ownership on recycled indices", () => {
 			form.dispose();
 		}
 	});
+	it.each([100, 300, 600])("bounds async-host owner scans during real %i-row blur replacement", async (count) => {
+		const form = nestedForm(count);
+		try {
+			await form.validateAsync();
+			let hostVisits = 0;
+			let projectionVisits = 0;
+			let notifications = 0;
+			const unsubscribe = form.subscribe(() => notifications++);
+			const some = Array.prototype.some;
+			const spy = vi.spyOn(Array.prototype, "some").mockImplementation(function (
+				this: unknown[],
+				...args: Parameters<typeof some>
+			) {
+				if (this.length === count && (this[0] as { instance?: { nodeId?: string } })?.instance?.nodeId === "value") {
+					const caller = new Error().stack?.split("\n")[4];
+					if (caller?.includes("scoped-async-host.ts")) hostVisits += this.length;
+					if (caller?.includes("runtime-ownership.ts")) projectionVisits += this.length;
+				}
+				return some.apply(this, args);
+			});
+			try {
+				form.setValue("groups", [{ rows: Array.from({ length: count }, (_, index) => ({ value: String(index) })) }]);
+			} finally {
+				spy.mockRestore();
+				unsubscribe();
+			}
+			expect(hostVisits).toBe(0);
+			expect(projectionVisits).toBeGreaterThan(0);
+			expect(notifications).toBe(2);
+			expect(form.getState().issues).toEqual([]);
+		} finally {
+			form.dispose();
+		}
+	});
 	it.each(["onBlur", "onChange"] as const)(
 		"invalidates completed foreground %s rows without restarting blur",
 		async (trigger) => {
