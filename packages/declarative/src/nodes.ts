@@ -27,6 +27,7 @@ export interface SectionNode extends BaseNode {
 
 export interface FieldNode extends BaseNode {
 	readonly type: "field";
+	readonly submitWhenHidden?: "include";
 	readonly binding: Binding;
 	readonly widget: string;
 	readonly label?: string;

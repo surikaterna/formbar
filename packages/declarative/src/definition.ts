@@ -6,6 +6,7 @@ export interface FormDefinition {
 	readonly id: string;
 	readonly root: FormNode;
 	readonly computations?: readonly StoredComputation[];
+	readonly submission?: { readonly hiddenValues: "include" | "omit-inactive" };
 }
 
 export type ValidatedFormDefinition = FormDefinition;

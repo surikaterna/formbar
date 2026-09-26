@@ -3,6 +3,71 @@ import { validateFormDefinition } from "../index.js";
 import { binding, completeDefinition, literal, ref } from "./fixtures.js";
 
 describe("version 1 form definitions", () => {
+	it("round-trips explicit submission policy and field-only inclusion without changing defaults", () => {
+		const legacy = validateFormDefinition(completeDefinition());
+		expect(legacy.ok).toBe(true);
+		if (!legacy.ok) return;
+		expect(legacy.value.submission).toBeUndefined();
+		const input = {
+			...completeDefinition(),
+			submission: { hiddenValues: "omit-inactive" },
+			root: {
+				type: "group",
+				id: "root",
+				children: [
+					{ type: "field", id: "secret", widget: "text", binding: binding(["secret"]), submitWhenHidden: "include" },
+				],
+			},
+		};
+		const result = validateFormDefinition(input);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.value.submission).toEqual({ hiddenValues: "omit-inactive" });
+		expect(result.value.root).toMatchObject(input.root);
+		expect(validateFormDefinition(JSON.parse(JSON.stringify(result.value)))).toEqual(result);
+		expect(validateFormDefinition({ ...input, submission: { hiddenValues: "include" } })).toMatchObject({
+			ok: true,
+			value: { submission: { hiddenValues: "include" } },
+		});
+	});
+
+	it.each([
+		[{ hiddenValues: "discard" }, ["submission", "hiddenValues"], "invalid-type"],
+		[{ hiddenValues: "include", extra: true }, ["submission", "extra"], "unknown-key"],
+		[{}, ["submission", "hiddenValues"], "required"],
+		[null, ["submission"], "invalid-type"],
+		[[], ["submission"], "invalid-type"],
+	])("rejects invalid submission %j", (submission, path, code) => {
+		const result = validateFormDefinition({ ...completeDefinition(), submission });
+		expect(result).toMatchObject({ ok: false });
+		if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({ path, code }));
+	});
+
+	it("rejects invalid field overrides and overrides on every non-field node", () => {
+		for (const value of ["omit-inactive", false, null]) {
+			const result = validateFormDefinition({
+				version: 1,
+				id: "invalid",
+				root: { type: "field", id: "f", binding: binding(["x"]), widget: "text", submitWhenHidden: value },
+			});
+			expect(result).toMatchObject({ ok: false });
+			if (!result.ok)
+				expect(result.diagnostics).toContainEqual(expect.objectContaining({ path: ["root", "submitWhenHidden"] }));
+		}
+		for (const child of (completeDefinition().root as { children: unknown[] }).children) {
+			const result = validateFormDefinition({
+				version: 1,
+				id: "invalid",
+				root: { ...(child as object), submitWhenHidden: "include" },
+			});
+			if ((child as { type: string }).type === "field") continue;
+			expect(result).toMatchObject({ ok: false });
+			if (!result.ok)
+				expect(result.diagnostics).toContainEqual(
+					expect.objectContaining({ code: "unknown-key", path: ["root", "submitWhenHidden"] }),
+				);
+		}
+	});
 	it("validates every closed node variant and returns a JSON-round-trippable canonical definition", () => {
 		const result = validateFormDefinition(completeDefinition());
 		expect(result.ok).toBe(true);

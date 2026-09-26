@@ -13,19 +13,37 @@ export function validateFormDefinition(input: unknown): DefinitionValidationResu
 	if (safe === undefined) return failure(context);
 	const source = record(safe, [], context);
 	if (!source) return failure(context);
-	exactKeys(source, new Set(["version", "id", "root", "computations"]), [], context);
+	exactKeys(source, new Set(["version", "id", "root", "computations", "submission"]), [], context);
 	const version = definitionVersion(source.version, context);
 	const id = identifier(source.id, ["id"], context);
 	const root = node(source.root, ["root"], { ...context, scopes: Object.freeze({}) });
 	const stored = computations(source.computations, ["computations"], context);
+	const submission = submissionPolicy(source.submission, context);
 	if (context.diagnostics.length || version === undefined || !id || !root) return failure(context);
 	const value: ValidatedFormDefinition = Object.freeze({
 		version,
 		id,
 		root,
 		...(stored === undefined ? {} : { computations: stored }),
+		...(submission === undefined ? {} : { submission }),
 	});
 	return Object.freeze({ ok: true, value });
+}
+
+function submissionPolicy(value: JsonValue | undefined, context: ValidationContext): FormDefinition["submission"] {
+	if (value === undefined) return undefined;
+	const source = record(value, ["submission"], context);
+	if (!source) return undefined;
+	exactKeys(source, new Set(["hiddenValues"]), ["submission"], context);
+	if (source.hiddenValues === "include" || source.hiddenValues === "omit-inactive")
+		return Object.freeze({ hiddenValues: source.hiddenValues });
+	diagnostic(
+		context,
+		source.hiddenValues === undefined ? "required" : "invalid-type",
+		["submission", "hiddenValues"],
+		"Expected include or omit-inactive.",
+	);
+	return undefined;
 }
 
 function safeInput(input: unknown, context: ValidationContext): JsonValue | undefined {
