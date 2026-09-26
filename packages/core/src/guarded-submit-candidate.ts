@@ -92,7 +92,11 @@ function selectBoundAdapter(
 			capture,
 			adapter: () => {
 				const result = supplier(capture, guard.signal);
-				if (!result || result.witness.kind !== "omission" || result.witness.omitted.length === 0)
+				if (
+					!result ||
+					(result.witness.kind !== "no-omission" &&
+						(result.witness.kind !== "omission" || result.witness.omitted.length === 0))
+				)
 					throw new Error("unowned omission");
 				return result;
 			},

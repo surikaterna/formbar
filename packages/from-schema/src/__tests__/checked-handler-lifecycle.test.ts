@@ -78,8 +78,9 @@ describe("#249 private bound checked handler", () => {
 		}
 		expect(form.getState().data.secret).toBe("draft");
 		form.setValue("show", true);
-		expect((await form.submit()).ok).toBe(false);
-		expect(handler).toHaveBeenCalledTimes(1);
+		expect((await form.submit()).ok).toBe(true);
+		expect(handler).toHaveBeenCalledTimes(2);
+		expect(handler.mock.calls[1]?.[0].payload).toEqual({ secret: "draft", show: true, name: "Ada" });
 		form.reset();
 		expect(form.getState().data.secret).toBe("draft");
 		form.dispose();

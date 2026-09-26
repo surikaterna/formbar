@@ -163,7 +163,9 @@ describe("#331 real bound guarded candidate", () => {
 		publishIssueOnly(f.store, [f.original]);
 		expect(f.store.getState().issues.some((issue) => issue.code === "bad")).toBe(true);
 		const result = await f.run();
-		expect(result).toMatchObject({ ok: false, code: "unsafe_candidate" });
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+		if (!result.ok && result.code === "validation_failed")
+			expect(result.fieldIssues).toEqual(expect.arrayContaining([expect.objectContaining({ code: "bad" })]));
 		expect(f.form.getState().data.secret).toBe("draft");
 		f.form.dispose();
 	});
@@ -530,16 +532,17 @@ describe("#331 real bound guarded candidate", () => {
 		f.form.dispose();
 	});
 
-	it("binds generated definitions but refuses a no-omission witness", () => {
+	it("binds generated definitions and checks an unchanged no-omission witness after egress", () => {
 		const generated = createSchemaForm(
 			{ type: "object", properties: { included: { type: "string" } } },
 			{ provider: jsonSchemaProvider(), side: "input", generation: {} },
 		);
-		const form = generated.createForm({ initialData: { included: "Ada" } });
+		const form = generated.createForm({ initialData: { included: "Ada", extra: "before" } });
 		const store = boundSubmitStore(form);
 		if (!store) throw Error("missing core store");
+		const controller = new AbortController();
 		const guard = {
-			signal: new AbortController().signal,
+			signal: controller.signal,
 			expectedRevision: 0,
 			revision: () => 0,
 			onCommittedMutation: () => {},
@@ -557,7 +560,46 @@ describe("#331 real bound guarded candidate", () => {
 			[],
 			form,
 		);
-		expect(result).toMatchObject({ ok: false });
+		expect(result).toMatchObject({
+			ok: true,
+			candidate: { data: { included: "Ada", extra: "before" }, plan: { kind: "no-omission", omitted: [] } },
+		});
+		const edited = prepareGuardedSubmitCandidate(
+			{
+				action: { type: "submit" },
+				store,
+				isSubmit: true,
+				submitContext: { requestId: "edit", at: "now" },
+				options: {},
+			},
+			guard,
+			undefined,
+			[() => ({ included: "Ada", extra: "after" })],
+			form,
+		);
+		expect(edited).toMatchObject({ ok: true, candidate: { data: { included: "Ada", extra: "after" } } });
+		const context = {
+			action: { type: "submit" as const },
+			store,
+			isSubmit: true,
+			submitContext: { requestId: "negative", at: "now" },
+			options: {},
+		};
+		expect(
+			prepareGuardedSubmitCandidate(
+				context,
+				guard,
+				undefined,
+				[() => ({ included: "changed", extra: "before" })],
+				form,
+			),
+		).toMatchObject({ ok: false, code: "invalid_witness" });
+		expect(prepareGuardedSubmitCandidate(context, guard, undefined, [() => ({ extra: "before" })], form)).toMatchObject(
+			{ ok: false, code: "invalid_witness" },
+		);
+		controller.abort();
+		expect(prepareGuardedSubmitCandidate(context, guard, undefined, [], form)).toMatchObject({ ok: false });
+		expect(form.getState().data).toEqual({ included: "Ada", extra: "before" });
 		form.dispose();
 	});
 });
