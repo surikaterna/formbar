@@ -190,6 +190,9 @@ try {
 		const lifecycleFixture = resolve(directory, "strict-lifecycle.mjs");
 		writeFileSync(lifecycleFixture, readFileSync(resolve(fixtures, "strict-lifecycle.mjs")));
 		console.log(execFileSync(process.execPath, [lifecycleFixture], { cwd: directory, encoding: "utf8" }).trim());
+		const omissionFixture = resolve(directory, "omission-renderer.mjs");
+		writeFileSync(omissionFixture, readFileSync(resolve(fixtures, "omission-renderer.mjs")));
+		console.log(execFileSync(process.execPath, [omissionFixture], { cwd: directory, encoding: "utf8" }).trim());
 		for (const format of ["mjs", "cjs"]) {
 			const scopedFixture = resolve(directory, `scoped-sync.${format}`);
 			writeFileSync(scopedFixture, readFileSync(resolve(fixtures, `scoped-sync.${format}`)));
