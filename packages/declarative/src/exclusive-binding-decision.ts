@@ -54,14 +54,16 @@ export function decideExclusiveBindings(ownership: ConcreteOwnership): Exclusive
 		...ownership.fields.filter((field) => !field.eligible && !field.protected).map((field) => field.binding),
 		...ownership.repeaters.filter((item) => !item.eligible && !item.protected).map((item) => item.binding),
 	]);
-	const decide = (owner: ConcreteOwner): ConcreteBindingDecision =>
-		Object.freeze({
+	const decide = (owner: ConcreteOwner): ConcreteBindingDecision => {
+		const classification =
+			ownership.hiddenValues === "omit-inactive" ? classify(owner, ownership, active, unknown) : "unknown";
+		return Object.freeze({
 			owner,
-			decision:
-				ownership.hiddenValues !== "omit-inactive" || !current()
-					? "unknown"
-					: classify(owner, ownership, active, unknown),
+			get decision(): BindingDecision {
+				return current() ? classification : "unknown";
+			},
 		});
+	};
 	const fields = Object.freeze(ownership.fields.map(decide));
 	const repeaters = Object.freeze(ownership.repeaters.map(decide));
 	return Object.freeze({
@@ -73,7 +75,7 @@ export function decideExclusiveBindings(ownership: ConcreteOwnership): Exclusive
 			const record = fields.find(
 				(entry) => entry.owner.instance.nodeId === fieldId && entry.owner.instance.instanceKey === instanceKey,
 			);
-			return record && Object.freeze({ ...record, decision: current() ? record.decision : "unknown" });
+			return record;
 		},
 	});
 }

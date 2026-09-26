@@ -163,7 +163,7 @@ describe("#321 same-capture exclusive binding decisions", () => {
 		result.form.dispose();
 	});
 
-	it("uses the supplied runtime snapshot and retains overrides beneath hidden ancestors per instance", () => {
+	it("projects once from the supplied capture and retains overrides beneath hidden ancestors per instance", () => {
 		const validated = mode([
 			{
 				type: "group",
@@ -188,15 +188,60 @@ describe("#321 same-capture exclusive binding decisions", () => {
 		const { form } = runtime(validated, { initialData: { rows: [{ secret: "a" }, { secret: "b" }] } });
 		const capture = form.captureState();
 		const state = capture.state;
-		const snapshot = projectRuntime({ form, definition: validated, capture });
-		const ownership = projectConcreteOwnership({ form, definition: validated, capture, snapshot });
+		const ownership = projectConcreteOwnership({ form, definition: validated, capture });
 		const decision = decideExclusiveBindings(ownership);
-		expect(snapshot.fields.map((field) => field.visible)).toEqual([false, false]);
+		expect(ownership.fields.map((field) => field.visible)).toEqual([false, false]);
 		expect(decision.fields.map((entry) => entry.decision)).toEqual(["protected", "protected"]);
 		expect(decision.repeaters[0]?.decision).toBe("protected");
 		expect(form.getState()).toBe(state);
 		expect(state.data).toEqual({ rows: [{ secret: "a" }, { secret: "b" }] });
 		form.dispose();
+	});
+
+	it("rejects an earlier capture's projection even after visibility turns back on", () => {
+		const validated = mode([
+			field("secret", ["secret"], { visible: { kind: "ref", ref: binding(["show"]) } }),
+			field("show", ["show"]),
+		]);
+		const { form } = runtime(validated, { initialData: { secret: "draft", show: false } });
+		const oldCapture = form.captureState();
+		const oldSnapshot = projectRuntime({ form, definition: validated, capture: oldCapture });
+		form.setValue("show", true);
+		const capture = form.captureState();
+		const fresh = decideExclusiveBindings(projectConcreteOwnership({ form, definition: validated, capture }));
+		expect(fresh.forField("secret", fresh.fields[0]?.owner.instance.instanceKey ?? "")?.decision).toBe("protected");
+		// A stale snapshot is not part of the contract; even an untyped caller cannot inject it.
+		const staleOptions = { form, definition: validated, capture, snapshot: oldSnapshot };
+		const stale = projectConcreteOwnership(staleOptions);
+		expect(decideExclusiveBindings(stale).fields[0]?.decision).toBe("protected");
+		const other = mode([field("secret", ["secret"])]);
+		const mismatched = projectConcreteOwnership({ ...staleOptions, definition: other });
+		expect(decideExclusiveBindings(mismatched).fields[0]?.decision).toBe("protected");
+		form.dispose();
+	});
+
+	it("fails closed for retained direct field and repeater entries after reset, reorder and dispose", () => {
+		const validated = mode([
+			field("secret", ["secret"], hidden),
+			{ type: "repeater", id: "rows", scope: "row", binding: binding(["rows"]), ...hidden, children: [] },
+		]);
+		for (const invalidate of [
+			(form: ReturnType<typeof runtime>["form"]) => form.reset(),
+			(form: ReturnType<typeof runtime>["form"]) => form.setValue("rows", [{ value: 2 }, { value: 1 }]),
+			(form: ReturnType<typeof runtime>["form"]) => form.dispose(),
+		]) {
+			const { form, decision } = setup(validated, { secret: "draft", rows: [] });
+			const fieldEntry = decision.fields[0];
+			const repeaterEntry = decision.repeaters[0];
+			expect(fieldEntry?.decision).toBe("exclusive");
+			expect(repeaterEntry?.decision).toBe("exclusive");
+			invalidate(form);
+			expect(decision.current()).toBe(false);
+			expect(fieldEntry?.decision).toBe("unknown");
+			expect(repeaterEntry?.decision).toBe("unknown");
+			expect(decision.fields.map((entry) => entry.decision)).toEqual(["unknown"]);
+			form.dispose();
+		}
 	});
 
 	it("Arbiter visibility makes an otherwise visible field inactive without changing stored data", () => {
@@ -209,6 +254,28 @@ describe("#321 same-capture exclusive binding decisions", () => {
 		const ownership = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
 		expect(decideExclusiveBindings(ownership).fields[0]?.decision).toBe("exclusive");
 		expect(form.getState().data).toEqual({ secret: "draft", tick: 1 });
+		form.dispose();
+	});
+
+	it("revokes retained entries when Arbiter fieldPolicy changes", () => {
+		let hiddenByPolicy = true;
+		const validated = mode([field("secret", ["secret"])]);
+		const { form } = runtime(validated, {
+			initialData: { secret: "draft", tick: 0 },
+			plugins: [{ id: "policy", evaluate: () => ({ fieldPolicy: [{ path: "secret", visible: !hiddenByPolicy }] }) }],
+		});
+		form.setValue("tick", 1);
+		const ownership = projectConcreteOwnership({ form, definition: validated, capture: form.captureState() });
+		const decision = decideExclusiveBindings(ownership);
+		const entry = decision.fields[0];
+		expect(entry?.decision).toBe("exclusive");
+		hiddenByPolicy = false;
+		form.setValue("tick", 2);
+		expect(entry?.decision).toBe("unknown");
+		const fresh = decideExclusiveBindings(
+			projectConcreteOwnership({ form, definition: validated, capture: form.captureState() }),
+		);
+		expect(fresh.fields[0]?.decision).toBe("protected");
 		form.dispose();
 	});
 

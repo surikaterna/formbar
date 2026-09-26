@@ -178,12 +178,10 @@ export function projectConcreteOwnership(options: {
 	readonly definition: ValidatedFormDefinition;
 	readonly capture: FormStateCapture<unknown, unknown>;
 	readonly currentCapture?: FormStateCapture<unknown, unknown>;
-	/** Supply the projectRuntime result from this very capture when already available. */
-	readonly snapshot?: RuntimeSnapshot;
 }): ConcreteOwnership {
 	const ids = new Map<string, "field" | "other">();
 	definitionFields(options.definition.root, ids);
-	const snapshot = options.snapshot ?? projectRuntime(options);
+	const snapshot = projectRuntime(options);
 	const lifecycle = scopedLifecycleRevision(options.form);
 	const entries = captureEntries();
 	const { fields, repeaters } = owners(snapshot, options.capture.state.data, entries);
