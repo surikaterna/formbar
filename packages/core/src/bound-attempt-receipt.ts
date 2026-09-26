@@ -15,6 +15,18 @@ export interface BoundAttemptReceipt {
 	readonly covers: (issue: ValidationIssue) => boolean;
 }
 
+const issuedReceipts = new WeakMap<BoundAttemptReceipt, FormStore<unknown, unknown>>();
+
+/** A caller-shaped object or an earlier form snapshot cannot authorize retained diagnostics. */
+export function receiptCoversRetainedIssue(
+	receipt: BoundAttemptReceipt | undefined,
+	state: FormState<unknown, unknown>,
+	issue: ValidationIssue,
+): boolean {
+	if (!receipt || issuedReceipts.get(receipt)?.getState() !== state) return false;
+	return receipt.covers(issue);
+}
+
 interface Baseline {
 	readonly state: FormState<unknown, unknown>;
 	readonly issues: readonly ValidationIssue[];
@@ -109,7 +121,7 @@ function checkedBoundAttempt(
 				now.attemptValidation.revision !== revision
 			)
 				return;
-			return Object.freeze({
+			const receipt = Object.freeze({
 				covers: (issue: ValidationIssue) =>
 					certified.has(issue) &&
 					current() &&
@@ -118,6 +130,8 @@ function checkedBoundAttempt(
 					store.getState().attemptValidation?.submitId === submitId &&
 					store.getState().attemptValidation?.revision === revision,
 			});
+			issuedReceipts.set(receipt, store);
+			return receipt;
 		};
 	};
 }
