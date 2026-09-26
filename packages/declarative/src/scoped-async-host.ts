@@ -5,7 +5,9 @@ import type { AbsoluteBinding } from "./bindings.js";
 import type { ValidatedFormDefinition } from "./definition.js";
 import type { RuntimeNodeInstance } from "./runtime-contracts.js";
 import { projectConcreteOwnership } from "./runtime-ownership.js";
+import type { ConcreteOwner } from "./runtime-ownership.js";
 import { overlappingOwners } from "./scoped-async-overlaps.js";
+import { certifyScopedOutput, sourceBound } from "./scoped-source-cert.js";
 import { collect } from "./scoped-sync-host.js";
 
 export interface DefinitionAsyncFieldValidator<TData, TUi> {
@@ -47,6 +49,22 @@ function validateEntries<TData, TUi>(
 	return { ids, entries };
 }
 
+function asyncValidator<TData, TUi>(entry: DefinitionAsyncFieldValidator<TData, TUi>, owner: ConcreteOwner) {
+	return (input: ScopedValidationInput<unknown, unknown>) => {
+		if (!input.signal) throw new Error("Missing scoped async signal");
+		return entry
+			.validate({
+				data: input.data as Readonly<TData>,
+				uiState: input.uiState as Readonly<TUi>,
+				field: { instance: owner.instance, binding: owner.binding },
+				signal: input.signal,
+				...(input.stage === undefined ? {} : { stage: input.stage }),
+				...(input.context ? { context: input.context } : {}),
+			})
+			.then((result) => certifyScopedOutput(input.data, owner, result, "Invalid scoped async issue"));
+	};
+}
+
 export function prepareScopedAsyncHost<TData, TUi>(
 	definition: ValidatedFormDefinition,
 	validators: readonly DefinitionAsyncFieldValidator<TData, TUi>[],
@@ -69,7 +87,8 @@ export function prepareScopedAsyncHost<TData, TUi>(
 			const overlaps = overlappingOwners(ownership.fields);
 			const fields: ScopedAsyncField[] = entries.flatMap((entry) =>
 				(ownership.forField(entry.fieldId) ?? []).map((owner) => {
-					if (!owner.eligible || overlaps.has(owner)) throw new Error("Unowned or overlapping async field binding");
+					if ((!owner.eligible && !sourceBound(capture.state.data, owner)) || overlaps.has(owner))
+						throw new Error("Unowned or overlapping async field binding");
 					if (owner.binding.namespace !== "data") throw new Error("Invalid scoped async field namespace");
 					return Object.freeze({
 						id: entry.id,
@@ -78,17 +97,7 @@ export function prepareScopedAsyncHost<TData, TUi>(
 						binding: { namespace: "data" as const, segments: owner.binding.segments },
 						trigger: entry.trigger,
 						debounceMs: entry.debounceMs,
-						validate: (input: ScopedValidationInput<unknown, unknown>) => {
-							if (!input.signal) throw new Error("Missing scoped async signal");
-							return entry.validate({
-								data: input.data as Readonly<TData>,
-								uiState: input.uiState as Readonly<TUi>,
-								field: { instance: owner.instance, binding: owner.binding },
-								signal: input.signal,
-								...(input.stage === undefined ? {} : { stage: input.stage }),
-								...(input.context ? { context: input.context } : {}),
-							});
-						},
+						validate: asyncValidator(entry, owner),
 					});
 				}),
 			);
