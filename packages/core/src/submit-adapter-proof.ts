@@ -5,7 +5,7 @@ type Json = ReturnType<Boundary["copy"]>;
 type Path = SubmitDataPath;
 type Plan = SubmitStructuralWitness;
 type Failure = { readonly ok: false; readonly code: "unsafe_candidate" | "invalid_witness" };
-export type SubmitProofResult = { readonly ok: true; readonly data: Json } | Failure;
+export type SubmitProofResult = { readonly ok: true; readonly data: Json; readonly plan?: Plan } | Failure;
 
 const unsafeKeys = new Set(["__proto__", "prototype", "constructor"]);
 const invalid = (): never => {
@@ -205,6 +205,7 @@ export function checkSubmitAdapterProof(
 	projected: unknown,
 	witness: (() => unknown) | undefined,
 	final: unknown,
+	retainPlan = false,
 ): SubmitProofResult {
 	let originals: readonly unknown[] = [];
 	let snapshots: readonly Json[] = [];
@@ -226,7 +227,7 @@ export function checkSubmitAdapterProof(
 		if (originals.some((value, i) => !unchanged(value, snapshots[i] as Json))) invalid();
 		verify(plan, snapshots[0] as Json, snapshots[1] as Json, snapshots[2] as Json);
 		if (!unchanged(supplied, checked)) invalid();
-		return { ok: true, data: snapshots[2] as Json };
+		return { ok: true, data: snapshots[2] as Json, ...(retainPlan ? { plan } : {}) };
 	} catch {
 		return { ok: false, code: "invalid_witness" };
 	}

@@ -1,10 +1,15 @@
-import type { SubmitDefinitionAdapter, SubmitJson } from "./submit-adapter-contract.js";
+import type { SubmitDefinitionAdapter, SubmitJson, SubmitStructuralWitness } from "./submit-adapter-contract.js";
 import { checkSubmitAdapterProof } from "./submit-adapter-proof.js";
 import { Boundary, add, applyEgress, clone, freeze, makeContext, unchanged } from "./submit-candidate-safety.js";
 import type { CandidateEgress } from "./submit-candidate-safety.js";
 
 type Result =
-	| { readonly ok: true; readonly data: SubmitJson; readonly uiState: SubmitJson }
+	| {
+			readonly ok: true;
+			readonly data: SubmitJson;
+			readonly uiState: SubmitJson;
+			readonly plan?: SubmitStructuralWitness;
+	  }
 	| { readonly ok: false; readonly code: "unsafe_candidate" | "invalid_witness" };
 
 type OwnedState = {
@@ -40,12 +45,33 @@ function captureOwned(state: OwnedState) {
 	return { original, ui, capture, blocked, retainedUnchanged };
 }
 
+function checkedFinal(
+	original: SubmitJson,
+	projection: SubmitJson,
+	witness: SubmitJson,
+	final: SubmitJson,
+	ui: SubmitJson,
+	retainPlan: boolean,
+	check: () => boolean,
+): Result {
+	const proof = checkSubmitAdapterProof(original, projection, () => witness, clone(final).value, retainPlan);
+	if (!proof.ok) return proof;
+	if (!check()) throw new Error("mutation");
+	return {
+		ok: true,
+		data: proof.data,
+		uiState: freeze(clone(ui).value),
+		...(proof.plan ? { plan: proof.plan } : {}),
+	};
+}
+
 /** Internal one-capture seam. Trusted callbacks are not a same-realm sandbox. */
 export function prepareOwnedSubmitAdapter(
 	state: OwnedState,
 	adapter: SubmitDefinitionAdapter,
 	transforms: readonly CandidateEgress[] = [],
 	checkpoint: () => boolean = () => true,
+	retainPlan = false,
 ): Result {
 	try {
 		if (!checkpoint()) throw new Error("stale");
@@ -75,10 +101,7 @@ export function prepareOwnedSubmitAdapter(
 		if (!check()) throw new Error("mutation");
 		const final = applyEgress(projection.value, context, transforms, blocked, check);
 		if (!check()) throw new Error("mutation");
-		const proof = checkSubmitAdapterProof(original, projection.value, () => witness.value, clone(final).value);
-		if (!proof.ok) return proof;
-		if (!check()) throw new Error("mutation");
-		return { ok: true, data: proof.data, uiState: freeze(clone(ui).value) };
+		return checkedFinal(original, projection.value, witness.value, final, ui, retainPlan, check);
 	} catch {
 		return { ok: false, code: "unsafe_candidate" };
 	}

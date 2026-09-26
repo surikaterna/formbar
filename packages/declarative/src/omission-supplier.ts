@@ -1,5 +1,10 @@
 import type { FormApi, FormStateCapture, SubmitDataPath, SubmitJson, SubmitStructuralWitness } from "@formbar/core";
-import { checkSubmitAdapterProof, clone, freeze } from "@formbar/core/internal/submit-proof";
+import {
+	checkSubmitAdapterProof,
+	clone,
+	freeze,
+	registerBoundSubmitSupplier,
+} from "@formbar/core/internal/submit-proof";
 import type { ValidatedFormDefinition } from "./definition.js";
 import { type ExclusiveBindingDecision, decideExclusiveBindings } from "./exclusive-binding-decision.js";
 import { anchors, overlaps, pathId, remove, typedPath, valueAt } from "./omission-structure.js";
@@ -11,6 +16,11 @@ const definitions = new WeakMap<FormApi<unknown, unknown>, ValidatedFormDefiniti
 export function bindOmissionSupplier(form: FormApi<unknown, unknown>, definition: ValidatedFormDefinition): void {
 	const existing = definitions.get(form);
 	if (existing && existing !== definition) throw Error("conflicting definition");
+	if (existing) return;
+	registerBoundSubmitSupplier(form, (capture, signal) => {
+		const parts = projectBoundOmissionParts(form, definition, capture, signal);
+		return parts?.current() ? { data: parts.data, witness: parts.witness } : undefined;
+	});
 	definitions.set(form, definition);
 }
 
@@ -87,13 +97,13 @@ function projectParts(original: SubmitJson, ownership: ConcreteOwnership, decisi
 }
 
 /** One externally supplied capture; no recapture, renderer pass, adapter assertion or draft mutation. */
-export function projectBoundOmission(
+function projectBoundOmissionParts(
 	form: FormApi<unknown, unknown>,
+	definition: ValidatedFormDefinition,
 	capture: FormStateCapture<unknown, unknown>,
 	signal?: AbortSignal,
-): Projection | undefined {
-	const definition = definitions.get(form);
-	if (!definition || signal?.aborted) return undefined;
+): { data: SubmitJson; witness: SubmitStructuralWitness; current: () => boolean } | undefined {
+	if (signal?.aborted) return undefined;
 	try {
 		const ownership = projectConcreteOwnership({ form, definition, capture });
 		const decision = decideExclusiveBindings(ownership, signal);
@@ -103,16 +113,30 @@ export function projectBoundOmission(
 		if (!decision.current()) return undefined;
 		const plan = freeze(clone(detachWitness(witness)).value) as unknown as SubmitStructuralWitness;
 		const projected = freeze(data);
-		const before = freeze(original);
-		const proof = checkSubmitAdapterProof(before, projected, () => plan, clone(projected).value);
-		if (!proof.ok) return undefined;
-		return Object.freeze({
-			data: projected,
-			witness: plan,
-			checkFinal: (final: unknown) =>
-				decision.current() && checkSubmitAdapterProof(before, projected, () => plan, final).ok,
-		});
+		return decision.current() && !signal?.aborted
+			? Object.freeze({ data: projected, witness: plan, current: decision.current })
+			: undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+/** Legacy projection helper retains its independent proof; guarded mode uses parts only. */
+export function projectBoundOmission(
+	form: FormApi<unknown, unknown>,
+	capture: FormStateCapture<unknown, unknown>,
+	signal?: AbortSignal,
+): Projection | undefined {
+	const definition = definitions.get(form);
+	if (!definition) return undefined;
+	const parts = projectBoundOmissionParts(form, definition, capture, signal);
+	if (!parts) return undefined;
+	const before = freeze(clone(capture.state.data).value);
+	if (!checkSubmitAdapterProof(before, parts.data, () => parts.witness, clone(parts.data).value).ok) return undefined;
+	return Object.freeze({
+		data: parts.data,
+		witness: parts.witness,
+		checkFinal: (final: unknown) =>
+			!signal?.aborted && parts.current() && checkSubmitAdapterProof(before, parts.data, () => parts.witness, final).ok,
+	});
 }
