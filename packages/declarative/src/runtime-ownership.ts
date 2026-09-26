@@ -167,6 +167,7 @@ export function projectConcreteOwnership(options: {
 	readonly form: FormApi<unknown, unknown>;
 	readonly definition: ValidatedFormDefinition;
 	readonly capture: FormStateCapture<unknown, unknown>;
+	readonly currentCapture?: FormStateCapture<unknown, unknown>;
 }): ConcreteOwnership {
 	const ids = new Map<string, "field" | "other">();
 	definitionFields(options.definition.root, ids);
@@ -197,7 +198,8 @@ export function projectConcreteOwnership(options: {
 		unknown,
 		diagnostics,
 		current: () =>
-			scopedLifecycleRevision(options.form) === lifecycle && scopedCaptureCurrent(options.form, options.capture),
+			scopedLifecycleRevision(options.form) === lifecycle &&
+			scopedCaptureCurrent(options.form, options.currentCapture ?? options.capture),
 		forField: (id: string) =>
 			ids.get(id) === "field" ? Object.freeze(ownedFields.filter((item) => item.instance.nodeId === id)) : undefined,
 	});

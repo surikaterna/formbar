@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { prepareScopedAsyncHost } from "../../../declarative/src/scoped-async-host.js";
 import { prepareScopedSyncHost } from "../../../declarative/src/scoped-sync-host.js";
 import { validateFormDefinition } from "../../../declarative/src/validators/definition.js";
 import { attemptCanSubmit, rebaseAttemptIssues, renderableIssues } from "../attempt-issues.js";
@@ -8,6 +9,7 @@ import { FormRuntime } from "../form-runtime.js";
 import { validateGuardedSubmitCandidate } from "../guarded-submit-validation.js";
 import { registerScopedSync, scopedCaptureCurrent } from "../internal/scoped-sync.js";
 import { issueEmissionId } from "../issue-provenance.js";
+import { registerScopedAsync } from "../scoped-async.js";
 import { FormStore } from "../store.js";
 import { createValidationCoordinator } from "../validation-coordinator.js";
 import { normalizeIssues } from "../validation.js";
@@ -104,6 +106,112 @@ function fixture(
 }
 
 describe("internal final candidate validator orchestration", () => {
+	it("runs scoped FINAL on outgoing bytes beside sync errors and legacy async without touching retained draft", async () => {
+		const seen: unknown[] = [];
+		const options = {
+			ownedScheduling: true as const,
+			initialData: { hidden: "secret", included: "Ada" },
+			initialUiState: { tab: 1 },
+			validators: [
+				() => [
+					issue("sync"),
+					{
+						...issue("scoped"),
+						source: { origin: "async-validator" as const, validatorId: "scoped" },
+					},
+				],
+			],
+			asyncValidators: [
+				{
+					id: "legacy",
+					validate: async (input: { data: unknown; uiState: unknown; stage?: string; context?: unknown }) => {
+						seen.push(["legacy", input.data, input.uiState, input.stage, input.context]);
+						return [issue("legacy")];
+					},
+				},
+			],
+		};
+		const runtime = new FormRuntime(options);
+		const form = runtime.build();
+		const internals = runtime as unknown as {
+			store: FormStore<typeof options.initialData, typeof options.initialUiState>;
+			coordinator: ReturnType<typeof createValidationCoordinator>;
+		};
+		const definition = validateFormDefinition({
+			version: 1,
+			id: "final",
+			root: {
+				type: "field",
+				id: "included",
+				widget: "text",
+				binding: { namespace: "data", segments: ["included"] },
+			},
+		});
+		if (!definition.ok) throw new Error("Invalid definition");
+		registerScopedAsync(
+			form,
+			prepareScopedAsyncHost(definition.value, [
+				{
+					id: "scoped",
+					fieldId: "included",
+					trigger: "onBlur",
+					debounceMs: 99999,
+					validate: async (input) => {
+						seen.push(["scoped", input.data, input.uiState, input.stage, input.context]);
+						return [{ code: "scoped", message: "scoped", severity: "error" }];
+					},
+				},
+			]),
+			["legacy"],
+		);
+		const captures = vi.spyOn(form, "captureState");
+		const controller = new AbortController();
+		const result = await validateGuardedSubmitCandidate(
+			{
+				action: { type: "submit" },
+				store: internals.store as FormStore<unknown, unknown>,
+				isSubmit: true,
+				submitContext: { requestId: "final", at: "now" },
+				options: options as never,
+			},
+			{
+				signal: controller.signal,
+				expectedRevision: 0,
+				revision: () => internals.coordinator.revision(),
+				onCommittedMutation: () => internals.coordinator.onMutation(),
+				isActive: () => true,
+			},
+			() => ({
+				data: { included: "Ada" },
+				witness: {
+					kind: "omission",
+					omitted: [[{ kind: "key", key: "hidden" }]],
+					protected: [],
+					rowAnchors: [],
+				},
+			}),
+			internals.coordinator,
+			"final",
+			[(value) => ({ ...(value as object), included: "Grace" })],
+			form,
+		);
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+		expect(seen).toEqual([
+			["legacy", { included: "Grace" }, { tab: 1 }, undefined, { requestId: "final", at: "now" }],
+			["scoped", { included: "Grace" }, { tab: 1 }, undefined, { requestId: "final", at: "now" }],
+		]);
+		const attemptIssues = internals.store.getState().attemptValidation?.issues ?? [];
+		expect(attemptIssues.map((entry) => entry.code)).toEqual(["legacy", "scoped", "scoped", "sync"]);
+		expect(
+			attemptIssues
+				.filter((entry) => entry.code === "scoped")
+				.map(issueEmissionId)
+				.filter(Boolean),
+		).toHaveLength(1);
+		expect(form.getState().data).toEqual({ hidden: "secret", included: "Ada" });
+		expect(captures).toHaveBeenCalledTimes(1);
+		form.dispose();
+	});
 	it("forwards final candidate cancellation to a prepared authored definition host on the same form", async () => {
 		const f = fixture([], [], [], true);
 		const prepared = validateFormDefinition({

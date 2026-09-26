@@ -25,8 +25,12 @@ const scopedAsync: fromSchema.DefinitionAsyncFieldValidator<{ name: string }, ob
 	fieldId: "name-field",
 	trigger: "onBlur",
 	debounceMs: 0,
-	validate: async ({ data, field, signal }) => [
-		{ code: String(data.name.length), message: field.instance.nodeId + signal.aborted, severity: "error" },
+	validate: async ({ data, field, signal, stage, context }) => [
+		{
+			code: String(data.name.length),
+			message: field.instance.nodeId + signal.aborted + stage + context?.requestId,
+			severity: "error",
+		},
 	],
 };
 export { scoped, scopedAsync, registerScopedSync, prepareScopedSyncHost, publicRegister, publicPrepare };

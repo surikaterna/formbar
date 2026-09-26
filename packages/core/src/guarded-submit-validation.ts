@@ -5,7 +5,7 @@ import { ownIssues } from "./issue-ownership.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
 import { runScopedSync } from "./scoped-sync.js";
-import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
+import type { FormState, FormStateCapture, SubmitContext, ValidationIssue } from "./state.js";
 import type { OwnedMetadata } from "./store-metadata.js";
 import { publishOwnedMetadata } from "./store.js";
 import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
@@ -118,6 +118,7 @@ function syncCandidateIssues(
 	context: SubmitContext | undefined,
 	signal: AbortSignal,
 	current: () => boolean,
+	capture?: FormStateCapture<unknown, unknown>,
 ): readonly ValidationIssue[] | undefined {
 	const legacy = syncValidation(validators, snapshot.data, snapshot.uiState, stage, context, current);
 	if (!legacy || !current()) return;
@@ -127,6 +128,7 @@ function syncCandidateIssues(
 				...(context ? { context } : {}),
 				signal,
 				current,
+				...(capture ? { capture } : {}),
 			})
 		: [];
 	return normalizeIssues(ownIssues([...legacy, ...scoped]));
@@ -155,6 +157,7 @@ async function completeValidation(
 	submitContext: SubmitContext | undefined,
 	current: () => boolean,
 	sync: readonly ValidationIssue[],
+	capture?: FormStateCapture<unknown, unknown>,
 ): Promise<Outcome> {
 	publish(context, { kind: "beginAttempt", submitId, revision }, (draft) => beginAttempt(draft, submitId, revision));
 	if (!current() || context.store.getState().attemptValidation?.submitId !== submitId) {
@@ -166,6 +169,7 @@ async function completeValidation(
 		asyncResult = await coordinator.validateCandidate({ data, uiState }, revision, guard.signal, {
 			...(stage === undefined ? {} : { stage }),
 			...(submitContext ? { context: submitContext } : {}),
+			...(capture ? { capture } : {}),
 		});
 	} catch (error) {
 		if (error instanceof Error && error.message === "ISSUE_ONLY_UNSUPPORTED_STATE") {
@@ -234,8 +238,19 @@ export async function validateGuardedSubmitCandidate(
 		return { ok: false, code: "unsafe_candidate" };
 	}
 	let sync: readonly ValidationIssue[] | undefined;
+	let capture: FormStateCapture<unknown, unknown> | undefined;
 	try {
-		sync = syncCandidateIssues(form, validators, { data, uiState }, stage, submitContext, guard.signal, current);
+		capture = form?.captureState();
+		sync = syncCandidateIssues(
+			form,
+			validators,
+			{ data, uiState },
+			stage,
+			submitContext,
+			guard.signal,
+			current,
+			capture,
+		);
 	} catch {
 		return { ok: false, code: "unsafe_candidate" };
 	}
@@ -254,5 +269,6 @@ export async function validateGuardedSubmitCandidate(
 		submitContext,
 		current,
 		sync,
+		capture,
 	);
 }
