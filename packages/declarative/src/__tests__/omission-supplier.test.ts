@@ -1,4 +1,4 @@
-import { checkSubmitAdapterProof, clone } from "@formbar/core/internal/submit-proof";
+import { checkSubmitAdapterProof, clone, prepareOwnedSubmitAdapter } from "@formbar/core/internal/submit-proof";
 import { describe, expect, it } from "vitest";
 import { decideExclusiveBindings } from "../exclusive-binding-decision.js";
 import { validateFormDefinition } from "../index.js";
@@ -41,6 +41,18 @@ describe("#327 real single-capture omission supplier", () => {
 		expect(result?.checkFinal({ name: "first", spare: "edited" })).toBe(true);
 		expect(result?.checkFinal({ name: "edited", spare: "before" })).toBe(false);
 		expect(result?.checkFinal({ name: "first", spare: "before", secret: "reintroduced" })).toBe(false);
+		if (!result) throw Error("missing projection");
+		const adapter = () => ({
+			data: clone(result.data).value,
+			witness: clone(result.witness).value as unknown as typeof result.witness,
+		});
+		const includedEdit = prepareOwnedSubmitAdapter(capture.state, adapter, [
+			() => ({ name: "first", spare: "edited" }),
+		]);
+		expect(includedEdit).toMatchObject({ ok: true, data: { name: "first", spare: "edited" } });
+		expect(
+			prepareOwnedSubmitAdapter(capture.state, adapter, [() => ({ name: "first", secret: "again", spare: "before" })]),
+		).toMatchObject({ ok: false, code: "invalid_witness" });
 		expect(
 			checkSubmitAdapterProof(capture.state.data, result?.data, () => result?.witness, {
 				name: "first",
