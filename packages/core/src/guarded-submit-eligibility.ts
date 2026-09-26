@@ -13,7 +13,7 @@ export function rejectBlockedBoundAttempt(
 	receipt: BoundAttemptReceipt | undefined,
 ): readonly ValidationIssue[] | undefined {
 	const state = context.store.getState();
-	if (boundAttemptCanSubmit(state, revision, receipt)) return;
+	if (boundAttemptCanSubmit(state, revision, receipt, submitId)) return;
 	const blockers = state.issues.filter((issue) => issue.severity === "error" && !receipt?.covers(issue));
 	if (context.store.isOwnedSchedulingMode()) {
 		publishOwnedMetadata(context.store, { kind: "rejectAttempt", submitId, revision });
