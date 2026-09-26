@@ -136,6 +136,87 @@ describe("#249 private bound checked handler", () => {
 		form.dispose();
 	});
 
+	it.each(["dispose", "reset", "abort", "timeout"] as const)(
+		"settles a pending owned FINAL after %s without publishing a late result",
+		async (lifecycle) => {
+			let release!: (issues: []) => void;
+			const waiting = new Promise<[]>((resolve) => {
+				release = resolve;
+			});
+			const controller = new AbortController();
+			const { form, handler } = setup({
+				asyncValidators: [{ id: "pending", validate: () => waiting }],
+				...(lifecycle === "timeout" ? { timeouts: { validator: 5 } } : {}),
+			});
+			const pending = form.submit(undefined, controller.signal);
+			expect(form.getState().meta.validation.validating).toBe(true);
+			if (lifecycle === "dispose") form.dispose();
+			if (lifecycle === "reset") form.reset();
+			if (lifecycle === "abort") controller.abort();
+			if (lifecycle === "timeout") await new Promise((resolve) => setTimeout(resolve, 20));
+			const state = form.getState();
+			expect(state.meta.validation.validating).toBe(false);
+			release([]);
+			await expect(pending).resolves.toMatchObject({ ok: false });
+			if (lifecycle !== "abort") expect(form.getState()).toBe(state);
+			expect(form.getState().data.secret).toBe("draft");
+			expect(handler).not.toHaveBeenCalled();
+			form.dispose();
+		},
+	);
+
+	it("does not publish a late candidate after deferred host deactivation", async () => {
+		let release!: (issues: []) => void;
+		const waiting = new Promise<[]>((resolve) => {
+			release = resolve;
+		});
+		const prepared = createSchemaForm({}, { provider: jsonSchemaProvider(), side: "input", definition });
+		const handler = vi.fn(async () => ({ ok: true as const }));
+		const deferred = prepared.createDeferredForm({
+			initialData: { secret: "draft", show: false, name: "Ada" },
+			asyncValidators: [{ id: "pending", validate: () => waiting }],
+			onSubmit: handler,
+		});
+		deferred.activate();
+		const pending = deferred.form.submit();
+		deferred.deactivate();
+		const state = deferred.form.getState();
+		release([]);
+		await expect(pending).resolves.toMatchObject({ ok: false });
+		expect(deferred.form.getState()).toBe(state);
+		expect(handler).not.toHaveBeenCalled();
+		deferred.form.dispose();
+	});
+
+	it("returns an aborted result after disposal even without async validators or a handler", async () => {
+		const { form } = setup({
+			onSubmit: undefined,
+			middleware: [{ id: "dispose", afterValidate: () => form.dispose() }],
+		});
+		await expect(form.submit()).resolves.toMatchObject({ ok: false });
+		expect(form.getState().data.secret).toBe("draft");
+	});
+
+	it("does not mistake an unsupported live owned publication for disposal", async () => {
+		let release!: (issues: []) => void;
+		const waiting = new Promise<[]>((resolve) => {
+			release = resolve;
+		});
+		const { form, handler } = setup({ asyncValidators: [{ id: "pending", validate: () => waiting }] });
+		const pending = form.submit();
+		const store = boundSubmitStore(form);
+		if (!store) throw new Error("missing bound store");
+		const tx = store.beginTransaction();
+		try {
+			release([]);
+			await expect(pending).rejects.toThrow("OWNED_STATE_UNSUPPORTED");
+			expect(handler).not.toHaveBeenCalled();
+		} finally {
+			store.rollbackTransaction(tx);
+			form.dispose();
+		}
+	});
+
 	it("blocks reentrant semantic writes even with zero asynchronous validators", async () => {
 		const reference: { form?: ReturnType<typeof setup>["form"] } = {};
 		const handler = vi.fn();

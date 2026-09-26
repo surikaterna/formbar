@@ -184,6 +184,16 @@ try {
 			compile(directory, fixture, moduleKind, resolution, extension);
 		compile(directory, "upstream.cts", "NodeNext", "NodeNext", "cts");
 		runtime(directory);
+		for (const fixture of ["disposed-submit.cjs", "disposed-submit.mjs", "disposed-submit-run.cjs"])
+			writeFileSync(resolve(directory, fixture), readFileSync(resolve(fixtures, fixture)));
+		for (const format of ["mjs", "cjs"])
+			console.log(
+				execFileSync(
+					process.execPath,
+					[resolve(directory, format === "mjs" ? "disposed-submit.mjs" : "disposed-submit-run.cjs")],
+					{ cwd: directory, encoding: "utf8" },
+				).trim(),
+			);
 		const defaultsFixture = resolve(directory, "schema-defaults.mjs");
 		writeFileSync(defaultsFixture, readFileSync(resolve(fixtures, "schema-defaults.mjs")));
 		console.log(execFileSync(process.execPath, [defaultsFixture], { cwd: directory, encoding: "utf8" }).trim());

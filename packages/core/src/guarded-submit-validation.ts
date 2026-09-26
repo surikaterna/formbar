@@ -12,7 +12,7 @@ import { boundAttemptCanSubmit } from "./retained-issue-eligibility.js";
 import { runScopedSync, runUnscopedFinal, scopedSyncGeneration } from "./scoped-sync.js";
 import type { FormState, FormStateCapture, SubmitContext, ValidationIssue } from "./state.js";
 import type { OwnedMetadata } from "./store-metadata.js";
-import { publishOwnedMetadata } from "./store.js";
+import { publishOwnedMetadata, snapshotOwnership } from "./store.js";
 import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
 import { clone, freeze } from "./submit-candidate-safety.js";
 import type { CandidateEgress } from "./submit-candidate-safety.js";
@@ -52,6 +52,8 @@ function publish(
 }
 
 function clearPublication(context: PipelineContext, submitId: string): void {
+	// Disposal revokes store provenance; never publish a late attempt into a dead store.
+	if (!snapshotOwnership(context.store.getState())) return;
 	publish(context, { kind: "clearAttempt", submitId }, (draft) =>
 		draft.attemptValidation?.submitId === submitId ? clearAttempt(draft) : draft,
 	);
