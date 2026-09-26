@@ -1,5 +1,25 @@
 # @formbar/react
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [cbb9d59]
+- Updated dependencies [7698998]
+- Updated dependencies [0ed966b]
+- Updated dependencies [1bf5761]
+- Updated dependencies [08c1a2b]
+- Updated dependencies [439a847]
+- Updated dependencies [75454ce]
+- Updated dependencies [ed3d7c3]
+- Updated dependencies [ba13b66]
+- Updated dependencies [be5b55a]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [cd7009c]
+- Updated dependencies [81c9913]
+- Updated dependencies [ca15dcb]
+  - @formbar/core@1.0.0
+
 ## 0.22.0
 
 ### Patch Changes

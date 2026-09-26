@@ -1,5 +1,30 @@
 # @formbar/core
 
+## 1.0.0
+
+### Major Changes
+
+- ca15dcb: Own validation diagnostics at every core store ingress. Mutable caller issues are validated, detached and deeply frozen as new stored values; core-produced scoped issues keep their original certified identity. Unsupported issue graphs now fail atomically instead of entering the store. This is a major compatibility bump because applications relying on `storedIssue === suppliedIssue`, mutable stored issue arrays, or previously accepted non-JSON issue details must migrate to reading the owned issue from `getState()` and supplying plain, dense JSON-compatible diagnostics. Public `normalizeIssues`, `sortIssues` and `dedupeIssues` remain non-owning utilities. Draft validation invocation and default retained-draft submission payloads are unchanged.
+
+### Minor Changes
+
+- 7698998: Connect the private definition-bound checked FINAL submission attempt to the submit handler. Only an explicitly activated, real form-bound omission supplier can hand the handler the same frozen bytes validated by every FINAL validator and authorized by the retained-issue gate. Retained draft and default submission behavior are unchanged; this private integration switch does not expose a declarative omit-inactive mode or claim a callback sandbox.
+- 75454ce: Add creation-time `ownedScheduling: true` for eager and deferred forms, including prepared schema and React factories. It validates and owns bounded JSON-compatible initial state before any initialization callback or render-visible snapshot; invalid direct writes reject before pipeline hooks, and invalid trusted callback output cannot publish. Trusted callbacks may still cause external side effects before their invalid output is detected at commit. Default forms retain existing behavior. Accepted writes replace the owned epoch while issue-only publications share it. The legacy trusted-host activation seam remains for existing integrations; caller-owned and prior snapshots remain unfrozen. In opt-in mode, each listener receives the current snapshot at invocation entry (also returned by `getState()` and `captureState()`); its argument becomes historical if its own callback writes. Reentrant commits are synchronous and may coalesce intermediate notifications for later listeners; use the current snapshot rather than expecting every intermediate state. A subscriber that continuously writes can trigger `OWNED_NOTIFICATION_OVERFLOW` after 1024 invocations in one drain, including when invoked by another form's subscriber; already accepted writes remain committed, and subsequent writes can notify again. No omission or release is enabled.
+- 10b4eaa: Support trusted definition-scoped async instances on owned forms, with independent change/blur scheduling and guarded full-draft validation. Preserve original certified issues through issue-only publication and validation-status settlement; legacy and candidate validation remain separate.
+- cd7009c: Run every configured definition-scoped async instance on the guarded post-egress FINAL candidate alongside legacy validators, even when sync validation fails. Keep candidate issues in the attempt lane and leave retained draft validation unchanged. Pass captured submit stage and context to definition-scoped async callbacks.
+
+### Patch Changes
+
+- cbb9d59: Allow the private bound submit lane to accept a real structurally verified zero-omission witness without bypassing final-candidate checks.
+- 0ed966b: Track the exact private guarded FINAL sync and foreground async generation transitions, including unscoped and zero-async candidates, so competing validation cannot masquerade as the same submit attempt. Default validation and submission behavior remains unchanged.
+- 1bf5761: Fail closed when independently blocking retained errors survive private final-candidate validation, while accepting only original issues covered by the bound submit receipt.
+- 08c1a2b: Preserve original certified scoped-issue evidence through a metadata-only guarded submit checkpoint and bind it to the real checked final omission and attempt-owned validation generations. Snapshot both generation lanes before pipeline hooks so competing validation cannot claim the attempt's FINAL transitions. This private receipt does not activate omission or change default submission.
+- 439a847: Settle a pending guarded submit as aborted when its form is disposed during async validation, without publishing late attempt metadata. Unsupported owned-state publications on live forms still fail closed.
+- ed3d7c3: Keep opt-in owned scoped captures current while validation-status, owned issue, field metadata, attempt and submission-result publications deliver synchronous snapshots without consuming a semantic write or ownership epoch. Preserve original certified async issues across full-draft validation completion. Generic transactions still conservatively revoke captures; the default form mode is unchanged.
+- ba13b66: Connect prepared definition-bound omission projections to the private guarded candidate checkpoint and preserve its single checked final witness for later submit work. No public submit activation is added.
+- be5b55a: Provide a private definition/form-bound, single-capture omission supplier and final structural checker seam without enabling hidden-value submission or changing the default submit path.
+- 81c9913: Track private scoped capture ownership across the first successful issue-only detachment while rejecting stale writes, failed publication, and external mutations to the captured baseline.
+
 ## 0.22.3
 
 ### Patch Changes
