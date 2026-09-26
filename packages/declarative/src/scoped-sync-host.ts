@@ -1,9 +1,9 @@
 import type { FormApi, FormStateCapture, SubmitContext } from "@formbar/core";
-import type { ScopedFieldIssueInput, ScopedSyncHost, ScopedValidationInput } from "@formbar/core/internal/scoped-sync";
+import type { ScopedSyncHost, ScopedValidationInput } from "@formbar/core/internal/scoped-sync";
 import type { AbsoluteBinding } from "./bindings.js";
 import type { ValidatedFormDefinition } from "./definition.js";
+import type { FieldIssueInput, FieldValidationTarget } from "./field-validation.js";
 import type { FormNode } from "./nodes.js";
-import type { RuntimeNodeInstance } from "./runtime-contracts.js";
 import { projectConcreteOwnership } from "./runtime-ownership.js";
 
 export interface DefinitionFieldValidator<TData, TUi> {
@@ -11,11 +11,11 @@ export interface DefinitionFieldValidator<TData, TUi> {
 	readonly validate: (context: {
 		readonly data: Readonly<TData>;
 		readonly uiState: Readonly<TUi>;
-		readonly field: { readonly instance: RuntimeNodeInstance; readonly binding: AbsoluteBinding };
+		readonly field: FieldValidationTarget;
 		readonly stage?: string;
 		readonly context?: SubmitContext;
 		readonly signal?: AbortSignal;
-	}) => readonly ScopedFieldIssueInput[];
+	}) => readonly FieldIssueInput[];
 }
 
 export function collect(node: FormNode, ids: Map<string, string>): void {
@@ -78,7 +78,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 							entry.validate({
 								data: input.data as Readonly<TData>,
 								uiState: input.uiState as Readonly<TUi>,
-								field: { instance: owner.instance, binding: owner.binding },
+								field: { instance: owner.instance, binding: { namespace: "data", segments: owner.binding.segments } },
 								...(input.stage === undefined ? {} : { stage: input.stage }),
 								...(input.context ? { context: input.context } : {}),
 								...(input.signal ? { signal: input.signal } : {}),

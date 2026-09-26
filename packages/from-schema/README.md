@@ -64,6 +64,39 @@ The supported peer range is Zod `>=3.24 <4` and `>=4 <5`; fixtures exercise 3.24
 
 `SchemaFormResult.diagnostics` keeps `validation`, `source`, `projection`, `compilation`, and declarative `definition` diagnostics separate. The optional Standard Schema validator handle is returned as `sourceValidator`; plain JSON Schema validation precedes caller-provided core validators in `validators`. Structural availability is not a validation promise.
 
+### Trusted definition-field validation (v1)
+
+Register at **one** preparation boundary, for authored `definition` or generated `generation`:
+
+```ts
+import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
+
+const prepared = createSchemaForm<{ email: string }, { tab: number }>(schema, {
+  provider: jsonSchemaProvider(), side: "input", generation: {},
+  fieldValidators: [{
+    fieldId: generatedEmailFieldId, // read from prepared.definition in an initial preparation
+    validate: ({ data, field, stage, context }) =>
+      data.email === "blocked@example.test"
+        ? [{ code: "blocked", message: "Unavailable", severity: "error" }]
+        : [],
+  }],
+  asyncFieldValidators: [{
+    id: "email-available", fieldId: generatedEmailFieldId,
+    trigger: "onBlur", debounceMs: 300,
+    validate: async ({ data, field, signal }) =>
+      (await checkAvailability(data.email, signal))
+        ? [] : [{ code: "taken", message: "Unavailable", severity: "error" }],
+  }],
+});
+const form = prepared.createForm({ initialData: { email: "" }, initialUiState: { tab: 0 } });
+```
+
+`fieldId` is the globally unique **validated FieldNode.id**, not a data path, row ID, or runtime instance. Generated IDs can be inspected by preparing the schema without registrations first. Unknown/non-field/duplicate sync registrations and invalid/duplicate async IDs (including collisions with legacy async validator IDs) reject. `prepared.createForm(coreOptions)` and `prepared.createDeferredForm(coreOptions)` bind the same definition host before validation; passing `prepared.validators` to a bare core `createForm` installs only legacy/schema validators and **does not** register scoped validators. `useSchemaForm` forwards the same options through its deferred construction. No separate registry belongs on `useForm` or `createForm`.
+
+Callbacks receive readonly typed data/UI views (not a hostile-JS sandbox), current `field.instance` (`nodeId`, `instanceKey`, ordered repeater `scopes` with numeric indexes), and `field.binding` (`namespace: "data"`, typed absolute `segments`). A literal string `"0"` differs from array index `0`; dots in keys remain literal. Every *existing* concrete row is invoked, including hidden conditional branches; zero rows produce zero invocations. Unbound, root/UI, ambiguous, shared or overlapping bindings fail closed. A `FieldIssueInput` supplies only `code`, `message`, `severity`, and optional nonempty typed `descendant` segments within an existing bound subtree. The host validates the shape/ownership, creates a new frozen canonical issue and attaches provenance to that original issue object; caller `source`, absolute path, stage, details, and certificates are not accepted. Spread/rehydrated or same-path unregistered issues have no scoped provenance. **Current limitation (#318):** a standalone object field with unbound child data cannot yet certify a descendant, because unknown-subtree protection rejects the parent owner; this remains a blocker to v1 completion, not permission to omit or suppress those errors.
+
+Automatic async defaults to `onChange` and 300ms debounce; `onBlur` may be selected. Explicit `form.validate(stage?)` runs all configured sync validators, including every scoped current instance on **full retained draft data/UI**, without async. Explicit unscoped `validateAsync()` runs all configured async instances without trigger/debounce; scoped `validateAsync(path)` selects typed-overlapping instances. Both conditional branches remain eligible even when hidden. Final guarded validation (for future submit integration) executes **all** legacy/schema/global and scoped sync/async validators on the same post-egress candidate data/UI with identical stage/context; it cannot skip another validator after an error. Draft and candidate runs are distinct. These registrations do **not** activate request omission, change default retain-and-submit or full-draft semantics, certify Ajv/Standard Schema or generic validators, or exempt unregistered/root/global issues from blocking. In particular, migrate a *field-owned* legacy validator by registering it at this boundary and returning relative issue inputs, not by matching its old absolute path; retain independent legacy/Ajv validators for global constraints. A trusted same-realm callback can close over form/external state; this is not a privacy sandbox. Future request omission is not server deletion: backend authorization and persisted-data semantics remain the server's responsibility.
+
 ## Automatic JSON Schema validation
 
 `createSchemaForm` and `useSchemaForm` automatically validate the complete stored data when

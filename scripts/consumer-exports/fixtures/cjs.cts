@@ -20,6 +20,10 @@ const scoped: fromSchema.DefinitionFieldValidator<{ name: string }, object> = {
 		{ code: String(data.name.length), message: field.instance.nodeId, severity: "error" },
 	],
 };
+const issueInput: fromSchema.FieldIssueInput = { code: "bad", message: "Bad", severity: "error", descendant: ["0", 0] };
+const binding: fromSchema.FieldValidationBinding = { namespace: "data", segments: ["name", "0", 0] };
+// @ts-expect-error Scoped public bindings cannot select UI state.
+const uiBinding: fromSchema.FieldValidationBinding = { namespace: "ui", segments: ["name"] };
 const scopedAsync: fromSchema.DefinitionAsyncFieldValidator<{ name: string }, object> = {
 	id: "name-async",
 	fieldId: "name-field",
@@ -33,5 +37,15 @@ const scopedAsync: fromSchema.DefinitionAsyncFieldValidator<{ name: string }, ob
 		},
 	],
 };
-export { scoped, scopedAsync, registerScopedSync, prepareScopedSyncHost, publicRegister, publicPrepare };
+export {
+	scoped,
+	scopedAsync,
+	issueInput,
+	binding,
+	uiBinding,
+	registerScopedSync,
+	prepareScopedSyncHost,
+	publicRegister,
+	publicPrepare,
+};
 export { expressions, core, path, transforms, validation, declarative, fromSchema, react, arbiter, reactSchema };
