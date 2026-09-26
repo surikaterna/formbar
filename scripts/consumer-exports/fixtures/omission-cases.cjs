@@ -209,8 +209,8 @@ function validationFixture(api) {
 		transforms: [{ id: "egress", phase: "egress", transform: (data) => ({ ...data, extra: "after" }) }],
 		validators: [capture("legacySync")],
 		asyncValidators: [{ id: "legacy-async", validate: async (input) => capture("legacyAsync")(input) }],
-		onSubmit: async ({ payload }) => {
-			sent.push(payload);
+		onSubmit: async ({ payload, submitContext, form: submittingForm }) => {
+			sent.push({ payload, submitContext, uiState: submittingForm.getState().uiState });
 			return { ok: true };
 		},
 	});
@@ -231,14 +231,16 @@ async function validation(api) {
 	form.setValue("show", true);
 	assert.equal((await form.submit(context("retry"))).ok, true);
 	assert.equal(sent.length, 1);
-	assert.deepEqual(json(sent[0]), { show: true, secret: "draft", name: "Ada", extra: "after" });
-	assert.ok(Object.isFrozen(sent[0]));
-	assertFinal(observed, sent[0], "retry");
+	const [{ payload, submitContext, uiState }] = sent;
+	assert.deepEqual(json(payload), { show: true, secret: "draft", name: "Ada", extra: "after" });
+	assert.ok(Object.isFrozen(payload));
+	assert.deepEqual(json(submitContext), context("retry"));
+	assertFinal(observed, payload, "retry", submitContext, uiState);
 	assert.equal(form.getState().data.extra, "before");
 	form.dispose();
 }
 
-function assertFinal(observed, expected, requestId) {
+function assertFinal(observed, expected, requestId, handlerContext, handlerUi) {
 	let finalData;
 	for (const kind of ["legacySync", "legacyAsync", "scopedSync", "scopedAsync"]) {
 		const final = observed[kind].filter((input) => input.data.extra === "after");
@@ -248,6 +250,10 @@ function assertFinal(observed, expected, requestId) {
 		assert.deepEqual(json(final[0].uiState), { tab: "first" });
 		assert.equal(final[0].stage, undefined);
 		assert.deepEqual(json(final[0].context), context(requestId));
+		if (handlerContext) {
+			assert.deepEqual(json(final[0].context), json(handlerContext), `${kind} handler context`);
+			assert.deepEqual(json(final[0].uiState), json(handlerUi), `${kind} handler UI`);
+		}
 		if (finalData) assert.strictEqual(final[0].data, finalData);
 		finalData = final[0].data;
 		if (requestId === "retry") assert.strictEqual(final[0].data, expected);
@@ -318,6 +324,7 @@ async function resetWhilePending(api) {
 
 async function disposeWhilePending(prepared) {
 	const sent = [];
+	const publications = [];
 	let release;
 	const disposed = prepared.createForm({
 		initialData: draft(),
@@ -335,13 +342,22 @@ async function disposeWhilePending(prepared) {
 			return { ok: true };
 		},
 	});
+	const unsubscribe = disposed.subscribe((state) => publications.push(state));
 	const stale = disposed.submit();
+	assert.equal(disposed.getState().meta.validation.validating, true);
 	disposed.dispose();
+	const settled = disposed.getState();
+	assert.equal(settled.meta.validation.validating, false);
+	const countAtDispose = publications.length;
 	release([]);
-	// #346: disposing during a pending validator currently rejects instead of returning stale failure.
-	await assert.rejects(stale, /OWNED_STATE_UNSUPPORTED/);
+	const result = await stale;
+	assert.equal(result.ok, false);
+	assert.equal(result.reason, "aborted");
+	assert.strictEqual(disposed.getState(), settled);
+	assert.equal(publications.length, countAtDispose);
 	assert.deepEqual(sent, []);
-	return "known-failure-346";
+	unsubscribe();
+	return "pass";
 }
 
 async function reentrantValidation(prepared) {
