@@ -244,6 +244,19 @@ describe("#321 same-capture exclusive binding decisions", () => {
 		}
 	});
 
+	it("revokes direct entries when the caller's attempt aborts without a state write", () => {
+		const { form, ownership } = setup(mode([field("secret", ["secret"], hidden)]), { secret: "draft" });
+		const controller = new AbortController();
+		const decision = decideExclusiveBindings(ownership, controller.signal);
+		const entry = decision.fields[0];
+		expect(entry?.decision).toBe("exclusive");
+		controller.abort();
+		expect(decision.current()).toBe(false);
+		expect(entry?.decision).toBe("unknown");
+		expect(decision.forField("secret", entry?.owner.instance.instanceKey ?? "")).toBeUndefined();
+		form.dispose();
+	});
+
 	it("Arbiter visibility makes an otherwise visible field inactive without changing stored data", () => {
 		const validated = mode([field("secret", ["secret"])]);
 		const { form } = runtime(validated, {

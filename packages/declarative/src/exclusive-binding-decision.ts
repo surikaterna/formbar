@@ -41,9 +41,9 @@ function classify(
 }
 
 /** Private read-only decision on an already projected, single-capture ownership model. No payload is built. */
-export function decideExclusiveBindings(ownership: ConcreteOwnership): ExclusiveBindingDecision {
+export function decideExclusiveBindings(ownership: ConcreteOwnership, signal?: AbortSignal): ExclusiveBindingDecision {
 	if (!isProjectedOwnership(ownership)) throw new Error("UNVERIFIED_CONCRETE_OWNERSHIP");
-	const current = () => ownership.current() && ownership.capturedCurrent();
+	const current = () => !signal?.aborted && ownership.current() && ownership.capturedCurrent();
 	const active = index(
 		ownership.fields
 			.filter((field) => field.visible || field.submitWhenHidden === "include")
