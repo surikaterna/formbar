@@ -95,6 +95,9 @@ export function validateExportTargets(
 	const expected = policy.directory === "core" ? exportEntries : exportEntries.slice(0, 1);
 	const subpaths = [
 		...expected,
+		...(["core", "declarative"].includes(policy.directory)
+			? [policy.directory === "core" ? "./internal/submit-proof" : "./internal/omission-supplier"]
+			: []),
 		...(["core", "declarative"].includes(policy.directory) ? ["./internal/scoped-sync"] : []),
 	];
 	deepStrictEqual(Object.keys(manifest.exports ?? {}), subpaths, `${policy.name}: export subpaths`);
@@ -105,11 +108,7 @@ export function validateExportTargets(
 	);
 	for (const [subpath, conditions] of Object.entries(manifest.exports)) {
 		const stem =
-			subpath === "."
-				? "index"
-				: subpath === "./internal/scoped-sync"
-					? "internal/scoped-sync"
-					: `${subpath.slice(2)}.entry`;
+			subpath === "." ? "index" : subpath.startsWith("./internal/") ? subpath.slice(2) : `${subpath.slice(2)}.entry`;
 		deepStrictEqual(Object.keys(conditions), ["import", "require"], `${policy.name}: ${subpath} condition order`);
 		for (const condition of ["import", "require"] as const)
 			validateExportBranch(policy, subpath, condition, conditions[condition], stem, files);

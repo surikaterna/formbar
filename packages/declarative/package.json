@@ -23,6 +23,16 @@
 				"default": "./dist/index.cjs"
 			}
 		},
+		"./internal/omission-supplier": {
+			"import": {
+				"types": "./dist/internal/omission-supplier.d.ts",
+				"default": "./dist/internal/omission-supplier.js"
+			},
+			"require": {
+				"types": "./dist/internal/omission-supplier.d.cts",
+				"default": "./dist/internal/omission-supplier.cjs"
+			}
+		},
 		"./internal/scoped-sync": {
 			"import": {
 				"types": "./dist/internal/scoped-sync.d.ts",

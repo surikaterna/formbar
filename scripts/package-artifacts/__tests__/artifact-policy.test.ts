@@ -27,21 +27,23 @@ function exportFixture(): PackageManifest {
 		module: "./dist/index.js",
 		types: "./dist/index.d.ts",
 		exports: Object.fromEntries(
-			[".", "./path", "./transforms", "./validation", "./internal/scoped-sync"].map((subpath) => {
-				const stem =
-					subpath === "."
-						? "index"
-						: subpath === "./internal/scoped-sync"
-							? "internal/scoped-sync"
-							: `${subpath.slice(2)}.entry`;
-				return [
-					subpath,
-					{
-						import: { types: `./dist/${stem}.d.ts`, default: `./dist/${stem}.js` },
-						require: { types: `./dist/${stem}.d.cts`, default: `./dist/${stem}.cjs` },
-					},
-				];
-			}),
+			[".", "./path", "./transforms", "./validation", "./internal/submit-proof", "./internal/scoped-sync"].map(
+				(subpath) => {
+					const stem =
+						subpath === "."
+							? "index"
+							: subpath.startsWith("./internal/")
+								? subpath.slice(2)
+								: `${subpath.slice(2)}.entry`;
+					return [
+						subpath,
+						{
+							import: { types: `./dist/${stem}.d.ts`, default: `./dist/${stem}.js` },
+							require: { types: `./dist/${stem}.d.cts`, default: `./dist/${stem}.cjs` },
+						},
+					];
+				},
+			),
 		),
 	} as PackageManifest;
 }

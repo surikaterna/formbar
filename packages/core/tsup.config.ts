@@ -9,6 +9,7 @@ export default defineConfig({
 		"src/transforms.entry.ts",
 		"src/validation.entry.ts",
 		"src/internal/scoped-sync.ts",
+		"src/internal/submit-proof.ts",
 	],
 	splitting: true,
 });

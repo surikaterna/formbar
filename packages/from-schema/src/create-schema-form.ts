@@ -11,6 +11,7 @@ import {
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
+import { bindOmissionSupplier } from "@formbar/declarative/internal/omission-supplier";
 import { prepareScopedAsyncHost, prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
 import type { LimitOptions, SchemaDocumentProvider, StandardSchemaV1 } from "@scheman/core";
 import {
@@ -134,6 +135,7 @@ function createPreparedFactories<TData, TUi>(
 		...(scopedAsync ? { ownedScheduling: true } : {}),
 	});
 	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) => {
+		bindOmissionSupplier(form as ReturnType<typeof createForm>, definition);
 		if (scoped) registerScopedSync(form, scoped);
 		if (scopedAsync)
 			registerScopedAsync(
