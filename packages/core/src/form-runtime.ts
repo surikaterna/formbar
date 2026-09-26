@@ -103,6 +103,7 @@ export class FormRuntime<TData, TUi> {
 			},
 			coordinator: this.coordinator,
 			getApi: () => this.api,
+			isActive: () => this.active && !this.disposal.isDisposed(),
 		});
 		this.api = this.createApi();
 		this.scopedAsync = createRuntimeScopedAsync(() => this.api, this.store, options.timeouts?.validator);
@@ -157,7 +158,6 @@ export class FormRuntime<TData, TUi> {
 			targets.map((target) => target.path),
 		);
 	}
-
 	private dispatchSetValue = (rawPath: string, value: unknown): FormDispatchResult => {
 		const before = this.store.getState();
 		const result = executePipeline({

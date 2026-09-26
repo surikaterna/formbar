@@ -4,15 +4,17 @@ import type { AsyncValidationResult, FormApi, Middleware, ValidatorFn } from "./
 import { type FinalGeneration, beginFinalGeneration } from "./final-generation.js";
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
 import { rejectBlockedBoundAttempt } from "./guarded-submit-eligibility.js";
+import { type CandidateValidationContext, candidateValidationContext } from "./guarded-validation-context.js";
 import { ownIssues } from "./issue-ownership.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
+import { boundAttemptCanSubmit } from "./retained-issue-eligibility.js";
 import { runScopedSync, runUnscopedFinal, scopedSyncGeneration } from "./scoped-sync.js";
 import type { FormState, FormStateCapture, SubmitContext, ValidationIssue } from "./state.js";
 import type { OwnedMetadata } from "./store-metadata.js";
 import { publishOwnedMetadata } from "./store.js";
 import type { SubmitDefinitionAdapter } from "./submit-adapter-contract.js";
-import { clone, freeze, unchanged } from "./submit-candidate-safety.js";
+import { clone, freeze } from "./submit-candidate-safety.js";
 import type { CandidateEgress } from "./submit-candidate-safety.js";
 import type { SubmitPreparationGuard } from "./submit-preparation-checkpoint.js";
 import type { ValidationCoordinator } from "./validation-coordinator.js";
@@ -24,16 +26,11 @@ type Outcome =
 			readonly issues: readonly ValidationIssue[];
 			readonly checked?: Extract<ReturnType<typeof prepareGuardedSubmitCandidate>, { ok: true }>;
 			readonly receipt?: BoundAttemptReceipt;
+			/** Revoked by any intervening semantic write, generation, lifecycle or gate change. */
+			readonly current?: () => boolean;
 	  }
 	| { readonly ok: false; readonly code: "validation_failed"; readonly fieldIssues: readonly ValidationIssue[] }
 	| { readonly ok: false; readonly code: "stale" | "vetoed" | "unsafe_candidate" | "invalid_witness" | "aborted" };
-
-interface CandidateValidationContext {
-	readonly stage: string | undefined;
-	readonly submitContext: SubmitContext | undefined;
-	readonly current: () => boolean;
-	readonly state: FormState<unknown, unknown>;
-}
 
 interface CandidateSyncResult {
 	readonly sync: readonly ValidationIssue[];
@@ -159,17 +156,6 @@ function syncCandidateIssues(
 	return normalizeIssues(ownIssues([...legacy, ...scoped]));
 }
 
-function ownedValidationState(data: unknown, uiState: unknown, stage: string | undefined): FormState<unknown, unknown> {
-	return Object.freeze({
-		data,
-		uiState,
-		meta: Object.freeze({ validation: Object.freeze({}), ...(stage === undefined ? {} : { stage }) }),
-		fieldMeta: Object.freeze({}),
-		fieldPolicy: Object.freeze([]),
-		issues: Object.freeze([]),
-	});
-}
-
 async function completeValidation(
 	context: PipelineContext,
 	guard: SubmitPreparationGuard,
@@ -229,35 +215,6 @@ function completedAttemptOutcome(context: PipelineContext, submitId: string, cur
 	return attempt.status === "failed"
 		? { ok: false, code: "validation_failed", fieldIssues: attempt.issues }
 		: { ok: true, issues: attempt.issues };
-}
-
-function candidateValidationContext(
-	context: PipelineContext,
-	guard: SubmitPreparationGuard,
-	coordinator: ValidationCoordinator<unknown, unknown>,
-	data: unknown,
-	uiState: unknown,
-	revision: number,
-): CandidateValidationContext | undefined {
-	const retained = context.store.getState();
-	const retainedBaseline = freeze(clone({ data: retained.data, uiState: retained.uiState }).value);
-	const stage = retained.meta.stage;
-	let submitContext: SubmitContext | undefined;
-	try {
-		if (context.submitContext) submitContext = freeze(clone(context.submitContext).value) as unknown as SubmitContext;
-	} catch {
-		return;
-	}
-	const state = ownedValidationState(data, uiState, stage);
-	const baseline = freeze(clone({ data, uiState }).value);
-	const current = () =>
-		!guard.signal.aborted &&
-		guard.isActive?.() !== false &&
-		guard.revision() === revision &&
-		coordinator.revision() === revision &&
-		unchanged({ data: context.store.getState().data, uiState: context.store.getState().uiState }, retainedBaseline) &&
-		unchanged({ data, uiState }, baseline);
-	return { stage, submitContext, current, state };
 }
 
 function candidateSyncResult(
@@ -396,5 +353,20 @@ export async function validateGuardedSubmitCandidate(
 	const blockers = rejectBlockedBoundAttempt(context, submitId, revision, receipt);
 	if (!current() || !finalGeneration.current()) return { ok: false, code: "stale" };
 	if (blockers) return { ok: false, code: "validation_failed", fieldIssues: blockers };
-	return Object.freeze({ ...outcome, checked: prepared, ...(receipt ? { receipt } : {}) });
+	return Object.freeze({
+		...outcome,
+		checked: prepared,
+		...(receipt ? { receipt } : {}),
+		current: () =>
+			current() && finalGeneration.current() && rejectableAttemptCurrent(context, submitId, revision, receipt),
+	});
+}
+
+function rejectableAttemptCurrent(
+	context: PipelineContext,
+	submitId: string,
+	revision: number,
+	receipt: BoundAttemptReceipt | undefined,
+): boolean {
+	return boundAttemptCanSubmit(context.store.getState(), revision, receipt, submitId);
 }

@@ -8,3 +8,4 @@ export {
 	registerBoundSubmitSupplier,
 } from "../bound-submit-supplier.js";
 export { prepareGuardedSubmitCandidate } from "../guarded-submit-candidate.js";
+export { activateBoundSubmit } from "../bound-submit-activation.js";

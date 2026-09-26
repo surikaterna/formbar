@@ -1,3 +1,5 @@
+import { isBoundSubmitActive } from "./bound-submit-activation.js";
+import { executeBoundSubmit } from "./bound-submit-execution.js";
 import type { FormAction, FormApi, Middleware, SubmitResult } from "./contracts.js";
 import { FormbarError } from "./errors.js";
 import { runNotifyHooksAsync } from "./middleware-runner.js";
@@ -60,6 +62,7 @@ function rejectThenablePluginGate(pluginId: string, result: unknown): void {
 
 interface ActiveSubmit {
 	readonly generation: number;
+	readonly initialRevision: number;
 	readonly submitId: string;
 	readonly controller: AbortController;
 	readonly callerSignal?: AbortSignal;
@@ -74,6 +77,7 @@ export interface SubmitHandlerDeps<TData, TUi> {
 	readonly plugins: readonly FormPlugin<TData, TUi>[];
 	readonly coordinator: ValidationCoordinator<TData, TUi>;
 	readonly getApi: () => FormApi<TData, TUi>;
+	readonly isActive: () => boolean;
 }
 
 export interface SubmitHandler {
@@ -243,15 +247,18 @@ class SubmitRuntime<TData, TUi> {
 		run: ActiveSubmit,
 		submitContext: SubmitContext,
 		snapshot: FormState<TData, TUi>,
+		checked?: { readonly payload: TData; readonly current: () => boolean },
 	): Promise<SubmitResult> {
+		if (checked && !checked.current()) return this.fail(run, "validation-superseded", "Checked submit superseded");
 		if (!this.deps.options.onSubmit) return this.complete(run, { ok: true, submitId: run.submitId });
 		try {
 			const handler = this.deps.options.onSubmit({
 				form: this.deps.getApi(),
 				submitContext,
-				payload: this.payloadFrom(snapshot),
+				payload: checked ? checked.payload : this.payloadFrom(snapshot),
 				signal: run.controller.signal,
 			});
+			if (checked && !checked.current()) return this.fail(run, "validation-superseded", "Checked submit superseded");
 			const timed = withTimeout(
 				handler,
 				this.deps.options.timeouts?.submit ?? DEFAULT_RUNTIME_CONSTRAINTS.submitTimeout,
@@ -260,11 +267,52 @@ class SubmitRuntime<TData, TUi> {
 			const abortWaiter = this.createAbortWaiter(run.controller.signal);
 			const result = await Promise.race([timed, abortWaiter.promise]).finally(abortWaiter.cleanup);
 			if (result === ABORTED || !this.isCurrent(run)) return this.fail(run, "aborted", "Submission aborted");
+			if (checked && !checked.current()) return this.fail(run, "validation-superseded", "Checked submit superseded");
 			return await this.finishHandler(run, result);
 		} catch (error) {
 			run.controller.abort();
 			return this.fail(run, undefined, error instanceof Error ? error.message : String(error));
 		}
+	}
+
+	private async submitBound(run: ActiveSubmit, submitContext: SubmitContext): Promise<SubmitResult> {
+		const revision = run.initialRevision;
+		const guard = {
+			signal: run.controller.signal,
+			expectedRevision: revision,
+			revision: () => this.deps.coordinator.revision(),
+			onCommittedMutation: () => this.deps.coordinator.onMutation(),
+			isActive: () => this.isCurrent(run) && this.deps.isActive(),
+		};
+		const result = await executeBoundSubmit(
+			{
+				action: { type: "submit" },
+				store: this.deps.pipelineStore,
+				options: this.deps.pipelineOptions,
+				isSubmit: true,
+				submitContext,
+				plugins: this.deps.plugins,
+			},
+			guard,
+			this.deps.coordinator as ValidationCoordinator<unknown, unknown>,
+			run.submitId,
+			this.deps.getApi() as FormApi<unknown, unknown>,
+		);
+		if (!this.isCurrent(run) || run.controller.signal.aborted) return this.fail(run, "aborted", "Submission aborted");
+		if (!result.ok) {
+			return this.fail(
+				run,
+				result.code === "validation_failed" ? "validation-failed" : "validation-superseded",
+				`Checked submit ${result.code}`,
+				result.code === "validation_failed" ? result.fieldIssues : [],
+			);
+		}
+		if (!result.checked || !result.current?.())
+			return this.fail(run, "validation-superseded", "Checked submit superseded");
+		return this.executeHandler(run, submitContext, this.deps.store.getState(), {
+			payload: result.checked.candidate.data as TData,
+			current: result.current,
+		});
 	}
 
 	private async finishHandler(run: ActiveSubmit, result: SubmitResult): Promise<SubmitResult> {
@@ -283,6 +331,7 @@ class SubmitRuntime<TData, TUi> {
 		const callerAbort = () => controller.abort();
 		const run: ActiveSubmit = {
 			generation: ++this.generation,
+			initialRevision: this.deps.coordinator.revision(),
 			submitId: generateSubmitId(this.deps.options.idGenerator),
 			controller,
 			...(signal ? { callerSignal: signal, callerAbort } : {}),
@@ -319,6 +368,8 @@ class SubmitRuntime<TData, TUi> {
 		if (run.controller.signal.aborted) return this.fail(run, "aborted", "Submission aborted");
 		try {
 			const submitContext = this.buildContext(context, run.submitId);
+			if (isBoundSubmitActive(this.deps.getApi() as FormApi<unknown, unknown>))
+				return this.submitBound(run, submitContext);
 			const pipeline = this.runPipeline(submitContext);
 			if (!pipeline.ok) return this.fail(run, undefined, pipeline.vetoReason ?? pipeline.error ?? "Pipeline failed");
 			this.runPluginGates();
