@@ -37,7 +37,22 @@ const scopedAsync: fromSchema.DefinitionAsyncFieldValidator<{ name: string }, ob
 		},
 	],
 };
+const publicOmission = fromSchema.createSchemaForm<{ show: boolean; secret: string }>(
+	{ type: "object", properties: { show: { type: "boolean" }, secret: { type: "string" } } },
+	{ provider: fromSchema.jsonSchemaProvider(), side: "input", submission: { hiddenValues: "omit-inactive" } },
+);
+const omittedForm = publicOmission.createForm({ initialData: { show: false, secret: "draft" } });
+type HookOptions = reactSchema.UseSchemaFormOptions<{ show: boolean; secret: string }, object>;
+const publicHookOptions: HookOptions = {
+	provider: fromSchema.jsonSchemaProvider(),
+	side: "input",
+	initialData: { show: false, secret: "draft" },
+	submission: { hiddenValues: "omit-inactive" },
+};
 export {
+	publicOmission,
+	omittedForm,
+	publicHookOptions,
 	scoped,
 	scopedAsync,
 	issueInput,
