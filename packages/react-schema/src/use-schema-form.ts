@@ -28,6 +28,7 @@ interface SchemaPreparationOptions {
 	readonly projectionLimits?: ProjectionLimitOptions;
 	readonly definition?: FormDefinition;
 	readonly generation?: CompileDefaultFormDefinitionOptions;
+	readonly submission?: FormDefinition["submission"];
 }
 
 export type UseSchemaFormOptions<TData, TUi> = Omit<UseFormOptions<TData, TUi>, "schema" | "validators"> &
@@ -92,6 +93,7 @@ function usePreparedSchema<TData, TUi>(schema: unknown, options: UseSchemaFormOp
 				...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
 				...(options.definition ? { definition: options.definition } : {}),
 				...(options.generation ? { generation: options.generation } : {}),
+				...(options.submission ? { submission: options.submission } : {}),
 				...(options.validators ? { validators: options.validators } : {}),
 				...(options.fieldValidators ? { fieldValidators: options.fieldValidators } : {}),
 				...(options.asyncFieldValidators ? { asyncFieldValidators: options.asyncFieldValidators } : {}),
@@ -104,6 +106,7 @@ function usePreparedSchema<TData, TUi>(schema: unknown, options: UseSchemaFormOp
 			options.projectionLimits,
 			options.definition,
 			options.generation,
+			options.submission,
 			options.validators,
 			options.fieldValidators,
 			options.asyncFieldValidators,
@@ -119,6 +122,7 @@ function formOptions<TData, TUi>(options: UseSchemaFormOptions<TData, TUi>): Use
 		projectionLimits: _projectionLimits,
 		definition: _definition,
 		generation: _generation,
+		submission: _submission,
 		validators: _validators,
 		fieldValidators: _fieldValidators,
 		asyncFieldValidators: _asyncFieldValidators,

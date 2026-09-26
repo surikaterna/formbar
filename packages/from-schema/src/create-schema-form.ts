@@ -1,6 +1,7 @@
 import { createDeferredForm, createForm } from "@formbar/core";
 import type { CreateFormOptions, SchemaValidator } from "@formbar/core";
 import { assertScopedAsyncIds, registerScopedAsync, registerScopedSync } from "@formbar/core/internal/scoped-sync";
+import { activateBoundSubmit } from "@formbar/core/internal/submit-proof";
 import {
 	type DefinitionAsyncFieldValidator,
 	type DefinitionDiagnostic,
@@ -34,6 +35,7 @@ export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
 	readonly validators?: readonly SchemaValidator<TData, TUi>[];
 	readonly definition?: FormDefinition;
 	readonly generation?: CompileDefaultFormDefinitionOptions;
+	readonly submission?: FormDefinition["submission"];
 	/** V1 definition FieldNode IDs only; never data paths or concrete row identities. */
 	readonly fieldValidators?: readonly DefinitionFieldValidator<TData, TUi>[];
 	readonly asyncFieldValidators?: readonly DefinitionAsyncFieldValidator<TData, TUi>[];
@@ -64,6 +66,13 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	if (options.definition && options.generation) {
 		throw new TypeError("definition and generation are mutually exclusive.");
 	}
+	if (
+		options.definition &&
+		options.submission &&
+		options.definition.submission?.hiddenValues !== options.submission.hiddenValues
+	) {
+		throw new TypeError("Authored definition submission policy conflicts with the supplied option.");
+	}
 	const validation = isJsonProvider(options.provider)
 		? prepareJsonSchema(schema, isSupportedJsonProvider(options.provider))
 		: undefined;
@@ -84,7 +93,7 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	}
 	const prepared = options.definition
 		? validateAuthoredDefinition(options.definition, projected.descriptors)
-		: compileDefaultFormDefinition(projected.descriptors, options.generation);
+		: compileDefaultFormDefinition(projected.descriptors, options.generation, options.submission);
 	if (!prepared.definition) throw new InvalidFormDefinitionError(prepared.definitionDiagnostics);
 	const validators = Object.freeze([
 		...(validation ? [validation.validator as SchemaValidator<TData, TUi>] : []),
@@ -118,6 +127,7 @@ function createPreparedFactories<TData, TUi>(
 	const scopedAsync = options.asyncFieldValidators
 		? prepareScopedAsyncHost(definition, options.asyncFieldValidators)
 		: undefined;
+	const omission = definition.submission?.hiddenValues === "omit-inactive";
 	const preflight = (coreOptions: CreateFormOptions<TData, TUi>) => {
 		const all = [...validators, ...(coreOptions.validators ?? [])];
 		if (new Set(all).size !== all.length) {
@@ -132,7 +142,7 @@ function createPreparedFactories<TData, TUi>(
 	const withValidators = (coreOptions: CreateFormOptions<TData, TUi>): CreateFormOptions<TData, TUi> => ({
 		...coreOptions,
 		validators: [...validators, ...(coreOptions.validators ?? [])],
-		...(scopedAsync ? { ownedScheduling: true } : {}),
+		...(scopedAsync || omission ? { ownedScheduling: true } : {}),
 	});
 	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) => {
 		bindOmissionSupplier(form as ReturnType<typeof createForm>, definition);
@@ -143,12 +153,22 @@ function createPreparedFactories<TData, TUi>(
 				scopedAsync,
 				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
 			);
+		if (omission) activateBoundSubmit(form as ReturnType<typeof createForm>);
 		return form;
 	};
 	return {
 		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
 			preflight(coreOptions);
-			return attach(createForm(withValidators(coreOptions)), coreOptions);
+			if (!omission) return attach(createForm(withValidators(coreOptions)), coreOptions);
+			const runtime = createDeferredForm(withValidators(coreOptions));
+			try {
+				attach(runtime.form, coreOptions);
+				runtime.activate();
+				return runtime.form;
+			} catch (error) {
+				runtime.form.dispose();
+				throw error;
+			}
 		},
 		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
 			preflight(coreOptions);
