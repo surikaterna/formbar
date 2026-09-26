@@ -1,4 +1,4 @@
-import { beginAttempt, clearAttempt, completeAttempt, rebaseAttemptIssues } from "./attempt-issues.js";
+import { beginAttempt, clearAttempt, completeAttempt, rebaseAttemptIssues, rejectAttempt } from "./attempt-issues.js";
 import type { AsyncValidationResult } from "./contracts.js";
 import { ownIssues } from "./issue-ownership.js";
 import type { FieldMetaEntry, FormState, ValidationIssue } from "./state.js";
@@ -9,6 +9,7 @@ export type OwnedMetadata =
 	| { readonly kind: "fieldMeta"; readonly entries: Readonly<Record<string, FieldMetaEntry>> }
 	| { readonly kind: "clearAttempt"; readonly submitId?: string }
 	| { readonly kind: "beginAttempt"; readonly submitId: string; readonly revision: number }
+	| { readonly kind: "rejectAttempt"; readonly submitId: string; readonly revision: number }
 	| {
 			readonly kind: "completeAttempt";
 			readonly submitId: string;
@@ -69,6 +70,9 @@ function nextMetadataState<TData, TUi>(state: FormState<TData, TUi>, change: Own
 			break;
 		case "completeAttempt":
 			next = completeAttempt(state, change.submitId, change.revision, change.result, change.syncIssues);
+			break;
+		case "rejectAttempt":
+			next = rejectAttempt(state, change.submitId, change.revision);
 			break;
 		case "submitRunning":
 			next = {

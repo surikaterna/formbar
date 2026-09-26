@@ -14,46 +14,50 @@ import { createValidationCoordinator } from "../../../core/src/validation-coordi
 import { certifiedExclusiveBinding } from "../../../declarative/src/certified-binding-evidence.js";
 import { createSchemaForm, jsonSchemaProvider } from "../index.js";
 
-function preparedDefinition(certified = false) {
-	return createSchemaForm(
-		{},
-		{
-			provider: jsonSchemaProvider(),
-			side: "input",
-			definition: {
-				version: 1,
-				id: "bound",
-				submission: { hiddenValues: "omit-inactive" },
-				root: {
-					type: "group",
-					id: "root",
-					children: [
-						{
-							type: "field",
-							id: "secret",
-							widget: "text",
-							binding: { namespace: "data", segments: ["secret"] },
-							visible: { kind: "literal", value: false },
-						},
-						{ type: "field", id: "protected", widget: "text", binding: { namespace: "data", segments: ["protected"] } },
-					],
-				},
+function preparedDefinition(
+	certified = false,
+	conditional = false,
+	schema: object = {},
+	hiddenValues: "omit-inactive" | "include" = "omit-inactive",
+) {
+	return createSchemaForm(schema, {
+		provider: jsonSchemaProvider(),
+		side: "input",
+		definition: {
+			version: 1,
+			id: "bound",
+			submission: { hiddenValues },
+			root: {
+				type: "group",
+				id: "root",
+				children: [
+					{
+						type: "field",
+						id: "secret",
+						widget: "text",
+						binding: { namespace: "data", segments: ["secret"] },
+						visible: conditional
+							? { kind: "ref", ref: { namespace: "data", segments: ["show"] } }
+							: { kind: "literal", value: false },
+					},
+					{ type: "field", id: "protected", widget: "text", binding: { namespace: "data", segments: ["protected"] } },
+				],
 			},
-			...(certified
-				? {
-						fieldValidators: [
-							{
-								fieldId: "secret",
-								validate: ({ data }: { data: unknown }) =>
-									data && typeof data === "object" && "secret" in data
-										? [{ code: "bad", message: "same", severity: "error" as const }]
-										: [],
-							},
-						],
-					}
-				: {}),
 		},
-	);
+		...(certified
+			? {
+					fieldValidators: [
+						{
+							fieldId: "secret",
+							validate: ({ data }: { data: unknown }) =>
+								data && typeof data === "object" && "secret" in data
+									? [{ code: "bad", message: "same", severity: "error" as const }]
+									: [],
+						},
+					],
+				}
+			: {}),
+	});
 }
 
 function fixture(deferred = false) {
@@ -86,9 +90,14 @@ function fixture(deferred = false) {
 	return { form, store, run, context, guard, revision: () => revision };
 }
 
-function receiptFixture(order: "certified first" | "unowned first" = "certified first") {
-	const form = preparedDefinition(true).createForm({
-		initialData: { secret: "draft", included: "Ada", protected: "stay" },
+function receiptFixture(
+	order: "certified first" | "unowned first" = "certified first",
+	prepared = preparedDefinition(true),
+	initialData = { secret: "draft", included: "Ada", protected: "stay" },
+	exclusive = true,
+) {
+	const form = prepared.createForm({
+		initialData,
 		ownedScheduling: true,
 	});
 	const store = boundSubmitStore(form);
@@ -103,7 +112,7 @@ function receiptFixture(order: "certified first" | "unowned first" = "certified 
 	expect(originalIssueSource(original)).toBeDefined();
 	publishIssueOnly(store, order === "certified first" ? [original, unowned] : [unowned, original]);
 	expect(originalIssueSource(original)).toBeDefined();
-	expect(certifiedExclusiveBinding(original)).toBe(true);
+	expect(certifiedExclusiveBinding(original)).toBe(exclusive);
 	const coordinator = createValidationCoordinator({
 		validators: [],
 		getState: () => store.getState(),
@@ -144,6 +153,56 @@ function receiptFixture(order: "certified first" | "unowned first" = "certified 
 }
 
 describe("#331 real bound guarded candidate", () => {
+	it("never exempts hidden draft errors under the authored include override", async () => {
+		const f = receiptFixture(
+			"certified first",
+			preparedDefinition(true, true, {}, "include"),
+			{ secret: "draft", included: "Ada", protected: "stay", show: false },
+			false,
+		);
+		publishIssueOnly(f.store, [f.original]);
+		expect(f.store.getState().issues.some((issue) => issue.code === "bad")).toBe(true);
+		const result = await f.run();
+		expect(result).toMatchObject({ ok: false, code: "unsafe_candidate" });
+		expect(f.form.getState().data.secret).toBe("draft");
+		f.form.dispose();
+	});
+
+	it("gates real conditionally hidden invalid values and checks Ajv if/then on the omitted FINAL bytes", async () => {
+		const schema = {
+			type: "object",
+			properties: { flag: { type: "boolean" }, secret: { type: "string" } },
+			if: { properties: { flag: { const: true } } },
+			then: { required: ["secret"] },
+		};
+		const prepared = preparedDefinition(true, true, schema);
+		for (const flag of [false, true]) {
+			const f = receiptFixture("certified first", prepared, {
+				secret: "draft",
+				included: "Ada",
+				protected: "stay",
+				show: false,
+				flag,
+			});
+			publishIssueOnly(f.store, [f.original]);
+			const result = await f.run({ options: { validators: prepared.validators } });
+			expect(f.form.getState().data.secret).toBe("draft");
+			if (flag) {
+				expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+				if (!result.ok && result.code === "validation_failed")
+					expect(result.fieldIssues.some((issue) => issue.path.segments.includes("secret"))).toBe(true);
+				expect(renderableIssues(f.store.getState()).some((issue) => issue.path.segments.includes("secret"))).toBe(true);
+			} else {
+				expect(result.ok).toBe(true);
+				if (result.ok) {
+					expect(result.checked?.candidate.data).toEqual({ included: "Ada", protected: "stay", show: false, flag });
+					expect(result.receipt?.covers(f.original)).toBe(true);
+				}
+			}
+			f.form.dispose();
+		}
+	});
+
 	it.each(["certified first", "unowned first"])("receipts cover only the original hidden issue (%s)", async (order) => {
 		const f = receiptFixture(order as "certified first" | "unowned first");
 		let validations = 0;
@@ -161,16 +220,12 @@ describe("#331 real bound guarded candidate", () => {
 		};
 		const result = await f.run({}, [() => ({ included: "Grace", protected: "stay" })]);
 		expect(validations).toBe(1);
-		expect(result).toMatchObject({ ok: true });
-		if (result.ok) {
-			expect(result.receipt?.covers(f.original)).toBe(true);
-			expect(result.receipt?.covers(f.unowned)).toBe(false);
-			expect(boundAttemptCanSubmit(f.store.getState(), result.checked?.revision ?? -1, result.receipt)).toBe(false);
-			expect(renderableIssues(f.store.getState())).toContain(f.original);
-			expect(renderableIssues(f.store.getState())).toContainEqual(f.unowned);
-			expect(result.checked?.candidate.plan?.omitted).toEqual([[{ kind: "key", key: "secret" }]]);
-			expect(result.checked?.candidate.data).toEqual({ included: "Grace", protected: "stay" });
-		}
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+		if (!result.ok && result.code === "validation_failed") expect(result.fieldIssues).toEqual([f.unowned]);
+		expect(f.store.getState().attemptValidation?.status).toBe("failed");
+		expect(boundAttemptCanSubmit(f.store.getState(), f.coordinator.revision(), undefined)).toBe(false);
+		expect(renderableIssues(f.store.getState())).toContain(f.original);
+		expect(renderableIssues(f.store.getState())).toContainEqual(f.unowned);
 		expect(captures).toBe(1);
 		expect(f.form.getState().data).toBe(draft);
 		f.form.dispose();
@@ -202,12 +257,9 @@ describe("#331 real bound guarded candidate", () => {
 		const independent: ValidationIssue = { ...f.unowned, source: { origin, validatorId: "same" } };
 		publishIssueOnly(f.store, [f.original, independent]);
 		const result = await f.run();
-		expect(result.ok).toBe(true);
-		if (result.ok) {
-			expect(result.receipt?.covers(f.original)).toBe(true);
-			expect(boundAttemptCanSubmit(f.store.getState(), result.checked?.revision ?? -1, result.receipt)).toBe(false);
-			expect(renderableIssues(f.store.getState())).toContainEqual(independent);
-		}
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
+		if (!result.ok && result.code === "validation_failed") expect(result.fieldIssues).toEqual([independent]);
+		expect(renderableIssues(f.store.getState())).toContainEqual(independent);
 		f.form.dispose();
 	});
 
@@ -275,7 +327,7 @@ describe("#331 real bound guarded candidate", () => {
 		const f = receiptFixture();
 		publishIssueOnly(f.store, [...f.store.getState().issues]);
 		const result = await f.run();
-		expect(result.ok && result.receipt?.covers(f.original)).toBe(true);
+		expect(result).toMatchObject({ ok: false, code: "validation_failed" });
 		const replaced = receiptFixture();
 		publishIssueOnly(replaced.store, [replaced.unowned]);
 		const after = await replaced.run();
