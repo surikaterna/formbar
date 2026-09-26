@@ -18,7 +18,7 @@ export interface DefinitionFieldValidator<TData, TUi> {
 	}) => readonly ScopedFieldIssueInput[];
 }
 
-function collect(node: FormNode, ids: Map<string, string>): void {
+export function collect(node: FormNode, ids: Map<string, string>): void {
 	if (ids.has(node.id)) throw new TypeError("Duplicate definition node ID");
 	ids.set(node.id, node.type);
 	if (node.type === "conditional") {

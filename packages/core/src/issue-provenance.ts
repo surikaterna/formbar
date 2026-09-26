@@ -38,6 +38,7 @@ export function createIssueEmission(options: {
 	readonly run: object;
 	readonly current: () => boolean;
 	readonly signal?: AbortSignal;
+	readonly asyncValidatorId?: string;
 }) {
 	const binding = Object.freeze([...options.binding.segments]);
 	const valid = () => {
@@ -68,7 +69,9 @@ export function createIssueEmission(options: {
 			severity: input.severity,
 			...(input.stage === undefined ? {} : { stage: input.stage }),
 			path: { namespace: "data", segments: [...binding, ...descendant] },
-			source: { origin: "function-validator", validatorId: options.fieldId },
+			source: options.asyncValidatorId
+				? { origin: "async-validator", validatorId: options.asyncValidatorId }
+				: { origin: "function-validator", validatorId: options.fieldId },
 		});
 		certificates.set(issue, {
 			id: ++nextId,

@@ -194,6 +194,9 @@ try {
 			const scopedFixture = resolve(directory, `scoped-sync.${format}`);
 			writeFileSync(scopedFixture, readFileSync(resolve(fixtures, `scoped-sync.${format}`)));
 			console.log(execFileSync(process.execPath, [scopedFixture], { cwd: directory, encoding: "utf8" }).trim());
+			const asyncFixture = resolve(directory, `scoped-async.${format}`);
+			writeFileSync(asyncFixture, readFileSync(resolve(fixtures, `scoped-async.${format}`)));
+			console.log(execFileSync(process.execPath, [asyncFixture], { cwd: directory, encoding: "utf8" }).trim());
 		}
 	}
 	console.log(`CONSUMER_PACK source=${root} native_tarballs=${tarballs.length} temporary=${temporary}`);

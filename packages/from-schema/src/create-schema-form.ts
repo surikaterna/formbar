@@ -1,7 +1,8 @@
 import { createDeferredForm, createForm } from "@formbar/core";
 import type { CreateFormOptions, SchemaValidator } from "@formbar/core";
-import { registerScopedSync } from "@formbar/core/internal/scoped-sync";
+import { assertScopedAsyncIds, registerScopedAsync, registerScopedSync } from "@formbar/core/internal/scoped-sync";
 import {
+	type DefinitionAsyncFieldValidator,
 	type DefinitionDiagnostic,
 	type DefinitionFieldValidator,
 	type FormDefinition,
@@ -10,7 +11,7 @@ import {
 	type ValidatedFormDefinition,
 	validateFormDefinition,
 } from "@formbar/declarative";
-import { prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
+import { prepareScopedAsyncHost, prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
 import type { LimitOptions, SchemaDocumentProvider, StandardSchemaV1 } from "@scheman/core";
 import {
 	type CompileDefaultFormDefinitionOptions,
@@ -34,6 +35,7 @@ export interface CreateSchemaFormOptions<TData = unknown, TUi = unknown> {
 	readonly generation?: CompileDefaultFormDefinitionOptions;
 	/** V1 definition FieldNode IDs only; never data paths or concrete row identities. */
 	readonly fieldValidators?: readonly DefinitionFieldValidator<TData, TUi>[];
+	readonly asyncFieldValidators?: readonly DefinitionAsyncFieldValidator<TData, TUi>[];
 }
 
 export interface SchemaFormResult<TData = unknown, TUi = unknown> {
@@ -83,20 +85,9 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		? validateAuthoredDefinition(options.definition, projected.descriptors)
 		: compileDefaultFormDefinition(projected.descriptors, options.generation);
 	if (!prepared.definition) throw new InvalidFormDefinitionError(prepared.definitionDiagnostics);
-	const scoped = options.fieldValidators
-		? prepareScopedSyncHost(prepared.definition, options.fieldValidators)
-		: undefined;
-	const attach = (form: ReturnType<typeof createForm<TData, TUi>>) => {
-		if (scoped) registerScopedSync(form, scoped);
-		return form;
-	};
+	const factories = createPreparedFactories(prepared.definition, options);
 	return Object.freeze({
-		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => attach(createForm(coreOptions)),
-		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
-			const runtime = createDeferredForm(coreOptions);
-			attach(runtime.form);
-			return runtime;
-		},
+		...factories,
 		descriptors: projected.descriptors,
 		definition: prepared.definition,
 		baseline: prepared.baseline,
@@ -114,6 +105,45 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 			definition: prepared.definitionDiagnostics,
 		}),
 	});
+}
+
+function createPreparedFactories<TData, TUi>(
+	definition: ValidatedFormDefinition,
+	options: CreateSchemaFormOptions<TData, TUi>,
+) {
+	const scoped = options.fieldValidators ? prepareScopedSyncHost(definition, options.fieldValidators) : undefined;
+	const scopedAsync = options.asyncFieldValidators
+		? prepareScopedAsyncHost(definition, options.asyncFieldValidators)
+		: undefined;
+	const preflight = (coreOptions: CreateFormOptions<TData, TUi>) => {
+		if (scopedAsync)
+			assertScopedAsyncIds(
+				scopedAsync,
+				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
+			);
+	};
+	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) => {
+		if (scoped) registerScopedSync(form, scoped);
+		if (scopedAsync)
+			registerScopedAsync(
+				form,
+				scopedAsync,
+				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
+			);
+		return form;
+	};
+	return {
+		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
+			preflight(coreOptions);
+			return attach(createForm({ ...coreOptions, ...(scopedAsync ? { ownedScheduling: true } : {}) }), coreOptions);
+		},
+		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
+			preflight(coreOptions);
+			const runtime = createDeferredForm({ ...coreOptions, ...(scopedAsync ? { ownedScheduling: true } : {}) });
+			attach(runtime.form, coreOptions);
+			return runtime;
+		},
+	};
 }
 
 function validateAuthoredDefinition(definition: FormDefinition, document: DescriptorDocument) {
