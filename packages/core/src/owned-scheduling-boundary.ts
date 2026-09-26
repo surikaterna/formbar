@@ -1,3 +1,4 @@
+import { registerBoundSubmitStore } from "./bound-submit-supplier.js";
 import type { FormApi } from "./contracts.js";
 import { inspect } from "./owned-issue-snapshot.js";
 import { invalidateScopedSync } from "./scoped-sync.js";
@@ -11,6 +12,7 @@ export function bindOwnedSchedulingBoundary<TData, TUi>(
 	store: FormStore<TData, TUi>,
 	initial: { readonly data: TData; readonly uiState: TUi },
 ): void {
+	registerBoundSubmitStore(form, store);
 	stores.set(form, () => {
 		if (store.isOwnedSchedulingMode()) return;
 		inspect(initial, new Set(), { value: 0 }, 0);

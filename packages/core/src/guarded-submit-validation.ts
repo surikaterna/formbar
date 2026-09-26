@@ -17,7 +17,11 @@ import type { ValidationCoordinator } from "./validation-coordinator.js";
 import { normalizeIssues } from "./validation.js";
 
 type Outcome =
-	| { readonly ok: true; readonly issues: readonly ValidationIssue[] }
+	| {
+			readonly ok: true;
+			readonly issues: readonly ValidationIssue[];
+			readonly checked?: Extract<ReturnType<typeof prepareGuardedSubmitCandidate>, { ok: true }>;
+	  }
 	| { readonly ok: false; readonly code: "validation_failed"; readonly fieldIssues: readonly ValidationIssue[] }
 	| { readonly ok: false; readonly code: "stale" | "vetoed" | "unsafe_candidate" | "invalid_witness" | "aborted" };
 
@@ -262,10 +266,11 @@ function candidateSyncResult(
 	signal: AbortSignal,
 	current: () => boolean,
 	finalGeneration?: FinalGeneration,
+	preparedCapture?: FormStateCapture<unknown, unknown>,
 ): CandidateSyncResult | undefined {
 	try {
 		const validators = normalizeValidators(context.options);
-		const capture = form?.captureState();
+		const capture = preparedCapture ?? form?.captureState();
 		const sync = syncCandidateIssues(
 			form,
 			validators,
@@ -284,60 +289,93 @@ function candidateSyncResult(
 	}
 }
 
-/** Internal C1 only: never evaluates retained-issue eligibility or calls a submit handler. */
-export async function validateGuardedSubmitCandidate(
+async function finishGuardedValidation(
 	context: PipelineContext,
 	guard: SubmitPreparationGuard,
-	adapter: SubmitDefinitionAdapter,
 	coordinator: ValidationCoordinator<unknown, unknown>,
 	submitId: string,
-	transforms: readonly CandidateEgress[] = [],
-	form?: FormApi<unknown, unknown>,
+	prepared: Extract<ReturnType<typeof prepareGuardedSubmitCandidate>, { ok: true }>,
+	preparedContext: CandidateValidationContext,
+	syncResult: CandidateSyncResult,
+	finalGeneration: FinalGeneration,
 ): Promise<Outcome> {
-	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms);
-	if (!prepared.ok) return prepared;
 	const { data, uiState } = prepared.candidate;
-	const revision = prepared.revision;
-	const preparedContext = candidateValidationContext(context, guard, coordinator, data, uiState, revision);
-	if (!preparedContext) return { ok: false, code: "unsafe_candidate" };
 	const { stage, submitContext, current, state } = preparedContext;
-	const generationKey = form ?? context.store;
-	const finalGeneration = beginFinalGeneration(
-		() => scopedSyncGeneration(generationKey),
-		coordinator.foregroundRevision,
-		current,
-	);
 	const middleware = (context.options.middleware ?? []) as readonly Middleware[];
-	if (!current() || !notify(middleware, "beforeValidate", context.action, state, [], current))
+	if (!notify(middleware, "afterValidate", context.action, state, syncResult.sync, current))
 		return { ok: false, code: "stale" };
-	const syncResult = candidateSyncResult(
-		context,
-		form,
-		{ data, uiState },
-		stage,
-		submitContext,
-		guard.signal,
-		current,
-		finalGeneration,
-	);
-	if (!syncResult || !current()) return { ok: false, code: "unsafe_candidate" };
-	if (!finalGeneration.syncCurrent()) return { ok: false, code: "stale" };
-	const { sync, capture } = syncResult;
-	if (!notify(middleware, "afterValidate", context.action, state, sync, current)) return { ok: false, code: "stale" };
 	if (!finalGeneration.syncCurrent()) return { ok: false, code: "stale" };
 	return completeValidation(
 		context,
 		guard,
 		coordinator,
 		submitId,
-		revision,
+		prepared.revision,
 		data,
 		uiState,
 		stage,
 		submitContext,
 		current,
-		sync,
-		capture,
+		syncResult.sync,
+		syncResult.capture,
 		finalGeneration,
 	);
+}
+
+function finalCandidateGeneration(
+	key: object,
+	coordinator: ValidationCoordinator<unknown, unknown>,
+	current: () => boolean,
+): FinalGeneration {
+	return beginFinalGeneration(() => scopedSyncGeneration(key), coordinator.foregroundRevision, current);
+}
+
+/** Internal C1 only: never evaluates retained-issue eligibility or calls a submit handler. */
+export async function validateGuardedSubmitCandidate(
+	context: PipelineContext,
+	guard: SubmitPreparationGuard,
+	adapter: SubmitDefinitionAdapter | undefined,
+	coordinator: ValidationCoordinator<unknown, unknown>,
+	submitId: string,
+	transforms: readonly CandidateEgress[] = [],
+	form?: FormApi<unknown, unknown>,
+	boundForm?: FormApi<unknown, unknown>,
+): Promise<Outcome> {
+	if (boundForm && form && boundForm !== form) return { ok: false, code: "invalid_witness" };
+	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms, boundForm);
+	if (!prepared.ok) return prepared;
+	const { data, uiState } = prepared.candidate;
+	const revision = prepared.revision;
+	const preparedContext = candidateValidationContext(context, guard, coordinator, data, uiState, revision);
+	if (!preparedContext) return { ok: false, code: "unsafe_candidate" };
+	const { stage, submitContext, current, state } = preparedContext;
+	const generationKey = boundForm ?? form ?? context.store;
+	const finalGeneration = finalCandidateGeneration(generationKey, coordinator, current);
+	const middleware = (context.options.middleware ?? []) as readonly Middleware[];
+	if (!current() || !notify(middleware, "beforeValidate", context.action, state, [], current))
+		return { ok: false, code: "stale" };
+	const syncResult = candidateSyncResult(
+		context,
+		boundForm ?? form,
+		{ data, uiState },
+		stage,
+		submitContext,
+		guard.signal,
+		current,
+		finalGeneration,
+		prepared.capture,
+	);
+	if (!syncResult || !current()) return { ok: false, code: "unsafe_candidate" };
+	if (!finalGeneration.syncCurrent()) return { ok: false, code: "stale" };
+	const outcome = await finishGuardedValidation(
+		context,
+		guard,
+		coordinator,
+		submitId,
+		prepared,
+		preparedContext,
+		syncResult,
+		finalGeneration,
+	);
+	return outcome.ok && boundForm ? Object.freeze({ ...outcome, checked: prepared }) : outcome;
 }
