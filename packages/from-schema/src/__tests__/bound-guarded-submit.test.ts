@@ -2,9 +2,12 @@ import { createForm } from "@formbar/core";
 import { originalIssueSource } from "@formbar/core/internal/scoped-sync";
 import { boundSubmitStore, prepareGuardedSubmitCandidate } from "@formbar/core/internal/submit-proof";
 import { describe, expect, it } from "vitest";
+import { renderableIssues } from "../../../core/src/attempt-issues.js";
 import { validateGuardedSubmitCandidate } from "../../../core/src/guarded-submit-validation.js";
 import type { PipelineContext } from "../../../core/src/pipeline.js";
+import { boundAttemptCanSubmit } from "../../../core/src/retained-issue-eligibility.js";
 import { runScopedSync } from "../../../core/src/scoped-sync.js";
+import type { ValidationIssue } from "../../../core/src/state.js";
 import { publishIssueOnly, publishValidationStatus } from "../../../core/src/store.js";
 import type { CandidateEgress } from "../../../core/src/submit-candidate-safety.js";
 import { createValidationCoordinator } from "../../../core/src/validation-coordinator.js";
@@ -162,12 +165,98 @@ describe("#331 real bound guarded candidate", () => {
 		if (result.ok) {
 			expect(result.receipt?.covers(f.original)).toBe(true);
 			expect(result.receipt?.covers(f.unowned)).toBe(false);
+			expect(boundAttemptCanSubmit(f.store.getState(), result.checked?.revision ?? -1, result.receipt)).toBe(false);
+			expect(renderableIssues(f.store.getState())).toContain(f.original);
+			expect(renderableIssues(f.store.getState())).toContainEqual(f.unowned);
 			expect(result.checked?.candidate.plan?.omitted).toEqual([[{ kind: "key", key: "secret" }]]);
 			expect(result.checked?.candidate.data).toEqual({ included: "Grace", protected: "stay" });
 		}
 		expect(captures).toBe(1);
 		expect(f.form.getState().data).toBe(draft);
 		f.form.dispose();
+	});
+
+	it("permits only the original hidden error after every FINAL validator succeeds", async () => {
+		const f = receiptFixture();
+		publishIssueOnly(f.store, [f.original]);
+		const result = await f.run({}, [() => ({ included: "Grace", protected: "stay" })]);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.receipt?.covers(f.original)).toBe(true);
+			expect(boundAttemptCanSubmit(f.store.getState(), result.checked?.revision ?? -1, result.receipt)).toBe(true);
+			expect(renderableIssues(f.store.getState())).toContain(f.original);
+		}
+		f.form.dispose();
+	});
+
+	it.each([
+		"standard-schema",
+		"function-validator",
+		"json-schema-adapter",
+		"async-validator",
+		"rule",
+		"middleware",
+		"submit",
+	] as const)("blocks independent %s errors at the same omitted path", async (origin) => {
+		const f = receiptFixture();
+		const independent: ValidationIssue = { ...f.unowned, source: { origin, validatorId: "same" } };
+		publishIssueOnly(f.store, [f.original, independent]);
+		const result = await f.run();
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.receipt?.covers(f.original)).toBe(true);
+			expect(boundAttemptCanSubmit(f.store.getState(), result.checked?.revision ?? -1, result.receipt)).toBe(false);
+			expect(renderableIssues(f.store.getState())).toContainEqual(independent);
+		}
+		f.form.dispose();
+	});
+
+	it("blocks root/ancestor issues and accepts warning-only retained diagnostics", async () => {
+		const f = receiptFixture();
+		const root: ValidationIssue = { ...f.unowned, path: { namespace: "data", segments: [] } };
+		publishIssueOnly(f.store, [f.original, root]);
+		const result = await f.run();
+		expect(result.ok && boundAttemptCanSubmit(f.store.getState(), result.checked?.revision ?? -1, result.receipt)).toBe(
+			false,
+		);
+		f.form.dispose();
+		const warned = receiptFixture();
+		publishIssueOnly(warned.store, [{ ...warned.unowned, severity: "warning" }]);
+		const warningResult = await warned.run();
+		expect(
+			warningResult.ok &&
+				boundAttemptCanSubmit(warned.store.getState(), warningResult.checked?.revision ?? -1, warningResult.receipt),
+		).toBe(true);
+		warned.form.dispose();
+	});
+
+	it("never accepts a caller-shaped receipt, a changed state or a failed FINAL candidate", async () => {
+		const f = receiptFixture();
+		publishIssueOnly(f.store, [f.original]);
+		const result = await f.run();
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			const state = f.store.getState();
+			const revision = result.checked?.revision ?? -1;
+			expect(boundAttemptCanSubmit(state, revision, { covers: () => true })).toBe(false);
+			expect(boundAttemptCanSubmit({ ...state }, revision, result.receipt)).toBe(false);
+			expect(boundAttemptCanSubmit(state, revision + 1, result.receipt)).toBe(false);
+		}
+		f.form.dispose();
+		const failed = receiptFixture();
+		publishIssueOnly(failed.store, [failed.original]);
+		const invalid = await failed.run({
+			options: {
+				validators: [() => [{ ...failed.unowned, code: "final", message: "final" }]],
+			},
+		});
+		expect(invalid).toMatchObject({ ok: false, code: "validation_failed" });
+		if (!invalid.ok && invalid.code === "validation_failed") {
+			expect(invalid.fieldIssues.map((issue) => issue.code)).toContain("final");
+			expect(renderableIssues(failed.store.getState()).map((issue) => issue.code)).toContain("final");
+		}
+		expect(boundAttemptCanSubmit(failed.store.getState(), failed.coordinator.revision(), undefined)).toBe(false);
+		failed.form.dispose();
 	});
 
 	it("rejects a non-owned first publication without recreating the scoped issue", () => {
