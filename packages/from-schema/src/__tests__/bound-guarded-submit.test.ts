@@ -8,7 +8,7 @@ import type { PipelineContext } from "../../../core/src/pipeline.js";
 import { boundAttemptCanSubmit } from "../../../core/src/retained-issue-eligibility.js";
 import { runScopedSync } from "../../../core/src/scoped-sync.js";
 import type { ValidationIssue } from "../../../core/src/state.js";
-import { publishIssueOnly, publishValidationStatus } from "../../../core/src/store.js";
+import { publishIssueOnly, publishValidationStatus, snapshotOwnership } from "../../../core/src/store.js";
 import type { CandidateEgress } from "../../../core/src/submit-candidate-safety.js";
 import { createValidationCoordinator } from "../../../core/src/validation-coordinator.js";
 import { certifiedExclusiveBinding } from "../../../declarative/src/certified-binding-evidence.js";
@@ -63,7 +63,8 @@ function preparedDefinition(
 function fixture(deferred = false) {
 	const prepared = preparedDefinition();
 	const initialData = { secret: "draft", included: "Ada", protected: "stay" };
-	const form = deferred ? prepared.createDeferredForm({ initialData }).form : prepared.createForm({ initialData });
+	const options = { initialData, ownedScheduling: true as const };
+	const form = deferred ? prepared.createDeferredForm(options).form : prepared.createForm(options);
 	const store = boundSubmitStore(form);
 	if (!store) throw Error("missing core store");
 	const controller = new AbortController();
@@ -87,7 +88,7 @@ function fixture(deferred = false) {
 	};
 	const run = (transforms: ((value: unknown) => unknown)[] = [], bound = form, adapter?: () => never) =>
 		prepareGuardedSubmitCandidate(context, guard, adapter, transforms, bound);
-	return { form, store, run, context, guard, revision: () => revision };
+	return { form, store, run, context, guard, initialData, revision: () => revision };
 }
 
 function receiptFixture(
@@ -314,7 +315,9 @@ describe("#331 real bound guarded candidate", () => {
 	});
 
 	it("rejects a non-owned first publication without recreating the scoped issue", () => {
-		const form = preparedDefinition(true).createForm({ initialData: { secret: "draft", protected: "stay" } });
+		const form = preparedDefinition(true, false, {}, "include").createForm({
+			initialData: { secret: "draft", protected: "stay" },
+		});
 		const store = boundSubmitStore(form);
 		if (!store) throw Error("missing store");
 		const original = form.validate().find((issue) => issue.source.validatorId === "secret");
@@ -322,6 +325,22 @@ describe("#331 real bound guarded candidate", () => {
 		expect(originalIssueSource(original)).toBeDefined();
 		publishIssueOnly(store, [original]);
 		expect(originalIssueSource(original)).toBeUndefined();
+		form.dispose();
+	});
+
+	it("retains the original scoped producer across an owned first issue-only publication", () => {
+		const form = preparedDefinition(true).createForm({
+			initialData: { secret: "draft", protected: "stay" },
+			ownedScheduling: true,
+		});
+		const store = boundSubmitStore(form);
+		if (!store) throw Error("missing store");
+		const original = form.validate().find((issue) => issue.source.validatorId === "secret");
+		if (!original) throw Error("missing original");
+		const source = originalIssueSource(original);
+		expect(source).toBeDefined();
+		publishIssueOnly(store, [original]);
+		expect(originalIssueSource(original)).toBe(source);
 		form.dispose();
 	});
 
@@ -474,7 +493,12 @@ describe("#331 real bound guarded candidate", () => {
 			expect(Object.isFrozen(result.candidate.data)).toBe(true);
 		}
 		expect(f.form.getState().data).toEqual(draft);
-		expect(Object.isFrozen(draft)).toBe(false);
+		expect(Object.isFrozen(draft)).toBe(true);
+		expect(draft).not.toBe(f.initialData);
+		expect(f.initialData).toEqual({ secret: "draft", included: "Ada", protected: "stay" });
+		expect(Object.isFrozen(f.initialData)).toBe(false);
+		f.initialData.included = "caller edit";
+		expect(f.form.getState().data).toEqual(draft);
 		f.form.dispose();
 	});
 
@@ -507,6 +531,7 @@ describe("#331 real bound guarded candidate", () => {
 		const coordinator = createValidationCoordinator({
 			validators: [],
 			getState: () => f.store.getState(),
+			publishValidationStatus: (paths, validating) => publishValidationStatus(f.store, paths, validating),
 			updateState: (update) => {
 				const tx = f.store.beginTransaction();
 				tx.mutate(update);
@@ -514,6 +539,7 @@ describe("#331 real bound guarded candidate", () => {
 			},
 			validatorTimeout: 20,
 		});
+		const before = snapshotOwnership(f.store.getState());
 		const result = await validateGuardedSubmitCandidate(
 			f.context,
 			f.guard,
@@ -529,6 +555,39 @@ describe("#331 real bound guarded candidate", () => {
 			checked: { candidate: { data: { included: "Grace", protected: "stay" } } },
 		});
 		expect(captures).toBe(1);
+		expect(snapshotOwnership(f.store.getState())).toMatchObject({ write: before?.write, epoch: before?.epoch });
+		if (result.ok) {
+			expect(result.checked?.candidate.data).toEqual({ included: "Grace", protected: "stay" });
+			expect(Object.isFrozen(result.checked?.candidate.data)).toBe(true);
+		}
+		f.form.dispose();
+	});
+
+	it("rejects a generic status transaction on an owned manual coordinator as a semantic write", async () => {
+		const f = fixture();
+		const before = snapshotOwnership(f.store.getState());
+		const coordinator = createValidationCoordinator({
+			validators: [],
+			getState: () => f.store.getState(),
+			updateState: (update) => {
+				const tx = f.store.beginTransaction();
+				tx.mutate(update);
+				f.store.commitTransaction(tx);
+			},
+			validatorTimeout: 20,
+		});
+		const result = await validateGuardedSubmitCandidate(
+			f.context,
+			f.guard,
+			undefined,
+			coordinator,
+			"generic-status",
+			[() => ({ included: "Grace", protected: "stay" })],
+			undefined,
+			f.form,
+		);
+		expect(result).toEqual({ ok: false, code: "stale" });
+		expect(snapshotOwnership(f.store.getState())?.write).toBeGreaterThan(before?.write ?? -1);
 		f.form.dispose();
 	});
 
