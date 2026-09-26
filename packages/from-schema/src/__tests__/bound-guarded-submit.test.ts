@@ -5,8 +5,8 @@ import { validateGuardedSubmitCandidate } from "../../../core/src/guarded-submit
 import { createValidationCoordinator } from "../../../core/src/validation-coordinator.js";
 import { createSchemaForm, jsonSchemaProvider } from "../index.js";
 
-function fixture(deferred = false) {
-	const prepared = createSchemaForm(
+function preparedDefinition() {
+	return createSchemaForm(
 		{},
 		{
 			provider: jsonSchemaProvider(),
@@ -32,6 +32,10 @@ function fixture(deferred = false) {
 			},
 		},
 	);
+}
+
+function fixture(deferred = false) {
+	const prepared = preparedDefinition();
 	const initialData = { secret: "draft", included: "Ada", protected: "stay" };
 	const form = deferred ? prepared.createDeferredForm({ initialData }).form : prepared.createForm({ initialData });
 	const store = boundSubmitStore(form);
