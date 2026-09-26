@@ -53,6 +53,48 @@ test("existing object child certifies sync draft without certifying parent or om
 	}
 });
 
+test.each(["new", "old"] as const)("FINAL sync proves %s against candidate rather than retained child", (target) => {
+	const retained = { "a.b": { old: "x" } };
+	const candidate = { "a.b": { new: "valid" } };
+	const observed: unknown[] = [];
+	const prepared = createSchemaForm(
+		{},
+		{
+			provider: jsonSchemaProvider(),
+			side: "input",
+			definition,
+			fieldValidators: [
+				{
+					fieldId: "object",
+					validate: ({ data }) => {
+						observed.push(data);
+						return [child([target])];
+					},
+				},
+			],
+		},
+	);
+	const form = prepared.createForm({ initialData: retained });
+	try {
+		const capture = form.captureState();
+		const run = () =>
+			runScopedSync(form, undefined, {
+				snapshot: { data: candidate, uiState: capture.state.uiState },
+				capture,
+				current: () => true,
+			});
+		if (target === "new") {
+			const issue = run()[0];
+			expect(issue?.path.segments).toEqual(["a.b", "new"]);
+			expect(issue && issueEmissionId(issue)).toBeTruthy();
+		} else expect(run).toThrow("Invalid scoped field issue");
+		expect(observed).toEqual([candidate]);
+		expect(form.getState().data).toEqual(retained);
+	} finally {
+		form.dispose();
+	}
+});
+
 test.each([undefined, ["other", "missing"], [0], ["missing"], ["__proto__"], ["a.b", "0"]] as const)(
 	"rejects unproven descendant %s without a parent fallback",
 	(descendant) => {
@@ -74,36 +116,97 @@ test.each([undefined, ["other", "missing"], [0], ["missing"], ["__proto__"], ["a
 	},
 );
 
-test("async FINAL certifies only the existing typed child", async () => {
+test("a second field overlapping the object blocks candidate-only child certification", () => {
+	const overlapping = {
+		version: 1 as const,
+		id: "overlap",
+		root: {
+			type: "group" as const,
+			id: "group",
+			children: [
+				definition.root,
+				{
+					type: "field" as const,
+					id: "other",
+					widget: "text",
+					binding: { namespace: "data", segments: ["a.b", "new"] },
+				},
+			],
+		},
+	};
+	const prepared = createSchemaForm(
+		{},
+		{
+			provider: jsonSchemaProvider(),
+			side: "input",
+			definition: overlapping,
+			fieldValidators: [{ fieldId: "object", validate: () => [child(["new"])] }],
+		},
+	);
+	const form = prepared.createForm({ initialData: { "a.b": { old: "x", new: "retained" } } });
+	try {
+		const capture = form.captureState();
+		expect(() =>
+			runScopedSync(form, undefined, {
+				capture,
+				snapshot: { data: { "a.b": { new: "valid" } }, uiState: capture.state.uiState },
+				current: () => true,
+			}),
+		).toThrow("overlapping");
+	} finally {
+		form.dispose();
+	}
+});
+
+test.each(["new", "old"] as const)("async FINAL proves %s against candidate", async (target) => {
+	const retained = { "a.b": { old: "x" } };
+	const candidate = { "a.b": { new: "valid" } };
+	const observed: unknown[] = [];
 	const prepared = createSchemaForm(
 		{},
 		{
 			provider: jsonSchemaProvider(),
 			side: "input",
 			definition,
-			asyncFieldValidators: [{ id: "async-child", fieldId: "object", validate: async () => [child(["0"])] }],
+			asyncFieldValidators: [
+				{
+					id: "async-child",
+					fieldId: "object",
+					validate: async ({ data }) => {
+						observed.push(data);
+						return [child([target])];
+					},
+				},
+			],
 		},
 	);
-	const form = prepared.createForm({ initialData });
+	const form = prepared.createForm({ initialData: retained });
 	try {
-		const result = await runScopedCandidate(
-			form,
-			{ data: form.getState().data, uiState: form.getState().uiState },
-			undefined,
-			undefined,
-			new AbortController().signal,
-			0,
-			() => 0,
-		);
-		expect(result[0]?.path.segments).toEqual(["a.b", "0"]);
-		if (!result[0]) throw new Error("Missing issue");
-		expect(issueEmissionId(result[0])).toBeTruthy();
+		const run = () =>
+			runScopedCandidate(
+				form,
+				{ data: candidate, uiState: form.captureState().state.uiState },
+				undefined,
+				undefined,
+				new AbortController().signal,
+				0,
+				() => 0,
+			);
+		if (target === "new") {
+			const result = await run();
+			expect(result[0]?.path.segments).toEqual(["a.b", "new"]);
+			if (!result[0]) throw new Error("Missing issue");
+			expect(issueEmissionId(result[0])).toBeTruthy();
+		} else await expect(run()).rejects.toThrow();
+		expect(observed).toEqual([candidate]);
+		expect(form.getState().data).toEqual(retained);
 	} finally {
 		form.dispose();
 	}
 });
 
 test("nested repeater object fields retain numeric indices and string keys", () => {
+	let target = "0";
 	const nested = {
 		version: 1 as const,
 		id: "nested",
@@ -136,7 +239,7 @@ test("nested repeater object fields retain numeric indices and string keys", () 
 			provider: jsonSchemaProvider(),
 			side: "input",
 			definition: nested,
-			fieldValidators: [{ fieldId: "object", validate: () => [child(["0"])] }],
+			fieldValidators: [{ fieldId: "object", validate: () => [child([target])] }],
 		},
 	);
 	const form = prepared.createForm({
@@ -144,6 +247,24 @@ test("nested repeater object fields retain numeric indices and string keys", () 
 	});
 	try {
 		expect(form.validate()[0]?.path.segments).toEqual(["a.b", 0, "0", 0, "deep.key", "0"]);
+		target = "new";
+		const capture = form.captureState();
+		const candidate = { "a.b": [{ "0": [{ "deep.key": { new: "valid" } }] }] };
+		const result = runScopedSync(form, undefined, {
+			capture,
+			snapshot: { data: candidate, uiState: capture.state.uiState },
+			current: () => true,
+		});
+		expect(result[0]?.path.segments).toEqual(["a.b", 0, "0", 0, "deep.key", "new"]);
+		expect(result[0] && issueEmissionId(result[0])).toBeTruthy();
+		target = "0";
+		expect(() =>
+			runScopedSync(form, undefined, {
+				capture,
+				snapshot: { data: candidate, uiState: capture.state.uiState },
+				current: () => true,
+			}),
+		).toThrow();
 	} finally {
 		form.dispose();
 	}

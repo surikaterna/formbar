@@ -42,10 +42,10 @@ function overlaps(a: AbsoluteBinding, b: AbsoluteBinding): boolean {
 	return prefix(a.segments, b.segments) || prefix(b.segments, a.segments);
 }
 
-function syncValidator<TData, TUi>(entry: DefinitionFieldValidator<TData, TUi>, owner: ConcreteOwner, data: unknown) {
+function syncValidator<TData, TUi>(entry: DefinitionFieldValidator<TData, TUi>, owner: ConcreteOwner) {
 	return (input: ScopedValidationInput<unknown, unknown>) =>
 		certifyScopedOutput(
-			data,
+			input.data,
 			owner,
 			entry.validate({
 				data: input.data as Readonly<TData>,
@@ -92,7 +92,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 						fieldId: entry.fieldId,
 						instanceKey: owner.instance.instanceKey,
 						binding: { namespace: "data" as const, segments: owner.binding.segments },
-						validate: syncValidator(entry, owner, capture.state.data),
+						validate: syncValidator(entry, owner),
 					});
 				}),
 			);

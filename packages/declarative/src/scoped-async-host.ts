@@ -49,11 +49,7 @@ function validateEntries<TData, TUi>(
 	return { ids, entries };
 }
 
-function asyncValidator<TData, TUi>(
-	entry: DefinitionAsyncFieldValidator<TData, TUi>,
-	owner: ConcreteOwner,
-	data: unknown,
-) {
+function asyncValidator<TData, TUi>(entry: DefinitionAsyncFieldValidator<TData, TUi>, owner: ConcreteOwner) {
 	return (input: ScopedValidationInput<unknown, unknown>) => {
 		if (!input.signal) throw new Error("Missing scoped async signal");
 		return entry
@@ -65,7 +61,7 @@ function asyncValidator<TData, TUi>(
 				...(input.stage === undefined ? {} : { stage: input.stage }),
 				...(input.context ? { context: input.context } : {}),
 			})
-			.then((result) => certifyScopedOutput(data, owner, result, "Invalid scoped async issue"));
+			.then((result) => certifyScopedOutput(input.data, owner, result, "Invalid scoped async issue"));
 	};
 }
 
@@ -101,7 +97,7 @@ export function prepareScopedAsyncHost<TData, TUi>(
 						binding: { namespace: "data" as const, segments: owner.binding.segments },
 						trigger: entry.trigger,
 						debounceMs: entry.debounceMs,
-						validate: asyncValidator(entry, owner, capture.state.data),
+						validate: asyncValidator(entry, owner),
 					});
 				}),
 			);
