@@ -71,6 +71,20 @@ export function completeAttempt<TData, TUi>(
 	};
 }
 
+/** Retained blockers reject an otherwise successful FINAL attempt without rewriting its validator diagnostics. */
+export function rejectAttempt<TData, TUi>(
+	state: FormState<TData, TUi>,
+	submitId: string,
+	revision: number,
+): FormState<TData, TUi> {
+	const attempt = state.attemptValidation;
+	if (attempt?.submitId !== submitId || attempt.revision !== revision || attempt.status !== "succeeded") return state;
+	return {
+		...state,
+		attemptValidation: { ...attempt, status: "failed", renderableIssues: [...state.issues, ...attempt.issues] },
+	};
+}
+
 /** Rebase the projection if retained draft diagnostics changed during an attempt. */
 export function rebaseAttemptIssues<TData, TUi>(state: FormState<TData, TUi>): FormState<TData, TUi> {
 	const attempt = state.attemptValidation;

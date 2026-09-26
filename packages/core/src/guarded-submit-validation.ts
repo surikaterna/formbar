@@ -3,6 +3,7 @@ import { type BoundAttemptReceipt, beginBoundAttempt } from "./bound-attempt-rec
 import type { AsyncValidationResult, FormApi, Middleware, ValidatorFn } from "./contracts.js";
 import { type FinalGeneration, beginFinalGeneration } from "./final-generation.js";
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
+import { rejectBlockedBoundAttempt } from "./guarded-submit-eligibility.js";
 import { ownIssues } from "./issue-ownership.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
@@ -332,7 +333,7 @@ function finalCandidateGeneration(
 	return beginFinalGeneration(() => scopedSyncGeneration(key), coordinator.foregroundRevision, current);
 }
 
-/** Internal C1 only: never evaluates retained-issue eligibility or calls a submit handler. */
+/** Private FINAL validation and retained-issue gate; never calls a submit handler. */
 export async function validateGuardedSubmitCandidate(
 	context: PipelineContext,
 	guard: SubmitPreparationGuard,
@@ -391,5 +392,9 @@ export async function validateGuardedSubmitCandidate(
 	);
 	if (!outcome.ok || !boundForm) return outcome;
 	const receipt = finishReceipt?.(finalGeneration);
+	if (!current() || !finalGeneration.current()) return { ok: false, code: "stale" };
+	const blockers = rejectBlockedBoundAttempt(context, submitId, revision, receipt);
+	if (!current() || !finalGeneration.current()) return { ok: false, code: "stale" };
+	if (blockers) return { ok: false, code: "validation_failed", fieldIssues: blockers };
 	return Object.freeze({ ...outcome, checked: prepared, ...(receipt ? { receipt } : {}) });
 }
