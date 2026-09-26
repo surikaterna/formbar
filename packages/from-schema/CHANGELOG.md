@@ -1,5 +1,38 @@
 # @formbar/from-schema
 
+## 1.0.0
+
+### Minor Changes
+
+- 70f01ad: Enable validated definition-bound omit-inactive submission through prepared schema factories and forward the opt-in from useSchemaForm. Generated definitions accept a serialized submission policy and field-ID include-hidden overrides; default full-draft submission is unchanged.
+- 10b4eaa: Expose prepared authored/generated async field validators, reject duplicate legacy IDs before form creation, and enable owned scheduling before eager or deferred initialization.
+- c460d74: Expose the public trusted definition-field issue input and concrete data-binding types for authored and generated scoped validators. Document registration, full-draft and candidate execution, and legacy migration without enabling omission.
+  Install prepared schema and caller validators exactly once through the eager/deferred factory; React delegates preparation validators to the factory while retaining its separate Standard Schema source validation.
+
+### Patch Changes
+
+- be5b55a: Provide a private definition/form-bound, single-capture omission supplier and final structural checker seam without enabling hidden-value submission or changing the default submit path.
+- Updated dependencies [cbb9d59]
+- Updated dependencies [b4340af]
+- Updated dependencies [7698998]
+- Updated dependencies [0ed966b]
+- Updated dependencies [1bf5761]
+- Updated dependencies [08c1a2b]
+- Updated dependencies [439a847]
+- Updated dependencies [75454ce]
+- Updated dependencies [ed3d7c3]
+- Updated dependencies [ba13b66]
+- Updated dependencies [be5b55a]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [cd7009c]
+- Updated dependencies [81c9913]
+- Updated dependencies [c460d74]
+- Updated dependencies [ca15dcb]
+- Updated dependencies [ceaf702]
+  - @formbar/core@1.0.0
+  - @formbar/declarative@1.0.0
+
 ## 0.22.0
 
 ### Patch Changes
