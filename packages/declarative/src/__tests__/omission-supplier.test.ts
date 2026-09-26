@@ -174,6 +174,106 @@ describe("#327 real single-capture omission supplier", () => {
 		form.dispose();
 	});
 
+	it("anchors hidden-first rows on a surviving id at every nested indexed layer", () => {
+		const nodes = [
+			{
+				type: "repeater" as const,
+				id: "outer",
+				scope: "outer",
+				binding: binding(["rows"]),
+				children: [
+					field("secret", [], { ...hidden, binding: { namespace: "data", scope: "outer", segments: ["secret"] } }),
+					field("outerId", [], { binding: { namespace: "data", scope: "outer", segments: ["id"] } }),
+					{
+						type: "repeater" as const,
+						id: "inner",
+						scope: "inner",
+						binding: { namespace: "data", scope: "outer", segments: ["children"] },
+						children: [
+							field("hidden", [], { ...hidden, binding: { namespace: "data", scope: "inner", segments: ["hidden"] } }),
+							field("innerId", [], { binding: { namespace: "data", scope: "inner", segments: ["id"] } }),
+						],
+					},
+				],
+			},
+		];
+		const draft = {
+			rows: [
+				{
+					secret: "s1",
+					id: "one",
+					children: [
+						{ hidden: "a", id: "A" },
+						{ hidden: "b", id: "B" },
+					],
+				},
+				{
+					secret: "s2",
+					id: "two",
+					children: [
+						{ hidden: "c", id: "C" },
+						{ hidden: "d", id: "D" },
+					],
+				},
+			],
+		};
+		const { form, project } = setup(nodes, draft);
+		const result = project();
+		expect(result?.data).toEqual({
+			rows: [
+				{ id: "one", children: [{ id: "A" }, { id: "B" }] },
+				{ id: "two", children: [{ id: "C" }, { id: "D" }] },
+			],
+		});
+		expect(result?.witness.rowAnchors).toHaveLength(3);
+		expect(
+			result?.witness.rowAnchors.every((anchor) => anchor.key[0]?.kind === "key" && anchor.key[0].key === "id"),
+		).toBe(true);
+		const edited = clone(result?.data).value as typeof draft;
+		if (!edited.rows[0] || !edited.rows[1]) throw Error("missing rows");
+		[edited.rows[0], edited.rows[1]] = [edited.rows[1], edited.rows[0]];
+		expect(result?.checkFinal(edited)).toBe(false);
+		const changed = clone(result?.data).value as typeof draft;
+		const child = changed.rows[0]?.children[0];
+		if (!child) throw Error("missing child");
+		child.id = "changed";
+		expect(result?.checkFinal(changed)).toBe(false);
+		const restored = clone(result?.data).value as typeof draft;
+		const row = restored.rows[0];
+		if (!row) throw Error("missing row");
+		row.secret = "leaked";
+		expect(result?.checkFinal(restored)).toBe(false);
+		expect(form.getState().data).toEqual(draft);
+		form.dispose();
+	});
+
+	it("rejects missing or duplicate surviving row identities rather than using omitted secrets", () => {
+		const nodes = [
+			{
+				type: "repeater" as const,
+				id: "rows",
+				scope: "row",
+				binding: binding(["rows"]),
+				children: [
+					field("secret", [], { ...hidden, binding: { namespace: "data", scope: "row", segments: ["secret"] } }),
+					field("id", [], { binding: { namespace: "data", scope: "row", segments: ["id"] } }),
+				],
+			},
+		];
+		for (const rows of [
+			[
+				{ secret: "a", id: "same" },
+				{ secret: "b", id: "same" },
+			],
+			[{ secret: "a", id: "one" }, { secret: "b" }],
+		]) {
+			const { form, project } = setup(nodes, { rows });
+			expect(project()).toBeUndefined();
+			expect(form.getState().data).toEqual({ rows });
+			form.dispose();
+		}
+	});
+
 	it("fails closed on shared/ancestor, unknown, absent anchor and unbound data", () => {
 		const shared = setup([field("one", ["secret"], hidden), field("two", ["secret"], hidden)], {
 			secret: "draft",

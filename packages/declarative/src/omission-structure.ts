@@ -54,26 +54,32 @@ function primitive(row: SubmitJson, key: string): string | undefined {
 	return value === null || typeof value === "object" ? undefined : JSON.stringify(value);
 }
 
-function rowKey(rows: readonly SubmitJson[]): Path {
+function rowKey(rows: readonly SubmitJson[], projected: readonly SubmitJson[]): Path {
 	const first = rows[0];
 	if (!first || Array.isArray(first) || typeof first !== "object") throw Error("row");
 	for (const key of Object.keys(first)) {
 		if (!key || unsafe.has(key)) continue;
 		const values = rows.map((row) => primitive(row, key));
-		if (values.every((value) => value !== undefined) && new Set(values).size === rows.length)
-			return [{ kind: "key", key }];
+		if (values.some((value) => value === undefined) || new Set(values).size !== rows.length) continue;
+		if (projected.every((row, index) => primitive(row, key) === values[index])) return [{ kind: "key", key }];
 	}
 	throw Error("missing unique row anchor");
 }
 
-export function anchors(original: SubmitJson, omitted: readonly Path[]): SubmitStructuralWitness["rowAnchors"] {
+export function anchors(
+	original: SubmitJson,
+	projected: SubmitJson,
+	omitted: readonly Path[],
+): SubmitStructuralWitness["rowAnchors"] {
 	const arrays = new Map<string, Path>();
 	for (const path of omitted)
 		for (let i = 0; i < path.length; i++)
 			if (path[i]?.kind === "index") arrays.set(pathId(path.slice(0, i)), path.slice(0, i));
 	return [...arrays.values()].map((array) => {
 		const rows = valueAt(original, array);
-		if (!Array.isArray(rows) || rows.length === 0) throw Error("missing rows");
-		return { array, key: rowKey(rows) };
+		const retained = valueAt(projected, array);
+		if (!Array.isArray(rows) || !Array.isArray(retained) || rows.length === 0 || rows.length !== retained.length)
+			throw Error("missing rows");
+		return { array, key: rowKey(rows, retained) };
 	});
 }

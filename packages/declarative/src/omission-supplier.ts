@@ -81,7 +81,7 @@ function projectParts(original: SubmitJson, ownership: ConcreteOwnership, decisi
 		kind: omitted.length ? "omission" : "no-omission",
 		omitted,
 		protected: protectedValues,
-		rowAnchors: anchors(original, omitted),
+		rowAnchors: anchors(original, data, omitted),
 	};
 	return { data, witness };
 }
