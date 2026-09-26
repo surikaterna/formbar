@@ -174,6 +174,63 @@ describe("#226 public definition-bound submission", () => {
 		form.dispose();
 	});
 
+	it("sends only inactive cells from nested typed-key rows while preserving included cells and row shape", async () => {
+		const field = (id: string, key: string, override = false) => ({
+			type: "field" as const,
+			id,
+			widget: "text",
+			binding: { namespace: "data" as const, scope: "inner", segments: [key] },
+			...(id !== "id" ? { visible: { kind: "literal" as const, value: false } } : {}),
+			...(override ? { submitWhenHidden: "include" as const } : {}),
+		});
+		const definition = {
+			version: 1 as const,
+			id: "nested",
+			submission: { hiddenValues: "omit-inactive" as const },
+			root: {
+				type: "repeater" as const,
+				id: "outer",
+				scope: "outer",
+				binding: { namespace: "data" as const, segments: ["a.b"] },
+				children: [
+					{
+						type: "repeater" as const,
+						id: "inner-repeater",
+						scope: "inner",
+						binding: { namespace: "data" as const, scope: "outer", segments: ["0"] },
+						children: [field("secret", "deep.key"), field("id", "id"), field("override", "override", true)],
+					},
+				],
+			},
+		};
+		const draft = { "a.b": [{ id: "outer-1", "0": [{ id: "a", "deep.key": 1, override: "A" }] }] };
+		const onSubmit = vi.fn(async () => ({ ok: true as const }));
+		const form = createSchemaForm({}, { provider, side: "input", definition }).createForm({
+			initialData: draft,
+			onSubmit,
+		});
+		expect(await form.submit()).toMatchObject({ ok: true });
+		expect(onSubmit.mock.calls[0]?.[0].payload).toEqual({
+			"a.b": [{ id: "outer-1", "0": [{ id: "a", override: "A" }] }],
+		});
+		expect(form.getState().data).toEqual(draft);
+		form.dispose();
+	});
+
+	it("honors Arbiter visible:false before checked submit without changing the draft", async () => {
+		const onSubmit = vi.fn(async () => ({ ok: true as const }));
+		const form = createSchemaForm({}, { provider, side: "input", definition: definition("omit-inactive") }).createForm({
+			initialData: { show: true, secret: "draft", name: "Ada" },
+			plugins: [{ id: "policy", evaluate: () => ({ fieldPolicy: [{ path: "secret", visible: false }] }) }],
+			onSubmit,
+		});
+		form.setValue("name", "Grace");
+		expect(await form.submit()).toMatchObject({ ok: true });
+		expect(onSubmit.mock.calls[0]?.[0].payload).toEqual({ show: true, name: "Grace" });
+		expect(form.getState().data.secret).toBe("draft");
+		form.dispose();
+	});
+
 	it("forwards generated mode and stable field-ID include overrides; rejects conflicts and unknown IDs", async () => {
 		const schema = { type: "object", properties: { secret: { type: "string" } } };
 		const submission = { hiddenValues: "omit-inactive" as const };
