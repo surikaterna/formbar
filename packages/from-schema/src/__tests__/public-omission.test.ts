@@ -1,11 +1,17 @@
 import { createForm } from "@formbar/core";
 import { boundSubmitStore } from "@formbar/core/internal/submit-proof";
+import type { FormNode } from "@formbar/declarative";
 import { describe, expect, it, vi } from "vitest";
 import { publishIssueOnly } from "../../../core/src/store.js";
-import { createSchemaForm, jsonSchemaProvider } from "../index.js";
+import { InvalidFormDefinitionError, createSchemaForm, jsonSchemaProvider } from "../index.js";
 
 const provider = jsonSchemaProvider();
 const visible = { kind: "ref" as const, ref: { namespace: "data" as const, segments: ["show"] } };
+function fieldId(node: FormNode, key: string): string | undefined {
+	if (node.type === "field" && node.binding.segments.at(-1) === key) return node.id;
+	if ("children" in node) return node.children.map((child) => fieldId(child, key)).find((id) => id !== undefined);
+	return undefined;
+}
 const definition = (mode?: "include" | "omit-inactive", override = false) => ({
 	version: 1 as const,
 	id: "public-omission",
@@ -293,5 +299,135 @@ describe("#226 public definition-bound submission", () => {
 				},
 			),
 		).toThrow(/conflict/);
+		expect(() =>
+			createSchemaForm(
+				{},
+				{
+					provider,
+					side: "input",
+					definition: definition("omit-inactive"),
+					submission: { hiddenValues: "omit-inactive", surprise: "ignored" } as never,
+				},
+			),
+		).toThrow(InvalidFormDefinitionError);
+		for (const invalid of [{ hiddenValues: "invalid" }, {}, ["omit-inactive"]]) {
+			expect(() =>
+				createSchemaForm(
+					{},
+					{
+						provider,
+						side: "input",
+						definition: definition("omit-inactive"),
+						submission: invalid as never,
+					},
+				),
+			).toThrow();
+		}
+	});
+
+	it("projects generated nested row IDs across every index while retaining the full draft", async () => {
+		const schema = {
+			type: "object",
+			properties: {
+				show: { type: "boolean" },
+				groups: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							id: { type: "string" },
+							rows: {
+								type: "array",
+								items: {
+									type: "object",
+									properties: {
+										id: { type: "string" },
+										secret: { type: "string" },
+										kept: { type: "string" },
+										name: { type: "string" },
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		};
+		const generated = createSchemaForm(schema, { provider, side: "input" });
+		const id = fieldId(generated.definition.root, "kept");
+		if (!id) throw Error("Missing generated kept field ID");
+		const prepared = createSchemaForm(schema, {
+			provider,
+			side: "input",
+			submission: { hiddenValues: "omit-inactive" },
+			generation: { submitWhenHidden: { [id]: "include" } },
+		});
+		const draft = {
+			show: false,
+			groups: [
+				{
+					id: "outer-0",
+					rows: [
+						{ id: "inner-0", secret: "a", kept: "A", name: "one" },
+						{ id: "inner-1", secret: "b", kept: "B", name: "two" },
+					],
+				},
+				{
+					id: "outer-1",
+					rows: [
+						{ id: "inner-0", secret: "c", kept: "C", name: "three" },
+						{ id: "inner-1", secret: "d", kept: "D", name: "four" },
+					],
+				},
+			],
+		};
+		const handler = vi.fn(async () => ({ ok: true as const }));
+		const form = prepared.createForm({
+			initialData: draft,
+			plugins: [
+				{
+					id: "hide-cells",
+					evaluate: ({ data }) => ({
+						fieldPolicy: data.show
+							? []
+							: draft.groups.flatMap((group, outer) =>
+									group.rows.flatMap((_, inner) =>
+										["secret", "kept"].map((key) => ({
+											path: `groups.${outer}.rows.${inner}.${key}`,
+											visible: false,
+										})),
+									),
+								),
+					}),
+				},
+			],
+			onSubmit: handler,
+		});
+		expect(await form.submit()).toMatchObject({ ok: true });
+		expect(handler.mock.calls[0]?.[0].payload).toEqual({
+			show: false,
+			groups: [
+				{
+					id: "outer-0",
+					rows: [
+						{ id: "inner-0", kept: "A", name: "one" },
+						{ id: "inner-1", kept: "B", name: "two" },
+					],
+				},
+				{
+					id: "outer-1",
+					rows: [
+						{ id: "inner-0", kept: "C", name: "three" },
+						{ id: "inner-1", kept: "D", name: "four" },
+					],
+				},
+			],
+		});
+		expect(form.getState().data).toEqual(draft);
+		form.setValue("show", true);
+		expect(await form.submit()).toMatchObject({ ok: true });
+		expect(handler.mock.calls[1]?.[0].payload).toEqual({ ...draft, show: true });
+		expect(form.getState().data).toEqual({ ...draft, show: true });
+		form.dispose();
 	});
 });

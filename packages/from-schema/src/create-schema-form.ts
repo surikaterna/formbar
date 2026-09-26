@@ -66,31 +66,11 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	if (options.definition && options.generation) {
 		throw new TypeError("definition and generation are mutually exclusive.");
 	}
-	if (
-		options.definition &&
-		options.submission &&
-		options.definition.submission?.hiddenValues !== options.submission.hiddenValues
-	) {
-		throw new TypeError("Authored definition submission policy conflicts with the supplied option.");
-	}
+	assertAuthoredSubmission(options.definition, options.submission);
 	const validation = isJsonProvider(options.provider)
 		? prepareJsonSchema(schema, isSupportedJsonProvider(options.provider))
 		: undefined;
-	const projectionOptions = {
-		provider: options.provider,
-		side: options.side,
-		...(options.limits ? { limits: options.limits } : {}),
-		...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
-	};
-	const unsafeProjection =
-		validation?.diagnostics[0]?.code === "non-plain-schema" || validation?.diagnostics[0]?.code === "schema-limit";
-	let projected: ReturnType<typeof projectSchema>;
-	try {
-		projected = projectSchema(unsafeProjection ? {} : schema, projectionOptions);
-	} catch (error) {
-		if (!validation?.diagnostics.length) throw error;
-		projected = projectSchema({}, projectionOptions);
-	}
+	const projected = projectWithValidation(schema, options, validation);
 	const prepared = options.definition
 		? validateAuthoredDefinition(options.definition, projected.descriptors)
 		: compileDefaultFormDefinition(projected.descriptors, options.generation, options.submission);
@@ -118,6 +98,39 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 	});
 }
 
+function assertAuthoredSubmission(
+	definition: FormDefinition | undefined,
+	submission: FormDefinition["submission"],
+): void {
+	if (!definition || submission === undefined) return;
+	const validated = validateFormDefinition({ ...definition, submission });
+	if (!validated.ok) throw new InvalidFormDefinitionError(validated.diagnostics);
+	if (definition.submission?.hiddenValues !== validated.value.submission?.hiddenValues) {
+		throw new TypeError("Authored definition submission policy conflicts with the supplied option.");
+	}
+}
+
+function projectWithValidation(
+	schema: unknown,
+	options: Pick<CreateSchemaFormOptions, "provider" | "side" | "limits" | "projectionLimits">,
+	validation: ReturnType<typeof prepareJsonSchema> | undefined,
+): ReturnType<typeof projectSchema> {
+	const projectionOptions = {
+		provider: options.provider,
+		side: options.side,
+		...(options.limits ? { limits: options.limits } : {}),
+		...(options.projectionLimits ? { projectionLimits: options.projectionLimits } : {}),
+	};
+	const unsafeProjection =
+		validation?.diagnostics[0]?.code === "non-plain-schema" || validation?.diagnostics[0]?.code === "schema-limit";
+	try {
+		return projectSchema(unsafeProjection ? {} : schema, projectionOptions);
+	} catch (error) {
+		if (!validation?.diagnostics.length) throw error;
+		return projectSchema({}, projectionOptions);
+	}
+}
+
 function createPreparedFactories<TData, TUi>(
 	definition: ValidatedFormDefinition,
 	options: CreateSchemaFormOptions<TData, TUi>,
@@ -128,37 +141,16 @@ function createPreparedFactories<TData, TUi>(
 		? prepareScopedAsyncHost(definition, options.asyncFieldValidators)
 		: undefined;
 	const omission = definition.submission?.hiddenValues === "omit-inactive";
-	const preflight = (coreOptions: CreateFormOptions<TData, TUi>) => {
-		const all = [...validators, ...(coreOptions.validators ?? [])];
-		if (new Set(all).size !== all.length) {
-			throw new TypeError("Prepared validators must be installed only once; do not pass them as core validators.");
-		}
-		if (scopedAsync)
-			assertScopedAsyncIds(
-				scopedAsync,
-				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
-			);
-	};
 	const withValidators = (coreOptions: CreateFormOptions<TData, TUi>): CreateFormOptions<TData, TUi> => ({
 		...coreOptions,
 		validators: [...validators, ...(coreOptions.validators ?? [])],
 		...(scopedAsync || omission ? { ownedScheduling: true } : {}),
 	});
-	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) => {
-		bindOmissionSupplier(form as ReturnType<typeof createForm>, definition);
-		if (scoped) registerScopedSync(form, scoped);
-		if (scopedAsync)
-			registerScopedAsync(
-				form,
-				scopedAsync,
-				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
-			);
-		if (omission) activateBoundSubmit(form as ReturnType<typeof createForm>);
-		return form;
-	};
+	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) =>
+		attachPrepared(form, coreOptions, definition, scoped, scopedAsync, omission);
 	return {
 		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
-			preflight(coreOptions);
+			preflightPrepared(coreOptions, validators, scopedAsync);
 			if (!omission) return attach(createForm(withValidators(coreOptions)), coreOptions);
 			const runtime = createDeferredForm(withValidators(coreOptions));
 			try {
@@ -171,12 +163,48 @@ function createPreparedFactories<TData, TUi>(
 			}
 		},
 		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
-			preflight(coreOptions);
+			preflightPrepared(coreOptions, validators, scopedAsync);
 			const runtime = createDeferredForm(withValidators(coreOptions));
 			attach(runtime.form, coreOptions);
 			return runtime;
 		},
 	};
+}
+
+function preflightPrepared<TData, TUi>(
+	coreOptions: CreateFormOptions<TData, TUi>,
+	validators: readonly SchemaValidator<TData, TUi>[],
+	scopedAsync: ReturnType<typeof prepareScopedAsyncHost<TData, TUi>> | undefined,
+): void {
+	const all = [...validators, ...(coreOptions.validators ?? [])];
+	if (new Set(all).size !== all.length) {
+		throw new TypeError("Prepared validators must be installed only once; do not pass them as core validators.");
+	}
+	if (scopedAsync)
+		assertScopedAsyncIds(
+			scopedAsync,
+			(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
+		);
+}
+
+function attachPrepared<TData, TUi>(
+	form: ReturnType<typeof createForm<TData, TUi>>,
+	coreOptions: CreateFormOptions<TData, TUi>,
+	definition: ValidatedFormDefinition,
+	scoped: ReturnType<typeof prepareScopedSyncHost<TData, TUi>> | undefined,
+	scopedAsync: ReturnType<typeof prepareScopedAsyncHost<TData, TUi>> | undefined,
+	omission: boolean,
+): typeof form {
+	bindOmissionSupplier(form as ReturnType<typeof createForm>, definition);
+	if (scoped) registerScopedSync(form, scoped);
+	if (scopedAsync)
+		registerScopedAsync(
+			form,
+			scopedAsync,
+			(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
+		);
+	if (omission) activateBoundSubmit(form as ReturnType<typeof createForm>);
+	return form;
 }
 
 function validateAuthoredDefinition(definition: FormDefinition, document: DescriptorDocument) {
