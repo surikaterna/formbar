@@ -89,6 +89,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 						throw new Error("Unowned or overlapping field binding");
 					if (owner.binding.namespace !== "data") throw new Error("Invalid scoped field namespace");
 					return Object.freeze({
+						ownership,
 						fieldId: entry.fieldId,
 						instanceKey: owner.instance.instanceKey,
 						binding: { namespace: "data" as const, segments: owner.binding.segments },

@@ -61,6 +61,8 @@ export async function runScopedAsyncField<TData, TUi>(
 		binding: field.binding,
 		revision: projection.revision,
 		run: projection,
+		capture: projection.capture as FormStateCapture<unknown, unknown>,
+		...(field.ownership ? { ownership: field.ownership } : {}),
 		current,
 		signal: projection.signal,
 		asyncValidatorId: field.id,

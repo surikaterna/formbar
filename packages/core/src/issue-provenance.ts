@@ -1,6 +1,6 @@
 import { ownIssue } from "./issue-ownership.js";
 import type { CanonicalSegment } from "./path.js";
-import type { ValidationIssue } from "./state.js";
+import type { FormStateCapture, ValidationIssue } from "./state.js";
 
 interface Certificate {
 	readonly id: number;
@@ -11,6 +11,8 @@ interface Certificate {
 	readonly run: object;
 	readonly current: () => boolean;
 	readonly issue: ValidationIssue;
+	readonly capture?: FormStateCapture<unknown, unknown>;
+	readonly ownership?: object;
 }
 
 const certificates = new WeakMap<ValidationIssue, Certificate>();
@@ -36,6 +38,8 @@ export function createIssueEmission(options: {
 	readonly binding: { readonly namespace: "data"; readonly segments: readonly CanonicalSegment[] };
 	readonly revision: number;
 	readonly run: object;
+	readonly capture?: FormStateCapture<unknown, unknown>;
+	readonly ownership?: object;
 	readonly current: () => boolean;
 	readonly signal?: AbortSignal;
 	readonly asyncValidatorId?: string;
@@ -80,11 +84,37 @@ export function createIssueEmission(options: {
 			binding,
 			revision: options.revision,
 			run: options.run,
+			...(options.capture ? { capture: options.capture } : {}),
+			...(options.ownership ? { ownership: options.ownership } : {}),
 			current: valid,
 			issue,
 		});
 		return issue;
 	};
+}
+
+/** Only original emissions from this exact projected capture may be associated with its owner. */
+export function issueSourceAtCapture(
+	issue: ValidationIssue,
+	ownership: object,
+): Readonly<Pick<Certificate, "fieldId" | "instanceKey" | "binding" | "capture">> | undefined {
+	const certificate = certificates.get(issue);
+	if (!certificate || certificate.issue !== issue || certificate.ownership !== ownership) return undefined;
+	try {
+		return certificate.current() ? certificate : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function issueProductionOwnership(issue: ValidationIssue): object | undefined {
+	const certificate = certificates.get(issue);
+	if (!certificate?.ownership || certificate.issue !== issue) return undefined;
+	try {
+		return certificate.current() ? certificate.ownership : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** A copied, rehydrated, superseded or aborted issue is never certified. */

@@ -90,6 +90,7 @@ export function prepareScopedAsyncHost<TData, TUi>(
 						throw new Error("Unowned or overlapping async field binding");
 					if (owner.binding.namespace !== "data") throw new Error("Invalid scoped async field namespace");
 					return Object.freeze({
+						ownership,
 						id: entry.id,
 						fieldId: entry.fieldId,
 						instanceKey: owner.instance.instanceKey,

@@ -5,6 +5,7 @@ export { activateOwnedSchedulingBoundary } from "../owned-scheduling-boundary.js
 export { assertScopedAsyncIds, registerScopedAsync } from "../scoped-async.js";
 export { runScopedCandidate } from "../scoped-async-candidate.js";
 export { issueEmissionId } from "../issue-provenance.js";
+export { issueProductionOwnership, issueSourceAtCapture } from "../issue-provenance.js";
 export type { ScopedAsyncField, ScopedAsyncHost } from "../scoped-async.js";
 export type {
 	ScopedSyncHost,
