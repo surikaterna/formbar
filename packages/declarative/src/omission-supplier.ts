@@ -1,10 +1,19 @@
-import type { FormApi, FormStateCapture, SubmitDataPath, SubmitJson, SubmitStructuralWitness } from "@formbar/core";
+import type {
+	FormApi,
+	FormStateCapture,
+	SubmitDataPath,
+	SubmitJson,
+	SubmitStructuralWitness,
+	ValidationIssue,
+} from "@formbar/core";
+import { originalIssueSource } from "@formbar/core/internal/scoped-sync";
 import {
 	checkSubmitAdapterProof,
 	clone,
 	freeze,
 	registerBoundSubmitSupplier,
 } from "@formbar/core/internal/submit-proof";
+import { certifiedExclusiveBinding } from "./certified-binding-evidence.js";
 import type { ValidatedFormDefinition } from "./definition.js";
 import { type ExclusiveBindingDecision, decideExclusiveBindings } from "./exclusive-binding-decision.js";
 import { anchors, overlaps, pathId, remove, typedPath, valueAt } from "./omission-structure.js";
@@ -17,11 +26,56 @@ export function bindOmissionSupplier(form: FormApi<unknown, unknown>, definition
 	const existing = definitions.get(form);
 	if (existing && existing !== definition) throw Error("conflicting definition");
 	if (existing) return;
-	registerBoundSubmitSupplier(form, (capture, signal) => {
-		const parts = projectBoundOmissionParts(form, definition, capture, signal);
-		return parts?.current() ? { data: parts.data, witness: parts.witness } : undefined;
-	});
+	let latest: { capture: FormStateCapture<unknown, unknown>; decision: ExclusiveBindingDecision } | undefined;
+	const supplier = Object.assign(
+		(capture: FormStateCapture<unknown, unknown>, signal: AbortSignal) => {
+			latest = undefined;
+			const parts = projectBoundOmissionParts(form, definition, capture, signal);
+			if (!parts?.current()) return undefined;
+			latest = { capture, decision: parts.decision };
+			return { data: parts.data, witness: parts.witness };
+		},
+		{
+			preflight: (issue: ValidationIssue) => {
+				const source = originalIssueSource(issue);
+				if (!source || !certifiedExclusiveBinding(issue) || issue.path.namespace !== "data") return undefined;
+				const path = Object.freeze([...issue.path.segments]);
+				return (capture: FormStateCapture<unknown, unknown>, plan: SubmitStructuralWitness) =>
+					latest?.capture === capture && claimOriginalBinding(source, path, latest.decision, plan);
+			},
+		},
+	);
+	registerBoundSubmitSupplier(form, supplier);
 	definitions.set(form, definition);
+}
+
+function claimOriginalBinding(
+	source: { readonly fieldId: string; readonly instanceKey: string; readonly binding: readonly (string | number)[] },
+	pathSegments: readonly (string | number)[],
+	decision: ExclusiveBindingDecision,
+	plan: SubmitStructuralWitness,
+): boolean {
+	if (!decision.current() || plan.kind !== "omission") return false;
+	const owner = decision.forField(source.fieldId, source.instanceKey);
+	if (owner?.decision !== "exclusive") return false;
+	try {
+		const binding = typedPath(owner.owner.binding);
+		const original = typedPath({ namespace: "data", segments: source.binding });
+		const path = typedPath({ namespace: "data", segments: pathSegments });
+		const id = pathId(binding);
+		return (
+			id === pathId(original) &&
+			pathId(path.slice(0, binding.length)) === id &&
+			plan.omitted.some((omitted) => pathId(omitted) === id) &&
+			plan.omitted.every((omitted) =>
+				[...decision.fields, ...decision.repeaters].some(
+					(entry) => entry.decision === "exclusive" && pathId(typedPath(entry.owner.binding)) === pathId(omitted),
+				),
+			)
+		);
+	} catch {
+		return false;
+	}
 }
 
 interface Projection {
@@ -102,7 +156,9 @@ function projectBoundOmissionParts(
 	definition: ValidatedFormDefinition,
 	capture: FormStateCapture<unknown, unknown>,
 	signal?: AbortSignal,
-): { data: SubmitJson; witness: SubmitStructuralWitness; current: () => boolean } | undefined {
+):
+	| { data: SubmitJson; witness: SubmitStructuralWitness; current: () => boolean; decision: ExclusiveBindingDecision }
+	| undefined {
 	if (signal?.aborted) return undefined;
 	try {
 		const ownership = projectConcreteOwnership({ form, definition, capture });
@@ -114,7 +170,7 @@ function projectBoundOmissionParts(
 		const plan = freeze(clone(detachWitness(witness)).value) as unknown as SubmitStructuralWitness;
 		const projected = freeze(data);
 		return decision.current() && !signal?.aborted
-			? Object.freeze({ data: projected, witness: plan, current: decision.current })
+			? Object.freeze({ data: projected, witness: plan, current: decision.current, decision })
 			: undefined;
 	} catch {
 		return undefined;

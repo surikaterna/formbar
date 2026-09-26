@@ -1,7 +1,7 @@
 import { rebaseAttemptIssues } from "./attempt-issues.js";
 import { structuredEqual } from "./equality.js";
 import { ownIssues } from "./issue-ownership.js";
-import { ownNonIssueState } from "./owned-issue-snapshot.js";
+import { ownNonIssueState, sameOwnedJson } from "./owned-issue-snapshot.js";
 import type { FieldMetaEntry, FormState } from "./state.js";
 import type { ValidationIssue } from "./state.js";
 import { type OwnedMetadata, applyOwnedMetadata } from "./store-metadata.js";
@@ -19,6 +19,7 @@ const issueOnly = Symbol("internal issue-only publication");
 const enableOwnership = Symbol("internal nonissue ownership activation");
 const projectValidationMetadata = Symbol("internal validation-status projection");
 const publishMetadata = Symbol("internal metadata publication");
+const preparedSubmit = Symbol("internal guarded submit metadata publication");
 const snapshotOwners = new WeakMap<
 	object,
 	{
@@ -48,6 +49,14 @@ export function snapshotOwnership(state: object):
 /** Internal host seam; deliberately absent from the public package entry. */
 export function publishIssueOnly<TData, TUi>(store: FormStore<TData, TUi>, issues: readonly ValidationIssue[]): void {
 	store[issueOnly](issues);
+}
+
+export function commitPreparedSubmit<TData, TUi>(
+	store: FormStore<TData, TUi>,
+	tx: Transaction<TData, TUi>,
+	onCommitted: (state: FormState<TData, TUi>) => void,
+): void {
+	store[preparedSubmit](tx, onCommitted);
 }
 
 /** Opt-in trusted-host boundary. A failed activation leaves the store and subscriptions untouched. */
@@ -81,6 +90,7 @@ export class FormStore<TData, TUi> {
 	private _epoch = 0;
 	private _failure = 0;
 	private _notifyingOwned = false;
+	private readonly _preparedMetadata = new WeakSet<Transaction<TData, TUi>>();
 
 	constructor(initialState: FormState<TData, TUi>, strategy?: StateStrategy, ownedScheduling = false) {
 		if (ownedScheduling && strategy !== undefined && strategy !== defaultStrategy)
@@ -183,6 +193,24 @@ export class FormStore<TData, TUi> {
 		return this._activeTransaction;
 	}
 
+	/** Only the guarded submit pipeline may nominate its own no-semantic-change publication. */
+	[preparedSubmit](tx: Transaction<TData, TUi>, onCommitted: (state: FormState<TData, TUi>) => void): void {
+		this._preparedMetadata.add(tx);
+		this.commitTransaction(tx, onCommitted);
+	}
+
+	private _isPreparedMetadata(tx: Transaction<TData, TUi>, candidate: FormState<TData, TUi>): boolean {
+		return (
+			this._preparedMetadata.delete(tx) &&
+			this._ownedMode &&
+			!tx.semanticMutated &&
+			sameOwnedJson(tx.prevState.data, candidate.data) &&
+			sameOwnedJson(tx.prevState.uiState, candidate.uiState) &&
+			sameOwnedJson(tx.prevState.fieldPolicy, candidate.fieldPolicy) &&
+			tx.prevState.meta.stage === candidate.meta.stage
+		);
+	}
+
 	/** Apply draft state and notify subscribers if state was mutated. */
 	commitTransaction(tx: Transaction<TData, TUi>, onCommitted?: (state: FormState<TData, TUi>) => void): void {
 		if (tx !== this._activeTransaction) {
@@ -190,9 +218,12 @@ export class FormStore<TData, TUi> {
 		}
 		const committed = tx.dirty ? this._ownStateIssues(tx.draftState) : tx.draftState;
 		const candidate = tx.dirty && this._ownedMode ? ownNonIssueState(committed) : committed;
-		const nextState = structuredEqual(this._state.fieldPolicy, candidate.fieldPolicy)
-			? { ...candidate, fieldPolicy: this._state.fieldPolicy }
-			: candidate;
+		const metadataOnly = this._isPreparedMetadata(tx, candidate);
+		const nextState = metadataOnly
+			? { ...candidate, data: this._state.data, uiState: this._state.uiState, fieldPolicy: this._state.fieldPolicy }
+			: structuredEqual(this._state.fieldPolicy, candidate.fieldPolicy)
+				? { ...candidate, fieldPolicy: this._state.fieldPolicy }
+				: candidate;
 		tx.commit();
 		this._activeTransaction = null;
 
@@ -207,8 +238,10 @@ export class FormStore<TData, TUi> {
 		}
 		this._state = this._ownedMode ? Object.freeze(rebased) : rebased;
 		this._owned = this._ownedMode;
-		this._write++;
-		if (this._ownedMode) this._epoch++;
+		if (!metadataOnly) {
+			this._write++;
+			if (this._ownedMode) this._epoch++;
+		}
 		this._stamp();
 		onCommitted?.(this._state);
 		this._notifyListeners();

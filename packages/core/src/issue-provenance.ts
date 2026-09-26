@@ -117,6 +117,17 @@ export function issueProductionOwnership(issue: ValidationIssue): object | undef
 	}
 }
 
+/** Read once before FINAL: never call the producer's current() to revive an issue after its own generation is replaced. */
+export function originalIssueSource(issue: ValidationIssue): Readonly<Certificate> | undefined {
+	const certificate = certificates.get(issue);
+	if (!certificate?.capture || !certificate.ownership || certificate.issue !== issue) return undefined;
+	try {
+		return certificate.current() ? certificate : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** A copied, rehydrated, superseded or aborted issue is never certified. */
 export function issueCertificate(
 	issue: ValidationIssue,

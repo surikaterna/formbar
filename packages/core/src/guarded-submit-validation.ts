@@ -1,4 +1,5 @@
 import { beginAttempt, clearAttempt, completeAttempt } from "./attempt-issues.js";
+import { type BoundAttemptReceipt, beginBoundAttempt } from "./bound-attempt-receipt.js";
 import type { AsyncValidationResult, FormApi, Middleware, ValidatorFn } from "./contracts.js";
 import { type FinalGeneration, beginFinalGeneration } from "./final-generation.js";
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
@@ -21,6 +22,7 @@ type Outcome =
 			readonly ok: true;
 			readonly issues: readonly ValidationIssue[];
 			readonly checked?: Extract<ReturnType<typeof prepareGuardedSubmitCandidate>, { ok: true }>;
+			readonly receipt?: BoundAttemptReceipt;
 	  }
 	| { readonly ok: false; readonly code: "validation_failed"; readonly fieldIssues: readonly ValidationIssue[] }
 	| { readonly ok: false; readonly code: "stale" | "vetoed" | "unsafe_candidate" | "invalid_witness" | "aborted" };
@@ -342,15 +344,25 @@ export async function validateGuardedSubmitCandidate(
 	boundForm?: FormApi<unknown, unknown>,
 ): Promise<Outcome> {
 	if (boundForm && form && boundForm !== form) return { ok: false, code: "invalid_witness" };
-	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms, boundForm);
+	const preflight = boundForm ? beginBoundAttempt(boundForm) : undefined;
+	const generationKey = boundForm ?? form ?? context.store;
+	// Snapshot both generation lanes before preparation can invoke caller hooks or egress.
+	const finalGeneration = finalCandidateGeneration(
+		generationKey,
+		coordinator,
+		() => preparedContext?.current() ?? false,
+	);
+	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms, boundForm, preflight);
 	if (!prepared.ok) return prepared;
 	const { data, uiState } = prepared.candidate;
 	const revision = prepared.revision;
 	const preparedContext = candidateValidationContext(context, guard, coordinator, data, uiState, revision);
 	if (!preparedContext) return { ok: false, code: "unsafe_candidate" };
 	const { stage, submitContext, current, state } = preparedContext;
-	const generationKey = boundForm ?? form ?? context.store;
-	const finalGeneration = finalCandidateGeneration(generationKey, coordinator, current);
+	const finishReceipt =
+		preflight && prepared.capture && prepared.candidate.plan
+			? preflight.checked(prepared.capture, prepared.candidate.plan, submitId, revision, current)
+			: undefined;
 	const middleware = (context.options.middleware ?? []) as readonly Middleware[];
 	if (!current() || !notify(middleware, "beforeValidate", context.action, state, [], current))
 		return { ok: false, code: "stale" };
@@ -377,5 +389,7 @@ export async function validateGuardedSubmitCandidate(
 		syncResult,
 		finalGeneration,
 	);
-	return outcome.ok && boundForm ? Object.freeze({ ...outcome, checked: prepared }) : outcome;
+	if (!outcome.ok || !boundForm) return outcome;
+	const receipt = finishReceipt?.(finalGeneration);
+	return Object.freeze({ ...outcome, checked: prepared, ...(receipt ? { receipt } : {}) });
 }

@@ -1,3 +1,4 @@
+import { structuredEqual } from "./equality.js";
 import { ownIssues } from "./issue-ownership.js";
 import type { FormState, ValidationIssue } from "./state.js";
 
@@ -32,6 +33,15 @@ export function inspect(value: unknown, ancestors: Set<object>, count: { value: 
 	if (array && children.length !== value.length) return reject();
 	ancestors.delete(value);
 	return { array, children };
+}
+
+/** Structural JSON comparison across the owned null-prototype / transaction-clone boundary. */
+export function sameOwnedJson(left: unknown, right: unknown): boolean {
+	try {
+		return structuredEqual(inspect(left, new Set(), { value: 0 }, 0), inspect(right, new Set(), { value: 0 }, 0));
+	} catch {
+		return false;
+	}
 }
 
 export function materialize(node: Node): unknown {

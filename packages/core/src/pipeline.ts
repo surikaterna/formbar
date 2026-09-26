@@ -14,7 +14,7 @@ import { inspect } from "./owned-issue-snapshot.js";
 import { parsePath } from "./path-parser.js";
 import type { FormPlugin, PluginChangeDescriptor, PluginEvaluateContext, PluginWrite } from "./plugin-types.js";
 import type { CreateFormOptions, FieldMetaEntry, FormState, SubmitContext, ValidationIssue } from "./state.js";
-import { OwnedNotificationOverflow } from "./store.js";
+import { OwnedNotificationOverflow, commitPreparedSubmit } from "./store.js";
 import type { FormStore } from "./store.js";
 import {
 	type PreparationCheckpoint,
@@ -279,12 +279,14 @@ function commitAndNotify(
 ): PipelineResult {
 	tx.mutate((draft) => ({
 		...draft,
-		fieldPolicy,
+		fieldPolicy: fieldPolicy === ctx.store.getState().fieldPolicy ? draft.fieldPolicy : fieldPolicy,
 		issues: checkpoint
 			? draft.issues
 			: mergePipelineIssues(draft.issues, issues, Boolean(ctx.options.validators?.length)),
 	}));
-	ctx.store.commitTransaction(tx, checkpoint ? (state) => checkpoint.committed(state, tx.prevState) : undefined);
+	if (checkpoint && ctx.isSubmit)
+		commitPreparedSubmit(ctx.store, tx, (state) => checkpoint.committed(state, tx.prevState));
+	else ctx.store.commitTransaction(tx);
 	const commitFailure = checkpoint?.failure();
 	if (commitFailure) return commitFailure;
 	runNotifyHooksSync(

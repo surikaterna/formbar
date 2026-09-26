@@ -1,3 +1,4 @@
+import type { beginBoundAttempt } from "./bound-attempt-receipt.js";
 import { boundSubmitStore, boundSubmitSupplier } from "./bound-submit-supplier.js";
 import type { FormApi } from "./contracts.js";
 import type { PipelineContext } from "./pipeline.js";
@@ -122,6 +123,7 @@ export function prepareGuardedSubmitCandidate(
 	adapter: SubmitDefinitionAdapter | undefined,
 	transforms: readonly CandidateEgress[] = [],
 	boundForm?: FormApi<unknown, unknown>,
+	preflight?: NonNullable<ReturnType<typeof beginBoundAttempt>>,
 ): Preparation {
 	const prepared = executeSubmitPreparation(context, guard);
 	if (prepared.stage === "rejected") return { ok: false, code: "vetoed" };
@@ -138,6 +140,7 @@ export function prepareGuardedSubmitCandidate(
 	if (gate) return { ok: false, code: gate };
 	const beforeCapture = check();
 	if (beforeCapture) return { ok: false, code: beforeCapture };
+	if (preflight && !preflight.current()) return { ok: false, code: "stale" };
 	if (boundForm && adapter) return { ok: false, code: "invalid_witness" };
 	const bound = boundForm ? selectBoundAdapter(boundForm, context, snapshot, guard, check) : undefined;
 	if (bound && !bound.ok) return bound;
