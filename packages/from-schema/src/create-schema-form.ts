@@ -85,7 +85,11 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		? validateAuthoredDefinition(options.definition, projected.descriptors)
 		: compileDefaultFormDefinition(projected.descriptors, options.generation);
 	if (!prepared.definition) throw new InvalidFormDefinitionError(prepared.definitionDiagnostics);
-	const factories = createPreparedFactories(prepared.definition, options);
+	const validators = Object.freeze([
+		...(validation ? [validation.validator as SchemaValidator<TData, TUi>] : []),
+		...(options.validators ?? []),
+	]);
+	const factories = createPreparedFactories(prepared.definition, options, validators);
 	return Object.freeze({
 		...factories,
 		descriptors: projected.descriptors,
@@ -93,10 +97,7 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 		baseline: prepared.baseline,
 		repeaterBaseline: prepared.repeaterBaseline,
 		...(projected.validator ? { sourceValidator: projected.validator } : {}),
-		validators: Object.freeze([
-			...(validation ? [validation.validator as SchemaValidator<TData, TUi>] : []),
-			...(options.validators ?? []),
-		]),
+		validators,
 		diagnostics: Object.freeze({
 			validation: validation?.diagnostics ?? Object.freeze([]),
 			source: projected.descriptors.sourceDiagnostics,
@@ -110,18 +111,28 @@ export function createSchemaForm<TData = unknown, TUi = unknown>(
 function createPreparedFactories<TData, TUi>(
 	definition: ValidatedFormDefinition,
 	options: CreateSchemaFormOptions<TData, TUi>,
+	validators: readonly SchemaValidator<TData, TUi>[],
 ) {
 	const scoped = options.fieldValidators ? prepareScopedSyncHost(definition, options.fieldValidators) : undefined;
 	const scopedAsync = options.asyncFieldValidators
 		? prepareScopedAsyncHost(definition, options.asyncFieldValidators)
 		: undefined;
 	const preflight = (coreOptions: CreateFormOptions<TData, TUi>) => {
+		const all = [...validators, ...(coreOptions.validators ?? [])];
+		if (new Set(all).size !== all.length) {
+			throw new TypeError("Prepared validators must be installed only once; do not pass them as core validators.");
+		}
 		if (scopedAsync)
 			assertScopedAsyncIds(
 				scopedAsync,
 				(coreOptions.asyncValidators ?? []).map((entry) => entry.id),
 			);
 	};
+	const withValidators = (coreOptions: CreateFormOptions<TData, TUi>): CreateFormOptions<TData, TUi> => ({
+		...coreOptions,
+		validators: [...validators, ...(coreOptions.validators ?? [])],
+		...(scopedAsync ? { ownedScheduling: true } : {}),
+	});
 	const attach = (form: ReturnType<typeof createForm<TData, TUi>>, coreOptions: CreateFormOptions<TData, TUi>) => {
 		if (scoped) registerScopedSync(form, scoped);
 		if (scopedAsync)
@@ -135,11 +146,11 @@ function createPreparedFactories<TData, TUi>(
 	return {
 		createForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
 			preflight(coreOptions);
-			return attach(createForm({ ...coreOptions, ...(scopedAsync ? { ownedScheduling: true } : {}) }), coreOptions);
+			return attach(createForm(withValidators(coreOptions)), coreOptions);
 		},
 		createDeferredForm: (coreOptions: CreateFormOptions<TData, TUi>) => {
 			preflight(coreOptions);
-			const runtime = createDeferredForm({ ...coreOptions, ...(scopedAsync ? { ownedScheduling: true } : {}) });
+			const runtime = createDeferredForm(withValidators(coreOptions));
 			attach(runtime.form, coreOptions);
 			return runtime;
 		},

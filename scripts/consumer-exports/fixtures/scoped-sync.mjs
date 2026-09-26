@@ -103,6 +103,60 @@ assert.equal(normalizeIssues([deferredIssue, { ...deferredIssue }]).length, 2);
 const require = createRequire(import.meta.url);
 const cjs = require("@formbar/core");
 assert.equal(cjs.normalizeIssues([issue, { ...issue }]).length, 1);
+const requiredSchema = { type: "object", required: ["name"], properties: { name: { type: "string" } } };
+const generated = createSchemaForm(requiredSchema, { provider: jsonSchemaProvider(), side: "input", generation: {} });
+const generatedField = generated.definition.root.children[0].id;
+const legacy = () => [
+	{
+		code: "legacy",
+		message: "legacy",
+		severity: "error",
+		path: { namespace: "data", segments: ["name"] },
+		source: { origin: "rule", validatorId: "legacy" },
+	},
+];
+const composed = createSchemaForm(requiredSchema, {
+	provider: jsonSchemaProvider(),
+	side: "input",
+	generation: {},
+	validators: [legacy],
+	fieldValidators: [
+		{ fieldId: generatedField, validate: () => [{ code: "owned", message: "owned", severity: "error" }] },
+	],
+});
+for (const runtime of [
+	composed.createForm({ initialData: { name: 1 } }),
+	composed.createDeferredForm({ initialData: { name: 1 } }),
+]) {
+	if ("activate" in runtime) runtime.activate();
+	const instance = "form" in runtime ? runtime.form : runtime;
+	assert.deepEqual(
+		instance.validate().map((entry) => entry.code),
+		["json-schema.type", "legacy", "owned"],
+	);
+	instance.dispose();
+}
+assert.throws(() => composed.createForm({ validators: composed.validators }), /only once/);
+let composedHook;
+function ComposedHook() {
+	composedHook = useSchemaForm(requiredSchema, {
+		provider: jsonSchemaProvider(),
+		side: "input",
+		generation: {},
+		initialData: { name: 1 },
+		validators: [legacy],
+		fieldValidators: [
+			{ fieldId: generatedField, validate: () => [{ code: "owned", message: "owned", severity: "error" }] },
+		],
+	}).form;
+	return null;
+}
+renderToString(createElement(ComposedHook));
+assert.deepEqual(
+	composedHook.validate().map((entry) => entry.code),
+	["json-schema.type", "legacy", "owned"],
+);
+composedHook.dispose();
 form.dispose();
 deferredRuntime.form.dispose();
 deferred.dispose();

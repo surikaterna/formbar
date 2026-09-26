@@ -25,6 +25,7 @@ export { createActionExecutor } from "./action-executor.js";
 export type * from "./bindings.js";
 export type * from "./computations.js";
 export type * from "./definition.js";
+export type { FieldIssueInput, FieldValidationBinding, FieldValidationTarget } from "./field-validation.js";
 export type {
 	DefinitionDiagnostic,
 	DefinitionDiagnosticCode,

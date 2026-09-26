@@ -1,9 +1,8 @@
 import type { FormApi, FormStateCapture } from "@formbar/core";
 import type { ScopedAsyncField, ScopedAsyncHost } from "@formbar/core/internal/scoped-sync";
-import type { ScopedFieldIssueInput, ScopedValidationInput } from "@formbar/core/internal/scoped-sync";
-import type { AbsoluteBinding } from "./bindings.js";
+import type { ScopedValidationInput } from "@formbar/core/internal/scoped-sync";
 import type { ValidatedFormDefinition } from "./definition.js";
-import type { RuntimeNodeInstance } from "./runtime-contracts.js";
+import type { FieldIssueInput, FieldValidationTarget } from "./field-validation.js";
 import { projectConcreteOwnership } from "./runtime-ownership.js";
 import type { ConcreteOwner } from "./runtime-ownership.js";
 import { overlappingOwners } from "./scoped-async-overlaps.js";
@@ -18,11 +17,11 @@ export interface DefinitionAsyncFieldValidator<TData, TUi> {
 	readonly validate: (context: {
 		readonly data: Readonly<TData>;
 		readonly uiState: Readonly<TUi>;
-		readonly field: { readonly instance: RuntimeNodeInstance; readonly binding: AbsoluteBinding };
+		readonly field: FieldValidationTarget;
 		readonly signal: AbortSignal;
 		readonly stage?: string;
 		readonly context?: import("@formbar/core").SubmitContext;
-	}) => Promise<readonly ScopedFieldIssueInput[]>;
+	}) => Promise<readonly FieldIssueInput[]>;
 }
 
 function validateEntries<TData, TUi>(
@@ -56,7 +55,7 @@ function asyncValidator<TData, TUi>(entry: DefinitionAsyncFieldValidator<TData, 
 			.validate({
 				data: input.data as Readonly<TData>,
 				uiState: input.uiState as Readonly<TUi>,
-				field: { instance: owner.instance, binding: owner.binding },
+				field: { instance: owner.instance, binding: { namespace: "data", segments: owner.binding.segments } },
 				signal: input.signal,
 				...(input.stage === undefined ? {} : { stage: input.stage }),
 				...(input.context ? { context: input.context } : {}),

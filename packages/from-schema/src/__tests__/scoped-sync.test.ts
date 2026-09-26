@@ -134,6 +134,44 @@ describe("prepared definition scoped sync", () => {
 		}
 	});
 
+	it("exposes only host-authored typed issues, never caller issue metadata", () => {
+		const field = {
+			version: 1 as const,
+			id: "one",
+			root: {
+				type: "field" as const,
+				id: "leaf",
+				widget: "text",
+				binding: { namespace: "data", segments: ["a.b"] },
+			},
+		};
+		const prepare = (validate: () => readonly unknown[]) =>
+			createSchemaForm(
+				{},
+				{
+					provider: jsonSchemaProvider(),
+					side: "input",
+					definition: field,
+					fieldValidators: [{ fieldId: "leaf", validate: validate as never }],
+				},
+			).createForm({ initialData: { "a.b": "x" } });
+		const owned = prepare(() => [{ code: "bad", message: "bad", severity: "error" }]);
+		const [issue] = owned.validate("review");
+		expect(issue).toMatchObject({ stage: "review", path: { namespace: "data", segments: ["a.b"] } });
+		expect(Object.isFrozen(issue)).toBe(true);
+		owned.dispose();
+		for (const extra of [
+			{ source: "scoped" },
+			{ path: { namespace: "data", segments: ["a.b"] } },
+			{ descendant: [0] },
+			{ descendant: ["missing"] },
+		]) {
+			const form = prepare(() => [{ code: "bad", message: "bad", severity: "error", ...extra }]);
+			expect(() => form.validate()).toThrow();
+			form.dispose();
+		}
+	});
+
 	it("invokes a hidden conditional branch and rejects shared field bindings", () => {
 		const branch = {
 			version: 1 as const,

@@ -1,4 +1,3 @@
-import { createForm } from "@formbar/core";
 import { jsonSchemaProvider, standardSchemaProvider } from "@formbar/from-schema";
 import { useForm } from "@formbar/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,11 +32,11 @@ describe("useSchemaForm preparation-only API", () => {
 		expect(vi.mocked(useForm).mock.calls[0]?.[0]).toMatchObject({ initialData: { name: "Ada" } });
 	});
 
-	it("keeps source validation and caller validators independent", () => {
+	it("leaves prepared JSON validators to the factory, not core options", () => {
 		const validator = vi.fn(() => []);
 		useSchemaForm({ type: "string" }, { provider: jsonSchemaProvider(), side: "input", validators: [validator] });
 		const options = vi.mocked(useForm).mock.calls[0]?.[0];
-		expect(options?.validators).toEqual([expect.any(Function), validator]);
+		expect(options?.validators).toBeUndefined();
 		expect(options).not.toHaveProperty("schema");
 	});
 
@@ -68,11 +67,15 @@ describe("useSchemaForm preparation-only API", () => {
 				expect.objectContaining({ channel: "compilation", code: "duplicate-option" }),
 			]),
 		);
-		expect(vi.mocked(useForm).mock.calls[0]?.[0].validators).toHaveLength(1);
+		expect(vi.mocked(useForm).mock.calls[0]?.[0].validators).toBeUndefined();
 	});
 
 	it("installs the retained source validator through the executable validators path", () => {
-		vi.mocked(useForm).mockImplementation((options) => createForm(options) as never);
+		vi.mocked(useForm).mockImplementation((options, factory) => {
+			const runtime = factory(options);
+			runtime.activate();
+			return runtime.form as never;
+		});
 		const schema = {
 			"~standard": {
 				version: 1 as const,
@@ -95,7 +98,11 @@ describe("useSchemaForm preparation-only API", () => {
 	});
 
 	it("automatically blocks plain JSON submission, composes caller validators and resets current data", async () => {
-		vi.mocked(useForm).mockImplementation((options) => createForm(options) as never);
+		vi.mocked(useForm).mockImplementation((options, factory) => {
+			const runtime = factory(options);
+			runtime.activate();
+			return runtime.form as never;
+		});
 		const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "saved" }));
 		const caller = vi.fn(() => []);
 		const result = useSchemaForm(
