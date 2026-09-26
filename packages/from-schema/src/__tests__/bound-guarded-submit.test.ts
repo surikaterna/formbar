@@ -4,6 +4,7 @@ import { boundSubmitStore, prepareGuardedSubmitCandidate } from "@formbar/core/i
 import { describe, expect, it } from "vitest";
 import { validateGuardedSubmitCandidate } from "../../../core/src/guarded-submit-validation.js";
 import type { PipelineContext } from "../../../core/src/pipeline.js";
+import { runScopedSync } from "../../../core/src/scoped-sync.js";
 import { publishIssueOnly, publishValidationStatus } from "../../../core/src/store.js";
 import type { CandidateEgress } from "../../../core/src/submit-candidate-safety.js";
 import { createValidationCoordinator } from "../../../core/src/validation-coordinator.js";
@@ -217,6 +218,50 @@ describe("#331 real bound guarded candidate", () => {
 		f.form.dispose();
 		competing.form.dispose();
 	});
+
+	it.each(["scoped sync", "foreground"])(
+		"rejects a competing %s generation in beforeSubmit without issue publication",
+		async (lane) => {
+			const f = receiptFixture();
+			let captures = 0;
+			const capture = f.form.captureState;
+			f.form.captureState = () => {
+				captures++;
+				return capture();
+			};
+			const draft = f.form.getState().data;
+			let invalidated = false;
+			let competingCaptures = 0;
+			const result = await f.run({
+				options: {
+					middleware: [
+						{
+							id: "competing-preparation",
+							beforeSubmit: () => {
+								const before = captures;
+								if (lane === "scoped sync") runScopedSync(f.form, f.form.getState().meta.stage);
+								else
+									void f.coordinator
+										.validateCandidate({ data: draft, uiState: f.form.getState().uiState }, f.coordinator.revision())
+										.catch(() => {});
+								competingCaptures = captures - before;
+								invalidated = originalIssueSource(f.original) === undefined;
+								return undefined;
+							},
+						},
+					],
+				},
+			});
+			if (lane === "scoped sync") expect(invalidated).toBe(true);
+			expect(result.ok && result.receipt?.covers(f.original)).not.toBe(true);
+			expect(result.ok && result.receipt?.covers(f.unowned)).not.toBe(true);
+			if (lane === "scoped sync") expect(originalIssueSource(f.original)).toBeUndefined();
+			expect(f.store.getState().issues).toContain(f.original);
+			expect(captures - competingCaptures).toBe(1);
+			expect(f.form.getState().data).toBe(draft);
+			f.form.dispose();
+		},
+	);
 
 	it("rejects changed/reverted owned writes and competing async FINAL generation", async () => {
 		const stale = receiptFixture();

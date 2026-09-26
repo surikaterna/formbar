@@ -345,6 +345,13 @@ export async function validateGuardedSubmitCandidate(
 ): Promise<Outcome> {
 	if (boundForm && form && boundForm !== form) return { ok: false, code: "invalid_witness" };
 	const preflight = boundForm ? beginBoundAttempt(boundForm) : undefined;
+	const generationKey = boundForm ?? form ?? context.store;
+	// Snapshot both generation lanes before preparation can invoke caller hooks or egress.
+	const finalGeneration = finalCandidateGeneration(
+		generationKey,
+		coordinator,
+		() => preparedContext?.current() ?? false,
+	);
 	const prepared = prepareGuardedSubmitCandidate(context, guard, adapter, transforms, boundForm, preflight);
 	if (!prepared.ok) return prepared;
 	const { data, uiState } = prepared.candidate;
@@ -352,8 +359,6 @@ export async function validateGuardedSubmitCandidate(
 	const preparedContext = candidateValidationContext(context, guard, coordinator, data, uiState, revision);
 	if (!preparedContext) return { ok: false, code: "unsafe_candidate" };
 	const { stage, submitContext, current, state } = preparedContext;
-	const generationKey = boundForm ?? form ?? context.store;
-	const finalGeneration = finalCandidateGeneration(generationKey, coordinator, current);
 	const finishReceipt =
 		preflight && prepared.capture && prepared.candidate.plan
 			? preflight.checked(prepared.capture, prepared.candidate.plan, submitId, revision, current)
