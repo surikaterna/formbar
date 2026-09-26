@@ -1,4 +1,4 @@
-import { structuredEqual } from "@formbar/core";
+import { renderableIssues, structuredEqual } from "@formbar/core";
 import type { FormState, ValidationIssue } from "@formbar/core";
 import type {
 	ActionExecutor,
@@ -32,6 +32,7 @@ export interface FormRendererProps<TData = unknown, TUi = unknown>
 }
 
 const summaryFieldIndexes = new WeakMap<RuntimeSnapshot, ReadonlyMap<string, readonly ResolvedFieldState[]>>();
+const noAttemptIssues: readonly ValidationIssue[] = Object.freeze([]);
 
 export function FormRenderer<TData, TUi>(props: FormRendererProps<TData, TUi>): ReactElement {
 	const model = useRendererModel(props);
@@ -108,6 +109,7 @@ function useRendererEnvironment<TData, TUi>(options: EnvironmentOptions<TData, T
 			descriptors: options.props.descriptors,
 			prefix: options.prefix,
 			submitted: options.root.submitted,
+			attemptIssues: options.root.attemptIssues,
 			extensions: options.extensions,
 			repeaters: options.repeaters,
 			extensionFailed,
@@ -120,6 +122,7 @@ function useRendererEnvironment<TData, TUi>(options: EnvironmentOptions<TData, T
 			options.props.descriptors,
 			options.prefix,
 			options.root.submitted,
+			options.root.attemptIssues,
 			options.extensions,
 			options.repeaters,
 			extensionFailed,
@@ -207,6 +210,7 @@ function RegistryDiagnostics(props: { readonly extensions: RendererEnvironment["
 
 interface RootState {
 	readonly issues: readonly ValidationIssue[];
+	readonly attemptIssues: readonly ValidationIssue[];
 	readonly submitted: boolean;
 	readonly validating: boolean;
 	readonly status: "idle" | "running" | "succeeded" | "failed";
@@ -215,7 +219,8 @@ interface RootState {
 
 function selectRootState<TData, TUi>(state: FormState<TData, TUi>): RootState {
 	return {
-		issues: state.issues,
+		issues: renderableIssues(state),
+		attemptIssues: state.attemptValidation?.status === "failed" ? state.attemptValidation.issues : noAttemptIssues,
 		submitted: state.meta.submitted === true,
 		validating: state.meta.validation.validating === true,
 		status: state.meta.submission?.status ?? "idle",

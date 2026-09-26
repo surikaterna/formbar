@@ -1,4 +1,4 @@
-import type { FormApi } from "@formbar/core";
+import type { FormApi, ValidationIssue } from "@formbar/core";
 import type { ActionExecutor, RuntimePort } from "@formbar/declarative";
 import type { DescriptorDocument } from "@formbar/from-schema";
 import type { ExtensionRegistry } from "./extension-registry.js";
@@ -12,6 +12,7 @@ export interface RendererEnvironment {
 	readonly descriptors: DescriptorDocument;
 	readonly prefix: string;
 	readonly submitted: boolean;
+	readonly attemptIssues: readonly ValidationIssue[];
 	readonly extensions: ExtensionRegistry;
 	readonly repeaters: RepeaterCoordinator;
 	readonly repeaterOwner?: RepeaterIdentity;
