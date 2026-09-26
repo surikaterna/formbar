@@ -86,27 +86,13 @@ function fixture() {
 
 const context = { requestId: "integrated", at: "2026-01-01T00:00:00.000Z" };
 
-async function rejectLastPublication({ form, handler }: ReturnType<typeof fixture>) {
-	expect(form.validate("review").some((issue) => issue.code === "hidden")).toBe(true);
-	let wrote = false;
-	const stop = form.subscribe((state) => {
-		if (state.attemptValidation?.status !== "succeeded" || state.meta.validation.validating || wrote) return;
-		wrote = true;
-		form.setValue("name", "Grace");
-	});
-	const stale = await form.submit(context);
-	expect(wrote).toBe(true);
-	expect(stale.ok).toBe(false);
-	expect(handler).not.toHaveBeenCalled();
-	stop();
-	expect(form.getState().data.secret).toBe("draft");
-}
-
-async function rejectIndependentBlockers({ form, store, handler }: ReturnType<typeof fixture>) {
+function stageReview({ store }: ReturnType<typeof fixture>) {
 	const stageTx = store.beginTransaction();
 	stageTx.mutate((state) => ({ ...state, meta: { ...state.meta, stage: "review" } }));
 	store.commitTransaction(stageTx);
+}
 
+function certifiedBlockers({ form, store }: ReturnType<typeof fixture>) {
 	const original = form.validate("review").find((issue) => issue.code === "hidden");
 	if (!original) throw Error("missing certified hidden issue");
 	expect(originalIssueSource(original)).toBeDefined();
@@ -123,19 +109,91 @@ async function rejectIndependentBlockers({ form, store, handler }: ReturnType<ty
 		source: { origin: "rule" as const, validatorId: "root-block" },
 	};
 	publishIssueOnly(store, [original, unowned, root]);
+	return { original, unowned, root };
+}
+
+async function rejectIndependentBlockers(f: ReturnType<typeof fixture>) {
+	const { form, handler } = f;
+	const { original, unowned, root } = certifiedBlockers(f);
+	const draft = form.getState().data;
 	const blocked = await form.submit(context);
 	expect(blocked).toMatchObject({ ok: false, reason: "validation-failed" });
 	expect(blocked.fieldIssues).toEqual(expect.arrayContaining([unowned, root]));
 	expect(blocked.fieldIssues).toHaveLength(2);
 	expect(blocked.fieldIssues).not.toContain(original);
-	expect(form.getState().attemptValidation?.status).toBe("failed");
+	expect(form.getState().attemptValidation).toMatchObject({ status: "failed" });
+	expect(renderableIssues(form.getState())).toHaveLength(3);
 	expect(renderableIssues(form.getState())).toEqual(expect.arrayContaining([original, unowned, root]));
 	expect(form.getState().issues).toContain(original);
+	expect(form.getState().data).toBe(draft);
 	expect(handler).not.toHaveBeenCalled();
-	return form.getState().data;
+	return form.getState().attemptValidation?.submitId;
 }
 
-async function retryChecked({ form, store, handler, seen }: ReturnType<typeof fixture>, draft: unknown) {
+async function supersedeBlockedAttempt(f: ReturnType<typeof fixture>, previousId: string) {
+	const { form, handler } = f;
+	const { original, unowned, root } = certifiedBlockers(f);
+	const publications: { submitId: string; blockers: unknown; renderable: unknown; submission: unknown }[] = [];
+	const succeededIds: string[] = [];
+	let write: ReturnType<typeof form.setValue> | undefined;
+	let writing = false;
+	const stop = form.subscribe((state) => {
+		const attempt = state.attemptValidation;
+		if (attempt?.status === "succeeded" && state.meta.submission?.status === "running") {
+			succeededIds.push(attempt.submitId);
+		}
+		if (attempt?.status !== "failed" || attempt.submitId === previousId || writing) return;
+		if (state.meta.submission?.status !== "running") return;
+		if (!succeededIds.includes(attempt.submitId) || attempt.issues.length !== 0) return;
+		writing = true;
+		publications.push({
+			submitId: attempt.submitId,
+			blockers: state.issues,
+			renderable: renderableIssues(state),
+			submission: state.meta.submission.status,
+		});
+		write = form.setValue("name", "Grace");
+	});
+	const stale = await form.submit(context);
+	stop();
+	assertSupersededBlockers(f, { original, unowned, root }, publications, succeededIds, previousId, write, stale);
+	return { draft: form.getState().data, submitId: publications[0]?.submitId };
+}
+
+function assertSupersededBlockers(
+	{ form, handler }: ReturnType<typeof fixture>,
+	issues: ReturnType<typeof certifiedBlockers>,
+	publications: { submitId: string; blockers: unknown; renderable: unknown; submission: unknown }[],
+	succeededIds: string[],
+	previousId: string,
+	write: ReturnType<ReturnType<typeof fixture>["form"]["setValue"]> | undefined,
+	stale: Awaited<ReturnType<ReturnType<typeof fixture>["form"]["submit"]>>,
+) {
+	const { original, unowned, root } = issues;
+	expect(publications).toHaveLength(1);
+	expect(succeededIds).toEqual([publications[0]?.submitId]);
+	expect(publications[0]).toMatchObject({ submitId: expect.any(String), submission: "running" });
+	expect(publications[0]?.blockers).toHaveLength(3);
+	expect(publications[0]?.renderable).toHaveLength(3);
+	expect(publications[0]?.blockers).toEqual(expect.arrayContaining([original, unowned, root]));
+	expect(publications[0]?.renderable).toEqual(expect.arrayContaining([original, unowned, root]));
+	expect(publications[0]?.submitId).not.toBe(previousId);
+	expect(write).toEqual({ ok: true });
+	expect(stale).toMatchObject({ ok: false });
+	expect(stale.reason).toMatch(/^(validation-superseded|aborted)$/);
+	expect(stale.fieldIssues).toEqual([]);
+	expect(handler).not.toHaveBeenCalled();
+	expect(form.getState().attemptValidation?.submitId).not.toBe(publications[0]?.submitId);
+	expect(form.getState().attemptValidation?.status).not.toBe("failed");
+	expect(renderableIssues(form.getState())).not.toContain(unowned);
+	expect(form.getState().data).toEqual({ secret: "draft", pinned: "keep", name: "Grace" });
+}
+
+async function retryChecked(
+	{ form, store, handler, seen }: ReturnType<typeof fixture>,
+	draft: unknown,
+	previousId: string,
+) {
 	const retryOriginal = form.validate("review").find((issue) => issue.code === "hidden");
 	if (!retryOriginal) throw Error("missing recertified draft issue");
 	expect(originalIssueSource(retryOriginal)).toBeDefined();
@@ -144,6 +202,7 @@ async function retryChecked({ form, store, handler, seen }: ReturnType<typeof fi
 	seen.length = 0;
 	const success = await form.submit(context);
 	expect(success.ok).toBe(true);
+	expect(form.getState().attemptValidation?.submitId).not.toBe(previousId);
 	expect(handler).toHaveBeenCalledTimes(1);
 	const payload = handler.mock.calls[0]?.[0]?.payload;
 	expect(payload).toEqual({ pinned: "keep", name: "Grace" });
@@ -172,8 +231,11 @@ async function retryChecked({ form, store, handler, seen }: ReturnType<typeof fi
 
 test("#233 bound handler retains certified draft while blockers and last-publication writes fail closed", async () => {
 	const f = fixture();
-	await rejectLastPublication(f);
-	const draft = await rejectIndependentBlockers(f);
-	await retryChecked(f, draft);
+	stageReview(f);
+	const firstId = await rejectIndependentBlockers(f);
+	if (!firstId) throw Error("missing first attempt submitId");
+	const { draft, submitId } = await supersedeBlockedAttempt(f, firstId);
+	if (!submitId) throw Error("missing second attempt submitId");
+	await retryChecked(f, draft, submitId);
 	f.form.dispose();
 });
