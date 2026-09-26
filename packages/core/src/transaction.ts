@@ -26,6 +26,7 @@ export class Transaction<TData, TUi> {
 	private _draftState: FormState<TData, TUi>;
 	private _status: "active" | "committed" | "rolled-back" = "active";
 	private _dirty = false;
+	private _semanticMutated = false;
 
 	constructor(currentState: FormState<TData, TUi>, strategy: StateStrategy = defaultStrategy) {
 		const clone = (): FormState<TData, TUi> => {
@@ -69,12 +70,25 @@ export class Transaction<TData, TUi> {
 		return this._dirty;
 	}
 
+	get semanticMutated(): boolean {
+		return this._semanticMutated;
+	}
+
 	/** Apply a mutation to the draft state */
 	mutate(mutator: (draft: FormState<TData, TUi>) => FormState<TData, TUi>): void {
 		if (this._status !== "active") {
 			throw new Error(`Cannot mutate ${this._status} transaction`);
 		}
-		this._draftState = mutator(this._draftState);
+		const before = this._draftState;
+		const after = mutator(before);
+		if (
+			before.data !== after.data ||
+			before.uiState !== after.uiState ||
+			before.fieldPolicy !== after.fieldPolicy ||
+			before.meta.stage !== after.meta.stage
+		)
+			this._semanticMutated = true;
+		this._draftState = after;
 		this._dirty = true;
 	}
 

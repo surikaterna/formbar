@@ -1,6 +1,8 @@
 import { structuredEqual } from "./equality.js";
+import { sameOwnedJson } from "./owned-issue-snapshot.js";
 import type { PipelineContext, PipelineResult } from "./pipeline.js";
 import type { FormState } from "./state.js";
+import { snapshotOwnership } from "./store.js";
 
 export interface SubmitPreparationGuard {
 	readonly signal: AbortSignal;
@@ -29,7 +31,8 @@ export function createCheckpoint(ctx: PipelineContext, guard: SubmitPreparationG
 		valid: () => !failure(),
 		committed: (state, previous) => {
 			// Called after assignment and before subscriber and afterAction callbacks.
-			if (!structuredEqual(previous.data, state.data) || !structuredEqual(previous.uiState, state.uiState)) {
+			const equal = snapshotOwnership(state)?.owned ? sameOwnedJson : structuredEqual;
+			if (!equal(previous.data, state.data) || !equal(previous.uiState, state.uiState)) {
 				guard.onCommittedMutation();
 				expected += 1;
 			}
