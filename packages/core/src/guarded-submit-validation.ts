@@ -1,10 +1,11 @@
 import { beginAttempt, clearAttempt, completeAttempt } from "./attempt-issues.js";
 import type { AsyncValidationResult, FormApi, Middleware, ValidatorFn } from "./contracts.js";
+import { type FinalGeneration, beginFinalGeneration } from "./final-generation.js";
 import { prepareGuardedSubmitCandidate } from "./guarded-submit-candidate.js";
 import { ownIssues } from "./issue-ownership.js";
 import { normalizeValidators } from "./normalize-validators.js";
 import type { PipelineContext } from "./pipeline.js";
-import { runScopedSync } from "./scoped-sync.js";
+import { runScopedSync, runUnscopedFinal, scopedSyncGeneration } from "./scoped-sync.js";
 import type { FormState, FormStateCapture, SubmitContext, ValidationIssue } from "./state.js";
 import type { OwnedMetadata } from "./store-metadata.js";
 import { publishOwnedMetadata } from "./store.js";
@@ -131,6 +132,8 @@ function syncCandidateIssues(
 	signal: AbortSignal,
 	current: () => boolean,
 	capture?: FormStateCapture<unknown, unknown>,
+	finalGeneration?: FinalGeneration,
+	generationKey?: object,
 ): readonly ValidationIssue[] | undefined {
 	const legacy = syncValidation(validators, snapshot.data, snapshot.uiState, stage, context, current);
 	if (!legacy || !current()) return;
@@ -141,8 +144,11 @@ function syncCandidateIssues(
 				signal,
 				current,
 				...(capture ? { capture } : {}),
+				...(finalGeneration ? { finalGeneration } : {}),
 			})
 		: [];
+	if (!form && finalGeneration && generationKey) runUnscopedFinal(generationKey, finalGeneration);
+	if (!current()) return;
 	return normalizeIssues(ownIssues([...legacy, ...scoped]));
 }
 
@@ -170,6 +176,7 @@ async function completeValidation(
 	current: () => boolean,
 	sync: readonly ValidationIssue[],
 	capture?: FormStateCapture<unknown, unknown>,
+	finalGeneration?: FinalGeneration,
 ): Promise<Outcome> {
 	publish(context, { kind: "beginAttempt", submitId, revision }, (draft) => beginAttempt(draft, submitId, revision));
 	if (!current() || context.store.getState().attemptValidation?.submitId !== submitId) {
@@ -182,6 +189,7 @@ async function completeValidation(
 			...(stage === undefined ? {} : { stage }),
 			...(submitContext ? { context: submitContext } : {}),
 			...(capture ? { capture } : {}),
+			...(finalGeneration ? { finalGeneration } : {}),
 		});
 	} catch (error) {
 		if (error instanceof Error && error.message === "ISSUE_ONLY_UNSUPPORTED_STATE") {
@@ -190,7 +198,7 @@ async function completeValidation(
 		}
 		asyncResult = { status: "aborted", issues: [] };
 	}
-	if (!current() || asyncResult.status !== "completed") {
+	if (!current() || asyncResult.status !== "completed" || (finalGeneration && !finalGeneration.current())) {
 		clearPublication(context, submitId);
 		return { ok: false, code: asyncResult.status === "aborted" ? "aborted" : "stale" };
 	}
@@ -198,6 +206,10 @@ async function completeValidation(
 		publish(context, { kind: "completeAttempt", submitId, revision, result: asyncResult, syncIssues: sync }, (draft) =>
 			completeAttempt(draft, submitId, revision, asyncResult, sync),
 		);
+	if (finalGeneration && !finalGeneration.current()) {
+		clearPublication(context, submitId);
+		return { ok: false, code: "stale" };
+	}
 	return completedAttemptOutcome(context, submitId, current);
 }
 
@@ -249,11 +261,23 @@ function candidateSyncResult(
 	submitContext: SubmitContext | undefined,
 	signal: AbortSignal,
 	current: () => boolean,
+	finalGeneration?: FinalGeneration,
 ): CandidateSyncResult | undefined {
 	try {
 		const validators = normalizeValidators(context.options);
 		const capture = form?.captureState();
-		const sync = syncCandidateIssues(form, validators, snapshot, stage, submitContext, signal, current, capture);
+		const sync = syncCandidateIssues(
+			form,
+			validators,
+			snapshot,
+			stage,
+			submitContext,
+			signal,
+			current,
+			capture,
+			finalGeneration,
+			form ?? context.store,
+		);
 		return sync ? { sync, capture } : undefined;
 	} catch {
 		return;
@@ -277,14 +301,30 @@ export async function validateGuardedSubmitCandidate(
 	const preparedContext = candidateValidationContext(context, guard, coordinator, data, uiState, revision);
 	if (!preparedContext) return { ok: false, code: "unsafe_candidate" };
 	const { stage, submitContext, current, state } = preparedContext;
+	const generationKey = form ?? context.store;
+	const finalGeneration = beginFinalGeneration(
+		() => scopedSyncGeneration(generationKey),
+		coordinator.foregroundRevision,
+		current,
+	);
 	const middleware = (context.options.middleware ?? []) as readonly Middleware[];
 	if (!current() || !notify(middleware, "beforeValidate", context.action, state, [], current))
 		return { ok: false, code: "stale" };
-	const syncResult = candidateSyncResult(context, form, { data, uiState }, stage, submitContext, guard.signal, current);
+	const syncResult = candidateSyncResult(
+		context,
+		form,
+		{ data, uiState },
+		stage,
+		submitContext,
+		guard.signal,
+		current,
+		finalGeneration,
+	);
 	if (!syncResult || !current()) return { ok: false, code: "unsafe_candidate" };
+	if (!finalGeneration.syncCurrent()) return { ok: false, code: "stale" };
 	const { sync, capture } = syncResult;
 	if (!notify(middleware, "afterValidate", context.action, state, sync, current)) return { ok: false, code: "stale" };
-	if (!current()) return { ok: false, code: "stale" };
+	if (!finalGeneration.syncCurrent()) return { ok: false, code: "stale" };
 	return completeValidation(
 		context,
 		guard,
@@ -298,5 +338,6 @@ export async function validateGuardedSubmitCandidate(
 		current,
 		sync,
 		capture,
+		finalGeneration,
 	);
 }

@@ -1,6 +1,31 @@
+import { canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
 import type { NormalizedValidator } from "./async-validator-normalization.js";
 import type { AbsoluteDataPath } from "./field-policy.js";
+import { ownIssues } from "./issue-ownership.js";
 import type { ScopedForeground } from "./scoped-async-scheduler.js";
+import type { SubmitContext, ValidationIssue } from "./state.js";
+
+export async function executeValidator<TData, TUi>(
+	validator: NormalizedValidator<TData, TUi>,
+	snapshot: { readonly data: TData; readonly uiState: TUi },
+	token: RunToken,
+	options: { readonly stage?: string; readonly context?: SubmitContext } | undefined,
+	isCurrent: () => boolean,
+	owned: () => boolean,
+): Promise<readonly ValidationIssue[]> {
+	let issues: readonly ValidationIssue[];
+	try {
+		issues = await validator.config.validate({
+			...snapshot,
+			signal: token.controller.signal,
+			...(options?.stage === undefined ? {} : { stage: options.stage }),
+			...(options?.context ? { context: options.context } : {}),
+		});
+	} catch (error) {
+		return isCurrent() ? [exceptionIssue(validator, error)] : [];
+	}
+	return ownIssues(issues).map((issue) => canonicalizeIssue(issue, validator.config.id, owned()));
+}
 
 export type Cancellation = "superseded" | "aborted";
 

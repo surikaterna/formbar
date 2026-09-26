@@ -1,12 +1,13 @@
-import { automaticFailureIssue, canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
+import { automaticFailureIssue } from "./async-issue-adapter.js";
 import { type NormalizedValidator, normalizeAsyncValidators } from "./async-validator-normalization.js";
 import type { AsyncValidationResult } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
+import type { FinalGeneration } from "./final-generation.js";
 import { ownIssues } from "./issue-ownership.js";
 import { ownedSemanticGuard } from "./owned-semantic-guard.js";
 import type { ScopedForeground } from "./scoped-async-scheduler.js";
 import { publishCoordinatorForeground } from "./scoped-foreground-publication.js";
-import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
+import type { ValidationIssue } from "./state.js";
 import { snapshotOwnership } from "./store.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
 import type { CoordinatorDeps } from "./validation-coordinator-deps.js";
@@ -14,6 +15,7 @@ import {
 	type Cancellation,
 	type RunToken,
 	createToken,
+	executeValidator,
 	isSettledCurrent,
 	nextValidatorGeneration,
 	prepareForegroundScope,
@@ -40,8 +42,12 @@ export interface ValidationCoordinator<TData, TUi> {
 		snapshot: { readonly data: TData; readonly uiState: TUi },
 		expectedRevision: number,
 		signal?: AbortSignal,
-		options?: Parameters<NonNullable<CoordinatorDeps<TData, TUi>["runScopedCandidate"]>>[3],
+		options?: Parameters<NonNullable<CoordinatorDeps<TData, TUi>["runScopedCandidate"]>>[3] & {
+			readonly finalGeneration?: FinalGeneration;
+		},
 	): Promise<AsyncValidationResult>;
+	/** Internal read-only per-form foreground generation. */
+	readonly foregroundRevision: () => number;
 	reset(): void;
 	dispose(): void;
 }
@@ -63,6 +69,7 @@ class ValidationRuntime<TData, TUi> {
 	api(): ValidationCoordinator<TData, TUi> {
 		return {
 			revision: () => this.currentRevision,
+			foregroundRevision: () => this.foregroundGeneration,
 			onMutation: (path, event) => this.onMutation(path, event),
 			onBlur: (path) => this.trigger(path, "onBlur", false),
 			validate: (scope, signal) => this.validate(scope, signal),
@@ -103,12 +110,10 @@ class ValidationRuntime<TData, TUi> {
 		token.resolveCancellation(reason);
 		this.detach(token);
 	}
-
 	private cancelAll(reason: Cancellation, project = true): void {
 		for (const token of [...this.active]) this.cancel(token, reason);
 		if (project) this.projectValidating();
 	}
-
 	private replaceIssues(ids: ReadonlySet<string>, issues: readonly ValidationIssue[]): void {
 		if (this.deps.replaceAsyncIssues) {
 			this.deps.replaceAsyncIssues(ids, issues);
@@ -125,28 +130,21 @@ class ValidationRuntime<TData, TUi> {
 		}));
 	}
 
-	private async executeValidator(
+	private executeValidator(
 		validator: NormalizedValidator<TData, TUi>,
 		snapshot: { readonly data: TData; readonly uiState: TUi },
 		token: RunToken,
-		options?: { readonly stage?: string; readonly context?: SubmitContext },
-	): Promise<readonly ValidationIssue[]> {
-		let issues: readonly ValidationIssue[];
-		try {
-			issues = await validator.config.validate({
-				...snapshot,
-				signal: token.controller.signal,
-				...(options?.stage === undefined ? {} : { stage: options.stage }),
-				...(options?.context ? { context: options.context } : {}),
-			});
-		} catch (error) {
-			if (!this.isCurrent(token)) return [];
-			return [exceptionIssue(validator, error)];
-		}
-		const owned = snapshotOwnership(this.deps.getState())?.owned === true;
-		return ownIssues(issues).map((issue) => canonicalizeIssue(issue, validator.config.id, owned));
+		options?: { readonly stage?: string; readonly context?: import("./state.js").SubmitContext },
+	) {
+		return executeValidator(
+			validator,
+			snapshot,
+			token,
+			options,
+			() => this.isCurrent(token),
+			() => snapshotOwnership(this.deps.getState())?.owned === true,
+		);
 	}
-
 	private async runAutomatic(token: RunToken, validator: NormalizedValidator<TData, TUi>): Promise<void> {
 		const state = this.deps.getState();
 		const snapshot = { data: state.data, uiState: state.uiState };
@@ -166,6 +164,7 @@ class ValidationRuntime<TData, TUi> {
 	}
 
 	private schedule(validator: NormalizedValidator<TData, TUi>, triggerPath: AbsoluteDataPath): void {
+		this.foregroundGeneration++;
 		const id = validator.config.id;
 		const existing = this.automatic.get(id);
 		if (existing) this.cancel(existing, "superseded");
@@ -240,7 +239,9 @@ class ValidationRuntime<TData, TUi> {
 		expectedRevision: number,
 		signal?: AbortSignal,
 		scope?: DataPathInput,
-		options?: Parameters<NonNullable<CoordinatorDeps<TData, TUi>["runScopedCandidate"]>>[3],
+		options?: Parameters<NonNullable<CoordinatorDeps<TData, TUi>["runScopedCandidate"]>>[3] & {
+			readonly finalGeneration?: FinalGeneration;
+		},
 		candidate = false,
 		includeScoped = false,
 	): Promise<AsyncValidationResult> {
@@ -252,10 +253,13 @@ class ValidationRuntime<TData, TUi> {
 		if (candidate && this.disposed) return { status: "aborted", issues: [] };
 		if (candidate && expectedRevision !== this.currentRevision) return { status: "superseded", issues: [] };
 		if (candidateScoped && !runCandidate) throw new Error("Missing scoped FINAL runner");
-		if (selected.length === 0 && !includeScoped && !candidateScoped) return { status: "completed", issues: [] };
+		if (selected.length === 0 && !includeScoped && !candidateScoped && !candidate)
+			return { status: "completed", issues: [] };
 		const semanticCurrent = ownedSemanticGuard(this.deps.getState);
 		const paths = [...selected.flatMap((validator) => validator.fields), ...(scope ? [normalizeDataPath(scope)] : [])];
 		const token = this.startForeground(selected, paths);
+		if (options?.finalGeneration && !options.finalGeneration.async.begin(this.foregroundGeneration))
+			return this.staleForeground(token);
 		const scoped = prepareForegroundScope(
 			token,
 			() => (includeScoped ? this.deps.prepareScopedForeground?.(scope, token.controller.signal, snapshot) : undefined),
@@ -282,7 +286,9 @@ class ValidationRuntime<TData, TUi> {
 		]);
 		const outcome = await this.awaitForeground(validation, token, signal, abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
-		return this.completeForeground(token, outcome, scoped, candidate, signal, semanticCurrent);
+		const result = this.completeForeground(token, outcome, scoped, candidate, signal, semanticCurrent);
+		if (result.status === "completed") options?.finalGeneration?.async.settle(this.foregroundGeneration);
+		return result;
 	}
 
 	private completeForeground(
@@ -343,6 +349,7 @@ class ValidationRuntime<TData, TUi> {
 		const selected = selectValidators(this.validators, path, event);
 		if (mutate) {
 			this.currentRevision += 1;
+			this.foregroundGeneration++;
 			if (this.foreground) this.cancel(this.foreground, "superseded");
 			this.rescheduleUnrelated(new Set(selected.map((validator) => validator.config.id)));
 		}
@@ -356,6 +363,7 @@ class ValidationRuntime<TData, TUi> {
 			return;
 		}
 		this.currentRevision += 1;
+		this.foregroundGeneration++;
 		this.cancelAll("superseded");
 	}
 
@@ -379,6 +387,7 @@ class ValidationRuntime<TData, TUi> {
 		if (project) this.disposed = true;
 		this.lifecycle += 1;
 		this.currentRevision += 1;
+		this.foregroundGeneration++;
 		this.cancelAll("aborted", project);
 	}
 }

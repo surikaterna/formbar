@@ -106,6 +106,54 @@ function fixture(
 }
 
 describe("internal final candidate validator orchestration", () => {
+	it("rejects a completed competing foreground with identical candidate bytes and issues", async () => {
+		let finish!: (issues: ReturnType<typeof issue>[]) => void;
+		const pending = new Promise<ReturnType<typeof issue>[]>((resolve) => {
+			finish = resolve;
+		});
+		const setup = fixture([], [], [{ id: "same", validate: () => pending }]);
+		const run = setup.run();
+		await Promise.resolve();
+		const competing = setup.coordinator.validateCandidate({ data: { included: "Ada" }, uiState: { tab: 1 } }, 0);
+		finish([issue("same")]);
+		await competing;
+		expect(await run).toMatchObject({ ok: false, code: "stale" });
+		expect(setup.store.getState().attemptValidation).toBeUndefined();
+	});
+
+	it("records its own unscoped zero-async transition without silently dropping a completed result", async () => {
+		const setup = fixture();
+		expect(await setup.run()).toMatchObject({ ok: true, issues: [] });
+		expect(setup.store.getState().attemptValidation?.status).toBe("succeeded");
+	});
+
+	it("rejects reentrant unscoped sync even when the competitor finishes with the same candidate", async () => {
+		let competitor: Promise<unknown> | undefined;
+		const setup = fixture(
+			[],
+			[
+				() => {
+					if (!competitor) competitor = setup.run();
+					return [];
+				},
+			],
+		);
+		expect(await setup.run()).toMatchObject({ ok: false });
+		expect(await competitor).toMatchObject({ ok: false });
+	});
+
+	it("rejects a competing foreground started by the successful issue notification", async () => {
+		const setup = fixture();
+		let competitor: ReturnType<typeof setup.coordinator.validateCandidate> | undefined;
+		const stop = setup.store.subscribe((state) => {
+			if (state.attemptValidation?.status === "succeeded" && !competitor) {
+				competitor = setup.coordinator.validateCandidate({ data: { included: "Ada" }, uiState: { tab: 1 } }, 0);
+			}
+		});
+		expect(await setup.run()).toMatchObject({ ok: false, code: "stale" });
+		expect(await competitor).toMatchObject({ status: "superseded", issues: [] });
+		stop();
+	});
 	it("runs scoped FINAL on outgoing bytes beside sync errors and legacy async without touching retained draft", async () => {
 		const seen: unknown[] = [];
 		const options = {

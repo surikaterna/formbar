@@ -1,5 +1,6 @@
 import type { FormApi } from "./contracts.js";
 import { structuredEqual } from "./equality.js";
+import type { FinalGeneration } from "./final-generation.js";
 import { createIssueEmission } from "./issue-provenance.js";
 import type { CanonicalSegment } from "./path.js";
 import type { FormStateCapture, IssueSeverity, SubmitContext, ValidationIssue } from "./state.js";
@@ -57,6 +58,18 @@ export function invalidateScopedSync(form: object): void {
 
 export function scopedLifecycleRevision(form: object): number {
 	return lifecycles.get(form) ?? 0;
+}
+
+export function scopedSyncGeneration(form: object): number {
+	return generations.get(form) ?? 0;
+}
+
+/** Explicitly record an unscoped FINAL invocation, rather than treating absence as proof. */
+export function runUnscopedFinal(form: object, finalGeneration: FinalGeneration): void {
+	const generation = scopedSyncGeneration(form) + 1;
+	generations.set(form, generation);
+	if (!finalGeneration.sync.begin(generation)) throw new Error("Stale unscoped FINAL generation");
+	finalGeneration.sync.settle(generation);
 }
 
 /** Attempt metadata may replace the whole state; ownership inputs must not change. */
@@ -196,14 +209,21 @@ export function runScopedSync<TData, TUi>(
 		readonly signal?: AbortSignal;
 		readonly current: () => boolean;
 		readonly capture?: FormStateCapture<TData, TUi>;
+		readonly finalGeneration?: FinalGeneration;
 	},
 ): readonly ValidationIssue[] {
 	const host = hosts.get(form) as unknown as ScopedSyncHost<TData, TUi> | undefined;
-	if (!host) return [];
+	if (!host && !options?.finalGeneration) return [];
+	const generation = scopedSyncGeneration(form) + 1;
+	generations.set(form, generation);
+	if (options?.finalGeneration && !options.finalGeneration.sync.begin(generation))
+		throw new Error("Stale FINAL sync generation");
+	if (!host) {
+		options?.finalGeneration?.sync.settle(generation);
+		return [];
+	}
 	const capture = options?.capture ?? form.captureState();
 	const lifecycle = scopedLifecycleRevision(form);
-	const generation = (generations.get(form) ?? 0) + 1;
-	generations.set(form, generation);
 	const projection = host.instances(form, capture, stage, options?.context);
 	const snapshot = options?.snapshot ?? capture.state;
 	const current = () =>
@@ -229,5 +249,7 @@ export function runScopedSync<TData, TUi>(
 		});
 		for (const issue of fieldIssues) issues.push(issue);
 	}
+	if (!current()) throw new Error("Stale scoped sync result");
+	options?.finalGeneration?.sync.settle(generation);
 	return issues;
 }
