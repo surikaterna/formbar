@@ -38,6 +38,7 @@ export interface ResolvedNodeState {
 
 export interface ResolvedFieldState extends ResolvedNodeState {
 	readonly type: "field";
+	readonly submitWhenHidden?: "include";
 	readonly binding: AbsoluteBinding;
 	readonly value?: JsonValue;
 	readonly issues: readonly ValidationIssue[];

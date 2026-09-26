@@ -12,7 +12,7 @@ const BASE_KEYS = ["id", "type", "visible", "disabled", "readOnly", "presentatio
 const KEYS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	group: ["label", "children"],
 	section: ["title", "description", "children"],
-	field: ["binding", "widget", "label", "required", "props"],
+	field: ["binding", "widget", "label", "required", "props", "submitWhenHidden"],
 	repeater: ["binding", "scope", "label", "children", "minItems", "maxItems"],
 	action: ["action", "label", "payload", "concurrency", "target", "props"],
 	output: ["value", "label", "format", "props"],
@@ -119,6 +119,9 @@ function fieldNode(
 	const label = optionalString(source.label, [...path, "label"], context);
 	const required = optionalExpression(source.required, [...path, "required"], context);
 	const definitions = props(source.props, [...path, "props"], context.scopes, context);
+	const submitWhenHidden = source.submitWhenHidden;
+	if (submitWhenHidden !== undefined && submitWhenHidden !== "include")
+		diagnostic(context, "invalid-type", [...path, "submitWhenHidden"], "Expected include.");
 	if (!target || !widget) return undefined;
 	return Object.freeze({
 		...base,
@@ -128,6 +131,7 @@ function fieldNode(
 		...(label === undefined ? {} : { label }),
 		...(required ? { required } : {}),
 		...(definitions ? { props: definitions } : {}),
+		...(submitWhenHidden === "include" ? { submitWhenHidden } : {}),
 	});
 }
 

@@ -31,6 +31,7 @@ export function resolveFieldState(options: ResolveFieldStateOptions): ResolvedFi
 	return Object.freeze({
 		...options.nodeState,
 		type: "field",
+		...(options.node.submitWhenHidden === "include" ? { submitWhenHidden: "include" as const } : {}),
 		binding: options.binding as AbsoluteBinding,
 		...(value === undefined ? {} : { value }),
 		issues,
