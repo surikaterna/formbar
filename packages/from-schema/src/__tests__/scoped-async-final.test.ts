@@ -64,7 +64,7 @@ test("FINAL fans out typed nested instances on candidate bytes without debouncin
 		const result = await runScopedCandidate(
 			form,
 			{ data, uiState: form.getState().uiState },
-			undefined,
+			"review",
 			{ requestId: "final", at: "now" },
 			new AbortController().signal,
 			0,
@@ -76,13 +76,7 @@ test("FINAL fans out typed nested instances on candidate bytes without debouncin
 		]);
 		expect(result.map(issueEmissionId).every(Boolean)).toBe(true);
 		expect(seen).toHaveLength(2);
-		expect(seen[0]).toMatchObject([
-			data,
-			{ tab: 1 },
-			["a.b", 0, "0", 0, "deep.key"],
-			undefined,
-			{ requestId: "final" },
-		]);
+		expect(seen[0]).toMatchObject([data, { tab: 1 }, ["a.b", 0, "0", 0, "deep.key"], "review", { requestId: "final" }]);
 		expect(form.getState().data["a.b"][0]?.["0"][0]?.["deep.key"]).toBe("a");
 		form.reset({ data: { "a.b": [] } });
 		expect(

@@ -269,3 +269,38 @@ test("nested repeater object fields retain numeric indices and string keys", () 
 		form.dispose();
 	}
 });
+
+test("generated object field certifies only an existing typed child in draft sync and async", async () => {
+	const schema = {
+		type: "object",
+		properties: {
+			profile: { type: "object", "x-formbar": { widget: "text" }, properties: { "0": { type: "string" } } },
+		},
+	};
+	const generated = createSchemaForm(schema, { provider: jsonSchemaProvider(), side: "input", generation: {} });
+	const root = generated.definition.root;
+	if (root.type !== "group") throw new Error("Missing generated group");
+	const field = root.children.find((node) => node.type === "field" && node.binding.segments[0] === "profile");
+	if (!field || field.type !== "field") throw new Error("Missing generated object field");
+	const prepared = createSchemaForm(schema, {
+		provider: jsonSchemaProvider(),
+		side: "input",
+		generation: {},
+		fieldValidators: [{ fieldId: field.id, validate: () => [child(["0"])] }],
+		asyncFieldValidators: [{ id: "profile-child", fieldId: field.id, validate: async () => [child(["0"])] }],
+	});
+	const form = prepared.createForm({ initialData: { profile: { "0": "yes", other: "unknown" } } });
+	try {
+		const owner = projectConcreteOwnership({ form, definition: prepared.definition, capture: form.captureState() });
+		expect(owner.forField(field.id)?.[0]?.eligible).toBe(false);
+		const sync = form.validate()[0];
+		expect(sync?.path.segments).toEqual(["profile", "0"]);
+		expect(sync && issueEmissionId(sync)).toBeTruthy();
+		const asyncIssues = await form.validateAsync();
+		const asyncIssue = asyncIssues.issues.find((issue) => issue.code === "child");
+		expect(asyncIssue?.path.segments).toEqual(["profile", "0"]);
+		expect(asyncIssue && issueEmissionId(asyncIssue)).toBeTruthy();
+	} finally {
+		form.dispose();
+	}
+});
