@@ -1,18 +1,9 @@
 const assert = require("node:assert/strict");
 const { JSDOM } = require("jsdom");
 
-async function runRenderer(api, format) {
-	const { React, renderToString, useSchemaForm, FormRenderer } = api;
+function rendererDefinition() {
 	const path = (key) => ({ namespace: "data", segments: [key] });
-	const schema = {
-		type: "object",
-		properties: {
-			show: { type: "boolean" },
-			secret: { type: "string" },
-			name: { type: "string" },
-		},
-	};
-	const definition = {
+	return {
 		version: 1,
 		id: "packed-omit",
 		submission: { hiddenValues: "omit-inactive" },
@@ -31,9 +22,17 @@ async function runRenderer(api, format) {
 			],
 		},
 	};
-	const forms = [];
-	const sent = [];
-	function App() {
+}
+
+function rendererApp(api, forms, sent) {
+	const { React, useSchemaForm, FormRenderer } = api;
+	const path = (key) => ({ namespace: "data", segments: [key] });
+	const schema = {
+		type: "object",
+		properties: { show: { type: "boolean" }, secret: { type: "string" }, name: { type: "string" } },
+	};
+	const definition = rendererDefinition();
+	return function App() {
 		const prepared = useSchemaForm(schema, {
 			provider: api.jsonSchemaProvider(),
 			side: "input",
@@ -62,11 +61,11 @@ async function runRenderer(api, format) {
 		});
 		forms.push(prepared.form);
 		return React.createElement(FormRenderer, prepared);
-	}
-	const html = renderToString(React.createElement(App));
-	assert.match(html, /Ada/);
-	assert.doesNotMatch(html, /data-formbar-node="secret"/);
-	for (const form of forms.splice(0)) form.dispose();
+	};
+}
+
+async function hydrate(api, App, html) {
+	const { React } = api;
 	const dom = new JSDOM(`<!doctype html><div id="app">${html}</div>`, { url: "http://localhost/" });
 	Object.assign(globalThis, {
 		window: dom.window,
@@ -83,6 +82,19 @@ async function runRenderer(api, format) {
 	});
 	assert.deepEqual(errors, []);
 	assert.equal(container.querySelector("input").value, "Ada");
+	return { dom, container, root };
+}
+
+async function runRenderer(api, format) {
+	const { React, renderToString } = api;
+	const forms = [];
+	const sent = [];
+	const App = rendererApp(api, forms, sent);
+	const html = renderToString(React.createElement(App));
+	assert.match(html, /Ada/);
+	assert.doesNotMatch(html, /data-formbar-node="secret"/);
+	for (const form of forms.splice(0)) form.dispose();
+	const { dom, container, root } = await hydrate(api, App, html);
 	const form = forms.at(-1);
 	await React.act(async () => {
 		assert.equal((await form.submit()).ok, false);

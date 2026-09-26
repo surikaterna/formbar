@@ -98,34 +98,45 @@ async function ownership(api) {
 	}
 }
 
-async function nested(api) {
-	const schema = {
-		type: "object",
-		properties: {
-			show: { type: "boolean" },
-			groups: {
-				type: "array",
-				items: {
-					type: "object",
-					properties: {
-						id: { type: "string" },
-						rows: {
-							type: "array",
-							items: {
-								type: "object",
-								properties: {
-									secret: { type: "string" },
-									kept: { type: "string" },
-									id: { type: "string" },
-									name: { type: "string" },
-								},
-							},
-						},
-					},
-				},
-			},
-		},
+function nestedSchema() {
+	const object = (properties) => ({ type: "object", properties });
+	const array = (items) => ({ type: "array", items });
+	const row = object(Object.fromEntries(["secret", "kept", "id", "name"].map((key) => [key, { type: "string" }])));
+	return object({ show: { type: "boolean" }, groups: array(object({ id: { type: "string" }, rows: array(row) })) });
+}
+
+function nestedData() {
+	return {
+		show: false,
+		groups: [0, 1].map((outer) => ({
+			id: `outer-${outer}`,
+			rows: [0, 1].map((inner) => ({
+				id: `inner-${inner}`,
+				secret: `s${outer}${inner}`,
+				kept: `k${outer}${inner}`,
+				name: `n${outer}${inner}`,
+			})),
+		})),
 	};
+}
+
+function nestedPlugin(data) {
+	return {
+		id: "arbiter",
+		evaluate: ({ data: current }) => ({
+			fieldPolicy: current.show
+				? []
+				: data.groups.flatMap((group, outer) =>
+						group.rows.flatMap((_, inner) =>
+							["secret", "kept"].map((key) => ({ path: `groups.${outer}.rows.${inner}.${key}`, visible: false })),
+						),
+					),
+		}),
+	};
+}
+
+async function nested(api) {
+	const schema = nestedSchema();
 	const generated = api.createSchemaForm(schema, provider(api));
 	function find(node) {
 		if (node.type === "field" && node.binding.segments.at(-1) === "kept") return node.id;
@@ -138,38 +149,11 @@ async function nested(api) {
 		submission: { hiddenValues: "omit-inactive" },
 		generation: { submitWhenHidden: { [id]: "include" } },
 	});
-	const data = {
-		show: false,
-		groups: [0, 1].map((outer) => ({
-			id: `outer-${outer}`,
-			rows: [0, 1].map((inner) => ({
-				id: `inner-${inner}`,
-				secret: `s${outer}${inner}`,
-				kept: `k${outer}${inner}`,
-				name: `n${outer}${inner}`,
-			})),
-		})),
-	};
+	const data = nestedData();
 	const sent = [];
 	const form = prepared.createForm({
 		initialData: data,
-		plugins: [
-			{
-				id: "arbiter",
-				evaluate: ({ data: current }) => ({
-					fieldPolicy: current.show
-						? []
-						: data.groups.flatMap((group, outer) =>
-								group.rows.flatMap((_, inner) =>
-									["secret", "kept"].map((key) => ({
-										path: `groups.${outer}.rows.${inner}.${key}`,
-										visible: false,
-									})),
-								),
-							),
-				}),
-			},
-		],
+		plugins: [nestedPlugin(data)],
 		onSubmit: async ({ payload }) => {
 			sent.push(json(payload));
 			return { ok: true };
@@ -191,8 +175,12 @@ async function nested(api) {
 	form.dispose();
 }
 
-async function validation(api) {
-	const observed = [];
+function validationFixture(api) {
+	const observed = { legacySync: [], legacyAsync: [], scopedSync: [], scopedAsync: [] };
+	const capture = (kind) => (input) => {
+		observed[kind].push(input);
+		return [];
+	};
 	const sent = [];
 	const schema = {
 		type: "object",
@@ -204,14 +192,14 @@ async function validation(api) {
 	const config = {
 		...provider(api),
 		definition: base(),
-		fieldValidators: [{ fieldId: "name", validate: capture }],
+		fieldValidators: [{ fieldId: "name", validate: capture("scopedSync") }],
 		asyncFieldValidators: [
 			{
 				id: "scoped-async",
 				fieldId: "name",
 				trigger: "onBlur",
 				debounceMs: 0,
-				validate: async (input) => capture(input),
+				validate: async (input) => capture("scopedAsync")(input),
 			},
 		],
 	};
@@ -219,43 +207,51 @@ async function validation(api) {
 		initialData: { ...draft(), extra: "before" },
 		initialUiState: { tab: "first" },
 		transforms: [{ id: "egress", phase: "egress", transform: (data) => ({ ...data, extra: "after" }) }],
-		validators: [capture],
-		asyncValidators: [{ id: "legacy-async", validate: async (input) => capture(input) }],
+		validators: [capture("legacySync")],
+		asyncValidators: [{ id: "legacy-async", validate: async (input) => capture("legacyAsync")(input) }],
 		onSubmit: async ({ payload }) => {
 			sent.push(payload);
 			return { ok: true };
 		},
 	});
-	function capture(input) {
-		observed.push(input);
-		return [];
-	}
-	const result = await form.submit({ requestId: "rc" }); // Ajv if/then required on omitted FINAL.
+	return { form, observed, sent };
+}
+
+const context = (requestId) => ({ requestId, at: "2026-01-01T00:00:00.000Z" });
+
+async function validation(api) {
+	const { form, observed, sent } = validationFixture(api);
+	const result = await form.submit(context("rc")); // Ajv if/then required on omitted FINAL.
 	assert.equal(result.ok, false);
 	assert.deepEqual(sent, []);
 	assert.equal(form.getState().data.secret, "draft");
-	assert.ok(observed.length >= 4, JSON.stringify({ result, observed }));
-	for (const input of observed) {
-		assert.deepEqual(json(input.data), { show: false, name: "Ada", extra: "after" });
-		assert.deepEqual(json(input.uiState), { tab: "first" });
-		assert.equal(input.context.requestId, "rc");
-	}
+	assertFinal(observed, { show: false, name: "Ada", extra: "after" }, "rc");
 	assert.ok(result.fieldIssues.some((entry) => entry.code === "json-schema.required"));
-	observed.length = 0;
+	for (const recordings of Object.values(observed)) recordings.length = 0;
 	form.setValue("show", true);
-	assert.equal((await form.submit({ requestId: "retry" })).ok, true);
+	assert.equal((await form.submit(context("retry"))).ok, true);
 	assert.equal(sent.length, 1);
 	assert.deepEqual(json(sent[0]), { show: true, secret: "draft", name: "Ada", extra: "after" });
 	assert.ok(Object.isFrozen(sent[0]));
-	const finalObservations = observed.filter((input) => input.data.extra === "after");
-	for (const input of finalObservations) {
-		assert.strictEqual(input.data, sent[0]);
-		assert.deepEqual(json(input.uiState), { tab: "first" });
-		assert.equal(input.context.requestId, "retry");
-	}
-	assert.ok(finalObservations.length >= 4);
+	assertFinal(observed, sent[0], "retry");
 	assert.equal(form.getState().data.extra, "before");
 	form.dispose();
+}
+
+function assertFinal(observed, expected, requestId) {
+	let finalData;
+	for (const kind of ["legacySync", "legacyAsync", "scopedSync", "scopedAsync"]) {
+		const final = observed[kind].filter((input) => input.data.extra === "after");
+		assert.equal(final.length, 1, `${kind} FINAL ${requestId}`);
+		assert.deepEqual(json(final[0].data), json(expected));
+		assert.ok(Object.isFrozen(final[0].data), `${kind} immutable FINAL ${requestId}`);
+		assert.deepEqual(json(final[0].uiState), { tab: "first" });
+		assert.equal(final[0].stage, undefined);
+		assert.deepEqual(json(final[0].context), context(requestId));
+		if (finalData) assert.strictEqual(final[0].data, finalData);
+		finalData = final[0].data;
+		if (requestId === "retry") assert.strictEqual(final[0].data, expected);
+	}
 }
 
 async function guards(api) {
@@ -293,7 +289,7 @@ async function guards(api) {
 	form.dispose();
 }
 
-async function lifecycle(api) {
+async function resetWhilePending(api) {
 	const sent = [];
 	let release;
 	const waiting = new Promise((resolve) => {
@@ -317,6 +313,12 @@ async function lifecycle(api) {
 	assert.equal((await form.submit()).ok, true);
 	assert.deepEqual(sent, [{ show: false, name: "Ada" }]);
 	form.dispose();
+	return prepared;
+}
+
+async function disposeWhilePending(prepared) {
+	const sent = [];
+	let release;
 	const disposed = prepared.createForm({
 		initialData: draft(),
 		asyncValidators: [
@@ -338,7 +340,12 @@ async function lifecycle(api) {
 	release([]);
 	// #346: disposing during a pending validator currently rejects instead of returning stale failure.
 	await assert.rejects(stale, /OWNED_STATE_UNSUPPORTED/);
-	assert.equal(sent.length, 1);
+	assert.deepEqual(sent, []);
+	return "known-failure-346";
+}
+
+async function reentrantValidation(prepared) {
+	const sent = [];
 	const reference = {};
 	const reentrant = prepared.createForm({
 		initialData: draft(),
@@ -355,8 +362,15 @@ async function lifecycle(api) {
 	});
 	reference.current = reentrant;
 	assert.equal((await reentrant.submit()).ok, false);
-	assert.equal(sent.length, 1);
+	assert.deepEqual(sent, []);
 	reentrant.dispose();
+}
+
+async function lifecycle(api) {
+	const prepared = await resetWhilePending(api);
+	const dispose = await disposeWhilePending(prepared);
+	await reentrantValidation(prepared);
+	return dispose;
 }
 
 async function run(api, format) {
@@ -367,9 +381,9 @@ async function run(api, format) {
 	await guards(api);
 	await certified(api);
 	await serverIssue(api);
-	await lifecycle(api);
+	const dispose = await lifecycle(api);
 	console.log(
-		`OMISSION_PUBLIC format=${format} timeline=pass ownership=pass nested=pass validation=pass guards=pass certified=pass lifecycle=pass`,
+		`OMISSION_PUBLIC format=${format} timeline=pass ownership=pass nested=pass validation=pass guards=pass reset=pass reentrant=pass dispose=${dispose}`,
 	);
 }
 module.exports = { run };
