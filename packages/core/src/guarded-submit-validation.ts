@@ -20,6 +20,18 @@ type Outcome =
 	| { readonly ok: false; readonly code: "validation_failed"; readonly fieldIssues: readonly ValidationIssue[] }
 	| { readonly ok: false; readonly code: "stale" | "vetoed" | "unsafe_candidate" | "invalid_witness" | "aborted" };
 
+interface CandidateValidationContext {
+	readonly stage: string | undefined;
+	readonly submitContext: SubmitContext | undefined;
+	readonly current: () => boolean;
+	readonly state: FormState<unknown, unknown>;
+}
+
+interface CandidateSyncResult {
+	readonly sync: readonly ValidationIssue[];
+	readonly capture: FormStateCapture<unknown, unknown> | undefined;
+}
+
 function publish(
 	context: PipelineContext,
 	change: OwnedMetadata,
@@ -186,6 +198,10 @@ async function completeValidation(
 		publish(context, { kind: "completeAttempt", submitId, revision, result: asyncResult, syncIssues: sync }, (draft) =>
 			completeAttempt(draft, submitId, revision, asyncResult, sync),
 		);
+	return completedAttemptOutcome(context, submitId, current);
+}
+
+function completedAttemptOutcome(context: PipelineContext, submitId: string, current: () => boolean): Outcome {
 	const attempt = context.store.getState().attemptValidation;
 	if (!current() || attempt?.submitId !== submitId || attempt.status === "running") {
 		clearPublication(context, submitId);
@@ -194,6 +210,54 @@ async function completeValidation(
 	return attempt.status === "failed"
 		? { ok: false, code: "validation_failed", fieldIssues: attempt.issues }
 		: { ok: true, issues: attempt.issues };
+}
+
+function candidateValidationContext(
+	context: PipelineContext,
+	guard: SubmitPreparationGuard,
+	coordinator: ValidationCoordinator<unknown, unknown>,
+	data: unknown,
+	uiState: unknown,
+	revision: number,
+): CandidateValidationContext | undefined {
+	const retained = context.store.getState();
+	const retainedBaseline = freeze(clone({ data: retained.data, uiState: retained.uiState }).value);
+	const stage = retained.meta.stage;
+	let submitContext: SubmitContext | undefined;
+	try {
+		if (context.submitContext) submitContext = freeze(clone(context.submitContext).value) as unknown as SubmitContext;
+	} catch {
+		return;
+	}
+	const state = ownedValidationState(data, uiState, stage);
+	const baseline = freeze(clone({ data, uiState }).value);
+	const current = () =>
+		!guard.signal.aborted &&
+		guard.isActive?.() !== false &&
+		guard.revision() === revision &&
+		coordinator.revision() === revision &&
+		unchanged({ data: context.store.getState().data, uiState: context.store.getState().uiState }, retainedBaseline) &&
+		unchanged({ data, uiState }, baseline);
+	return { stage, submitContext, current, state };
+}
+
+function candidateSyncResult(
+	context: PipelineContext,
+	form: FormApi<unknown, unknown> | undefined,
+	snapshot: { readonly data: unknown; readonly uiState: unknown },
+	stage: string | undefined,
+	submitContext: SubmitContext | undefined,
+	signal: AbortSignal,
+	current: () => boolean,
+): CandidateSyncResult | undefined {
+	try {
+		const validators = normalizeValidators(context.options);
+		const capture = form?.captureState();
+		const sync = syncCandidateIssues(form, validators, snapshot, stage, submitContext, signal, current, capture);
+		return sync ? { sync, capture } : undefined;
+	} catch {
+		return;
+	}
 }
 
 /** Internal C1 only: never evaluates retained-issue eligibility or calls a submit handler. */
@@ -210,51 +274,15 @@ export async function validateGuardedSubmitCandidate(
 	if (!prepared.ok) return prepared;
 	const { data, uiState } = prepared.candidate;
 	const revision = prepared.revision;
-	const retained = context.store.getState();
-	const retainedBaseline = freeze(clone({ data: retained.data, uiState: retained.uiState }).value);
-	const stage = retained.meta.stage;
-	let submitContext: SubmitContext | undefined;
-	try {
-		if (context.submitContext) submitContext = freeze(clone(context.submitContext).value) as unknown as SubmitContext;
-	} catch {
-		return { ok: false, code: "unsafe_candidate" };
-	}
-	const state = ownedValidationState(data, uiState, stage);
-	const baseline = freeze(clone({ data, uiState }).value);
-	const current = () =>
-		!guard.signal.aborted &&
-		guard.isActive?.() !== false &&
-		guard.revision() === revision &&
-		coordinator.revision() === revision &&
-		unchanged({ data: context.store.getState().data, uiState: context.store.getState().uiState }, retainedBaseline) &&
-		unchanged({ data, uiState }, baseline);
+	const preparedContext = candidateValidationContext(context, guard, coordinator, data, uiState, revision);
+	if (!preparedContext) return { ok: false, code: "unsafe_candidate" };
+	const { stage, submitContext, current, state } = preparedContext;
 	const middleware = (context.options.middleware ?? []) as readonly Middleware[];
 	if (!current() || !notify(middleware, "beforeValidate", context.action, state, [], current))
 		return { ok: false, code: "stale" };
-	let validators: readonly ValidatorFn[];
-	try {
-		validators = normalizeValidators(context.options);
-	} catch {
-		return { ok: false, code: "unsafe_candidate" };
-	}
-	let sync: readonly ValidationIssue[] | undefined;
-	let capture: FormStateCapture<unknown, unknown> | undefined;
-	try {
-		capture = form?.captureState();
-		sync = syncCandidateIssues(
-			form,
-			validators,
-			{ data, uiState },
-			stage,
-			submitContext,
-			guard.signal,
-			current,
-			capture,
-		);
-	} catch {
-		return { ok: false, code: "unsafe_candidate" };
-	}
-	if (!sync || !current()) return { ok: false, code: "unsafe_candidate" };
+	const syncResult = candidateSyncResult(context, form, { data, uiState }, stage, submitContext, guard.signal, current);
+	if (!syncResult || !current()) return { ok: false, code: "unsafe_candidate" };
+	const { sync, capture } = syncResult;
 	if (!notify(middleware, "afterValidate", context.action, state, sync, current)) return { ok: false, code: "stale" };
 	if (!current()) return { ok: false, code: "stale" };
 	return completeValidation(
