@@ -18,6 +18,7 @@ export interface ScopedAsyncHost<TData, TUi> {
 	instances(
 		form: FormApi<TData, TUi>,
 		capture: FormStateCapture<TData, TUi>,
+		currentCapture?: FormStateCapture<TData, TUi>,
 	): {
 		readonly current: () => boolean;
 		readonly fields: readonly ScopedAsyncField[];

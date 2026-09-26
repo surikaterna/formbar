@@ -18,6 +18,8 @@ export interface DefinitionAsyncFieldValidator<TData, TUi> {
 		readonly uiState: Readonly<TUi>;
 		readonly field: { readonly instance: RuntimeNodeInstance; readonly binding: AbsoluteBinding };
 		readonly signal: AbortSignal;
+		readonly stage?: string;
+		readonly context?: import("@formbar/core").SubmitContext;
 	}) => Promise<readonly ScopedFieldIssueInput[]>;
 }
 
@@ -52,11 +54,16 @@ export function prepareScopedAsyncHost<TData, TUi>(
 	const { ids, entries } = validateEntries(definition, validators);
 	return Object.freeze({
 		ids,
-		instances(form: FormApi<TData, TUi>, capture: FormStateCapture<TData, TUi>) {
+		instances(
+			form: FormApi<TData, TUi>,
+			capture: FormStateCapture<TData, TUi>,
+			currentCapture?: FormStateCapture<TData, TUi>,
+		) {
 			const ownership = projectConcreteOwnership({
 				form: form as FormApi<unknown, unknown>,
 				definition,
 				capture: capture as Parameters<typeof projectConcreteOwnership>[0]["capture"],
+				currentCapture: (currentCapture ?? capture) as Parameters<typeof projectConcreteOwnership>[0]["capture"],
 			});
 			if (!ownership.current() || ownership.diagnostics) throw new Error("Stale or ambiguous async field projection");
 			const overlaps = overlappingOwners(ownership.fields);
@@ -78,6 +85,8 @@ export function prepareScopedAsyncHost<TData, TUi>(
 								uiState: input.uiState as Readonly<TUi>,
 								field: { instance: owner.instance, binding: owner.binding },
 								signal: input.signal,
+								...(input.stage === undefined ? {} : { stage: input.stage }),
+								...(input.context ? { context: input.context } : {}),
 							});
 						},
 					});

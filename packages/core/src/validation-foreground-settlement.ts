@@ -31,7 +31,9 @@ export function settleForeground(options: Settlement): AsyncValidationResult {
 	const scopedIssues = scoped ? (outcome.pop() ?? []) : [];
 	let issues: readonly ValidationIssue[];
 	try {
-		issues = candidate ? normalizeIssues(outcome.flat()) : options.publish(outcome.flat(), scopedIssues);
+		issues = candidate
+			? normalizeIssues([...outcome.flat(), ...scopedIssues])
+			: options.publish(outcome.flat(), scopedIssues);
 	} catch (error) {
 		options.fail();
 		throw error;

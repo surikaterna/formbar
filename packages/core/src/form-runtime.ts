@@ -28,6 +28,7 @@ import type { FormPlugin } from "./plugin-types.js";
 import { createResetSignal } from "./reset-signal.js";
 import { createRuntimeScopedAsync, publishRuntimeScopedForeground } from "./runtime-scoped-async.js";
 import { canRuntimeSubmit, createRuntimeInitialState, updateRuntimeState } from "./runtime-state.js";
+import { createScopedCandidateRunner } from "./scoped-async-candidate.js";
 import type { ScopedAsyncScheduler } from "./scoped-async-scheduler.js";
 import { invalidateScopedSync, runScopedSync } from "./scoped-sync.js";
 import { createFormStateCapture, readInitialValue } from "./state-capture.js";
@@ -86,6 +87,7 @@ export class FormRuntime<TData, TUi> {
 			publishValidationStatus: (paths, validating) => publishValidationStatus(this.store, paths, validating),
 			...ownedAsyncIssuePublisher(this.store),
 			hasScopedAsync: () => this.scopedAsync.hasHost(),
+			runScopedCandidate: createScopedCandidateRunner(() => [this.api, this.coordinator.revision()]),
 			prepareScopedForeground: (scope, signal, snapshot) => this.scopedAsync.prepareForeground(scope, signal, snapshot),
 			publishScopedForeground: (ids, previous, issues) =>
 				publishRuntimeScopedForeground(this.store, ids, previous, issues),

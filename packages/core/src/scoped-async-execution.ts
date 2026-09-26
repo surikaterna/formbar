@@ -4,7 +4,7 @@ import type { CanonicalSegment } from "./path.js";
 import type { ScopedAsyncField } from "./scoped-async.js";
 import type { scopedCaptureReceipt } from "./scoped-capture-receipt.js";
 import { scopedLifecycleRevision } from "./scoped-sync.js";
-import type { FormStateCapture, ValidationIssue } from "./state.js";
+import type { FormStateCapture, SubmitContext, ValidationIssue } from "./state.js";
 
 export interface AsyncProjection<TData, TUi> {
 	readonly form: FormApi<TData, TUi>;
@@ -14,6 +14,8 @@ export interface AsyncProjection<TData, TUi> {
 	readonly currentRevision: () => number;
 	readonly signal: AbortSignal;
 	readonly receipt: ReturnType<typeof scopedCaptureReceipt<TData, TUi>>;
+	readonly stage?: string;
+	readonly context?: SubmitContext;
 }
 
 export function asyncProjectionCurrent<TData, TUi>(projection: AsyncProjection<TData, TUi>): boolean {
@@ -45,7 +47,13 @@ export async function runScopedAsyncField<TData, TUi>(
 	const { data, uiState, meta } = projection.capture.state;
 	if (!current() || !field.binding.segments.length || !boundValue(data, field.binding.segments))
 		throw new Error("Invalid scoped async field binding");
-	const result = await field.validate({ data, uiState, signal: projection.signal });
+	const result = await field.validate({
+		data,
+		uiState,
+		signal: projection.signal,
+		...(projection.stage === undefined ? {} : { stage: projection.stage }),
+		...(projection.context ? { context: projection.context } : {}),
+	});
 	if (!Array.isArray(result) || !current()) throw new Error("Invalid or stale scoped async result");
 	const emit = createIssueEmission({
 		fieldId: field.fieldId,

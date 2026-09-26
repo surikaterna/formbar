@@ -1,7 +1,23 @@
 import type { NormalizedValidator } from "./async-validator-normalization.js";
 import type { AbsoluteDataPath } from "./field-policy.js";
+import type { ScopedForeground } from "./scoped-async-scheduler.js";
 
 export type Cancellation = "superseded" | "aborted";
+
+export function prepareForegroundScope(
+	token: RunToken,
+	prepare: () => ScopedForeground | undefined,
+	cancel: () => void,
+): ScopedForeground | undefined {
+	try {
+		const scoped = prepare();
+		if (scoped) token.paths.push(...scoped.paths);
+		return scoped;
+	} catch (error) {
+		cancel();
+		throw error;
+	}
+}
 
 export interface RunToken {
 	readonly kind: "automatic" | "foreground";

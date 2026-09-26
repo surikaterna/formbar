@@ -3,6 +3,8 @@ const { createElement } = require("react");
 const { renderToString } = require("react-dom/server");
 const { createSchemaForm, jsonSchemaProvider } = require("@formbar/from-schema");
 const { useSchemaForm } = require("@formbar/react-schema");
+const { issueEmissionId, runScopedCandidate } = require("@formbar/core/internal/scoped-sync");
+const { normalizeIssues } = require("@formbar/core/validation");
 
 const definition = {
 	version: 1,
@@ -26,6 +28,18 @@ async function main() {
 	assert.equal(first.status, "completed");
 	assert.strictEqual(first.issues[0], immediate.getState().issues[0]);
 	assert.deepEqual(first.issues[0].path.segments, ["a.b"]);
+	const final = await runScopedCandidate(
+		immediate,
+		{ data: Object.freeze({ "a.b": "final" }), uiState: immediate.getState().uiState },
+		undefined,
+		{ requestId: "final", at: "now" },
+		new AbortController().signal,
+		0,
+		() => 0,
+	);
+	assert.equal(typeof issueEmissionId(final[0]), "number");
+	assert.strictEqual(normalizeIssues(final)[0], final[0]);
+	assert.strictEqual(immediate.getState().issues[0], first.issues[0]);
 	const deferred = prepared.createDeferredForm({ initialData: { "a.b": "x" } });
 	assert.equal(Object.isFrozen(deferred.form.getState().data), true);
 	deferred.activate();
@@ -33,6 +47,17 @@ async function main() {
 	assert.equal(second.status, "completed");
 	assert.strictEqual(second.issues[0], deferred.form.getState().issues[0]);
 	assert.notStrictEqual(second.issues[0], first.issues[0]);
+	const deferredFinal = await runScopedCandidate(
+		deferred.form,
+		{ data: Object.freeze({ "a.b": "final" }), uiState: deferred.form.getState().uiState },
+		undefined,
+		undefined,
+		new AbortController().signal,
+		0,
+		() => 0,
+	);
+	assert.equal(typeof issueEmissionId(deferredFinal[0]), "number");
+	assert.notStrictEqual(deferredFinal[0], final[0]);
 	assert.throws(
 		() => prepared.createForm({ asyncValidators: [{ id: "scoped", validate: async () => [] }] }),
 		/Duplicate/,

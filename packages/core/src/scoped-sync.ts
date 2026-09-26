@@ -191,11 +191,12 @@ export function runScopedSync<TData, TUi>(
 		readonly context?: SubmitContext;
 		readonly signal?: AbortSignal;
 		readonly current: () => boolean;
+		readonly capture?: FormStateCapture<TData, TUi>;
 	},
 ): readonly ValidationIssue[] {
 	const host = hosts.get(form) as unknown as ScopedSyncHost<TData, TUi> | undefined;
 	if (!host) return [];
-	const capture = form.captureState();
+	const capture = options?.capture ?? form.captureState();
 	const lifecycle = scopedLifecycleRevision(form);
 	const generation = (generations.get(form) ?? 0) + 1;
 	generations.set(form, generation);

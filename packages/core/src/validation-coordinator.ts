@@ -1,6 +1,6 @@
 import { automaticFailureIssue, canonicalizeIssue, exceptionIssue } from "./async-issue-adapter.js";
 import { type NormalizedValidator, normalizeAsyncValidators } from "./async-validator-normalization.js";
-import type { AsyncValidationResult, AsyncValidatorConfig } from "./contracts.js";
+import type { AsyncValidationResult } from "./contracts.js";
 import { type AbsoluteDataPath, type DataPathInput, fieldMetaKey, normalizeDataPath } from "./field-policy.js";
 import { ownIssues } from "./issue-ownership.js";
 import { ownedSemanticGuard } from "./owned-semantic-guard.js";
@@ -9,12 +9,14 @@ import { publishCoordinatorForeground } from "./scoped-foreground-publication.js
 import type { FormState, SubmitContext, ValidationIssue } from "./state.js";
 import { snapshotOwnership } from "./store.js";
 import { DEFAULT_RUNTIME_CONSTRAINTS } from "./timeout.js";
+import type { CoordinatorDeps } from "./validation-coordinator-deps.js";
 import {
 	type Cancellation,
 	type RunToken,
 	createToken,
 	isSettledCurrent,
 	nextValidatorGeneration,
+	prepareForegroundScope,
 	selectValidators,
 } from "./validation-coordinator-support.js";
 import { settleForeground } from "./validation-foreground-settlement.js";
@@ -38,30 +40,10 @@ export interface ValidationCoordinator<TData, TUi> {
 		snapshot: { readonly data: TData; readonly uiState: TUi },
 		expectedRevision: number,
 		signal?: AbortSignal,
-		options?: { readonly stage?: string; readonly context?: SubmitContext },
+		options?: Parameters<NonNullable<CoordinatorDeps<TData, TUi>["runScopedCandidate"]>>[3],
 	): Promise<AsyncValidationResult>;
 	reset(): void;
 	dispose(): void;
-}
-
-interface CoordinatorDeps<TData, TUi> {
-	readonly validators: readonly AsyncValidatorConfig<TData, TUi>[];
-	readonly validatorTimeout?: number;
-	readonly getState: () => FormState<TData, TUi>;
-	readonly updateState: (updater: (state: FormState<TData, TUi>) => FormState<TData, TUi>) => void;
-	readonly publishValidationStatus?: (paths: ReadonlySet<string>, validating: boolean) => void;
-	readonly replaceAsyncIssues?: (ids: ReadonlySet<string>, issues: readonly ValidationIssue[]) => void;
-	readonly hasScopedAsync?: () => boolean;
-	readonly prepareScopedForeground?: (
-		scope: DataPathInput | undefined,
-		signal: AbortSignal,
-		snapshot: { readonly data: TData; readonly uiState: TUi },
-	) => ScopedForeground | undefined;
-	readonly publishScopedForeground?: (
-		legacyIds: ReadonlySet<string>,
-		previous: ReadonlySet<ValidationIssue>,
-		issues: readonly ValidationIssue[],
-	) => void;
 }
 
 class ValidationRuntime<TData, TUi> {
@@ -151,7 +133,12 @@ class ValidationRuntime<TData, TUi> {
 	): Promise<readonly ValidationIssue[]> {
 		let issues: readonly ValidationIssue[];
 		try {
-			issues = await validator.config.validate({ ...snapshot, signal: token.controller.signal, ...options });
+			issues = await validator.config.validate({
+				...snapshot,
+				signal: token.controller.signal,
+				...(options?.stage === undefined ? {} : { stage: options.stage }),
+				...(options?.context ? { context: options.context } : {}),
+			});
 		} catch (error) {
 			if (!this.isCurrent(token)) return [];
 			return [exceptionIssue(validator, error)];
@@ -253,27 +240,27 @@ class ValidationRuntime<TData, TUi> {
 		expectedRevision: number,
 		signal?: AbortSignal,
 		scope?: DataPathInput,
-		options?: { readonly stage?: string; readonly context?: SubmitContext },
+		options?: Parameters<NonNullable<CoordinatorDeps<TData, TUi>["runScopedCandidate"]>>[3],
 		candidate = false,
 		includeScoped = false,
 	): Promise<AsyncValidationResult> {
+		const candidateScoped = candidate && !!this.deps.hasScopedAsync?.();
+		const runCandidate = this.deps.runScopedCandidate;
 		if (!candidate && selected.length === 0 && (!includeScoped || !this.deps.hasScopedAsync?.()))
 			return { status: "completed", issues: [] };
 		if (signal?.aborted) return { status: "aborted", issues: [] };
 		if (candidate && this.disposed) return { status: "aborted", issues: [] };
 		if (candidate && expectedRevision !== this.currentRevision) return { status: "superseded", issues: [] };
-		if (selected.length === 0 && !includeScoped) return { status: "completed", issues: [] };
+		if (candidateScoped && !runCandidate) throw new Error("Missing scoped FINAL runner");
+		if (selected.length === 0 && !includeScoped && !candidateScoped) return { status: "completed", issues: [] };
 		const semanticCurrent = ownedSemanticGuard(this.deps.getState);
 		const paths = [...selected.flatMap((validator) => validator.fields), ...(scope ? [normalizeDataPath(scope)] : [])];
 		const token = this.startForeground(selected, paths);
-		let scoped: ScopedForeground | undefined;
-		try {
-			if (includeScoped) scoped = this.deps.prepareScopedForeground?.(scope, token.controller.signal, snapshot);
-		} catch (error) {
-			this.cancel(token, "superseded");
-			throw error;
-		}
-		if (scoped) token.paths.push(...scoped.paths);
+		const scoped = prepareForegroundScope(
+			token,
+			() => (includeScoped ? this.deps.prepareScopedForeground?.(scope, token.controller.signal, snapshot) : undefined),
+			() => this.cancel(token, "superseded"),
+		);
 		if (expectedRevision !== this.currentRevision) this.cancel(token, "superseded");
 		const abort = () => {
 			this.cancel(token, "aborted");
@@ -289,6 +276,9 @@ class ValidationRuntime<TData, TUi> {
 		const validation = Promise.all([
 			...selected.map((validator) => this.executeValidator(validator, snapshot, token, options)),
 			...(scoped ? [scoped.run()] : []),
+			...(candidateScoped && runCandidate
+				? [runCandidate(snapshot, token.controller.signal, expectedRevision, options)]
+				: []),
 		]);
 		const outcome = await this.awaitForeground(validation, token, signal, abort);
 		if (!Array.isArray(outcome)) return { status: outcome, issues: [] };
