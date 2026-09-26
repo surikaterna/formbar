@@ -53,6 +53,16 @@
 				"default": "./dist/validation.entry.cjs"
 			}
 		},
+		"./internal/submit-proof": {
+			"import": {
+				"types": "./dist/internal/submit-proof.d.ts",
+				"default": "./dist/internal/submit-proof.js"
+			},
+			"require": {
+				"types": "./dist/internal/submit-proof.d.cts",
+				"default": "./dist/internal/submit-proof.cjs"
+			}
+		},
 		"./internal/scoped-sync": {
 			"import": {
 				"types": "./dist/internal/scoped-sync.d.ts",
