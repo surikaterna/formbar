@@ -20,6 +20,7 @@ export interface ScopedFieldIssueInput {
 }
 
 export interface ScopedFieldInstance {
+	readonly ownership?: object;
 	readonly fieldId: string;
 	readonly instanceKey: string;
 	readonly binding: { readonly namespace: "data"; readonly segments: readonly CanonicalSegment[] };
@@ -101,6 +102,7 @@ function diagnostic(input: ScopedFieldIssueInput): boolean {
 }
 
 interface ScopedEmissionContext {
+	readonly capture: FormStateCapture<unknown, unknown>;
 	readonly captureData: unknown;
 	readonly snapshotData: unknown;
 	readonly stage: string | undefined;
@@ -122,6 +124,8 @@ function emitScopedIssues(
 		binding: field.binding,
 		revision: generation,
 		run,
+		capture: context.capture,
+		...(field.ownership ? { ownership: field.ownership } : {}),
 		current,
 	});
 	const issues: ValidationIssue[] = [];
@@ -215,6 +219,7 @@ export function runScopedSync<TData, TUi>(
 	for (const field of projection.fields) {
 		const fieldIssues = runScopedField(field, scopedFieldInput(snapshot, stage, options?.context, options?.signal), {
 			captureData: capture.state.data,
+			capture: capture as FormStateCapture<unknown, unknown>,
 			snapshotData: snapshot.data,
 			stage,
 			current,

@@ -4,6 +4,7 @@ import type { ScopedFieldIssueInput, ScopedValidationInput } from "./scoped-sync
 import type { FormStateCapture } from "./state.js";
 
 export interface ScopedAsyncField {
+	readonly ownership?: object;
 	readonly id: string;
 	readonly fieldId: string;
 	readonly instanceKey: string;

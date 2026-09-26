@@ -31,6 +31,14 @@ export interface ConcreteOwnership {
 
 const unsafe = new Set(["__proto__", "constructor", "prototype"]);
 const projectedOwnership = new WeakSet<ConcreteOwnership>();
+const ownershipCaptures = new WeakMap<ConcreteOwnership, FormStateCapture<unknown, unknown>>();
+
+export function sameOwnershipCapture(
+	ownership: ConcreteOwnership,
+	capture: FormStateCapture<unknown, unknown>,
+): boolean {
+	return ownershipCaptures.get(ownership) === capture;
+}
 
 /** Private identity check; a path, issue, or hand-crafted read model is not ownership evidence. */
 export function isProjectedOwnership(value: ConcreteOwnership): boolean {
@@ -217,5 +225,6 @@ export function projectConcreteOwnership(options: {
 			ids.get(id) === "field" ? Object.freeze(ownedFields.filter((item) => item.instance.nodeId === id)) : undefined,
 	});
 	projectedOwnership.add(result);
+	ownershipCaptures.set(result, options.capture);
 	return result;
 }
