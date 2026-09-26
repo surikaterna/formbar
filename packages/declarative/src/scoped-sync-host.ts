@@ -5,6 +5,8 @@ import type { ValidatedFormDefinition } from "./definition.js";
 import type { FormNode } from "./nodes.js";
 import type { RuntimeNodeInstance } from "./runtime-contracts.js";
 import { projectConcreteOwnership } from "./runtime-ownership.js";
+import type { ConcreteOwner } from "./runtime-ownership.js";
+import { certifyScopedOutput, sourceBound } from "./scoped-source-cert.js";
 
 export interface DefinitionFieldValidator<TData, TUi> {
 	readonly fieldId: string;
@@ -40,6 +42,22 @@ function overlaps(a: AbsoluteBinding, b: AbsoluteBinding): boolean {
 	return prefix(a.segments, b.segments) || prefix(b.segments, a.segments);
 }
 
+function syncValidator<TData, TUi>(entry: DefinitionFieldValidator<TData, TUi>, owner: ConcreteOwner, data: unknown) {
+	return (input: ScopedValidationInput<unknown, unknown>) =>
+		certifyScopedOutput(
+			data,
+			owner,
+			entry.validate({
+				data: input.data as Readonly<TData>,
+				uiState: input.uiState as Readonly<TUi>,
+				field: { instance: owner.instance, binding: owner.binding },
+				...(input.stage === undefined ? {} : { stage: input.stage }),
+				...(input.context ? { context: input.context } : {}),
+				...(input.signal ? { signal: input.signal } : {}),
+			}),
+		);
+}
+
 /** Prepare once against the validated definition; each invocation projects the current core capture. */
 export function prepareScopedSyncHost<TData, TUi>(
 	definition: ValidatedFormDefinition,
@@ -65,7 +83,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 			const fields = entries.flatMap((entry) =>
 				(ownership.forField(entry.fieldId) ?? []).map((owner) => {
 					if (
-						!owner.eligible ||
+						(!owner.eligible && !sourceBound(capture.state.data, owner)) ||
 						ownership.fields.some((other) => other !== owner && overlaps(other.binding, owner.binding))
 					)
 						throw new Error("Unowned or overlapping field binding");
@@ -74,15 +92,7 @@ export function prepareScopedSyncHost<TData, TUi>(
 						fieldId: entry.fieldId,
 						instanceKey: owner.instance.instanceKey,
 						binding: { namespace: "data" as const, segments: owner.binding.segments },
-						validate: (input: ScopedValidationInput<unknown, unknown>) =>
-							entry.validate({
-								data: input.data as Readonly<TData>,
-								uiState: input.uiState as Readonly<TUi>,
-								field: { instance: owner.instance, binding: owner.binding },
-								...(input.stage === undefined ? {} : { stage: input.stage }),
-								...(input.context ? { context: input.context } : {}),
-								...(input.signal ? { signal: input.signal } : {}),
-							}),
+						validate: syncValidator(entry, owner, capture.state.data),
 					});
 				}),
 			);
