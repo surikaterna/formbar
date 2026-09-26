@@ -13,20 +13,29 @@ export interface ConcreteOwner {
 	readonly instance: RuntimeNodeInstance;
 	readonly binding: AbsoluteBinding;
 	readonly visible: boolean;
+	readonly submitWhenHidden?: "include";
 	readonly eligible: boolean;
 	readonly protected: boolean;
 }
 
 export interface ConcreteOwnership {
+	readonly hiddenValues: "include" | "omit-inactive";
 	readonly fields: readonly ConcreteOwner[];
 	readonly repeaters: readonly ConcreteOwner[];
 	readonly unknown: readonly AbsoluteBinding[];
 	readonly diagnostics: boolean;
 	readonly current: () => boolean;
+	readonly capturedCurrent: () => boolean;
 	readonly forField: (fieldId: string) => readonly ConcreteOwner[] | undefined;
 }
 
 const unsafe = new Set(["__proto__", "constructor", "prototype"]);
+const projectedOwnership = new WeakSet<ConcreteOwnership>();
+
+/** Private identity check; a path, issue, or hand-crafted read model is not ownership evidence. */
+export function isProjectedOwnership(value: ConcreteOwnership): boolean {
+	return projectedOwnership.has(value);
+}
 
 type Entries = ReadonlyMap<string, unknown> | undefined;
 
@@ -100,6 +109,7 @@ function owners(
 		instance: copyInstance(field.instance),
 		binding: copyBinding(field.binding),
 		visible: field.visible,
+		...(field.submitWhenHidden === "include" ? { submitWhenHidden: "include" as const } : {}),
 		eligible: bound(root, field.binding, entries),
 		protected: false,
 	}));
@@ -168,10 +178,12 @@ export function projectConcreteOwnership(options: {
 	readonly definition: ValidatedFormDefinition;
 	readonly capture: FormStateCapture<unknown, unknown>;
 	readonly currentCapture?: FormStateCapture<unknown, unknown>;
+	/** Supply the projectRuntime result from this very capture when already available. */
+	readonly snapshot?: RuntimeSnapshot;
 }): ConcreteOwnership {
 	const ids = new Map<string, "field" | "other">();
 	definitionFields(options.definition.root, ids);
-	const snapshot = projectRuntime(options);
+	const snapshot = options.snapshot ?? projectRuntime(options);
 	const lifecycle = scopedLifecycleRevision(options.form);
 	const entries = captureEntries();
 	const { fields, repeaters } = owners(snapshot, options.capture.state.data, entries);
@@ -192,7 +204,8 @@ export function projectConcreteOwnership(options: {
 	};
 	const ownedFields = Object.freeze(fields.map((item) => protect(item, false)));
 	const ownedRepeaters = Object.freeze(repeaters.map((item) => protect(item, true)));
-	return Object.freeze({
+	const result: ConcreteOwnership = Object.freeze({
+		hiddenValues: options.definition.submission?.hiddenValues ?? "include",
 		fields: ownedFields,
 		repeaters: ownedRepeaters,
 		unknown,
@@ -200,7 +213,11 @@ export function projectConcreteOwnership(options: {
 		current: () =>
 			scopedLifecycleRevision(options.form) === lifecycle &&
 			scopedCaptureCurrent(options.form, options.currentCapture ?? options.capture),
+		capturedCurrent: () =>
+			scopedLifecycleRevision(options.form) === lifecycle && scopedCaptureCurrent(options.form, options.capture),
 		forField: (id: string) =>
 			ids.get(id) === "field" ? Object.freeze(ownedFields.filter((item) => item.instance.nodeId === id)) : undefined,
 	});
+	projectedOwnership.add(result);
+	return result;
 }
