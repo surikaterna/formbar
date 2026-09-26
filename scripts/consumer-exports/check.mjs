@@ -200,9 +200,21 @@ try {
 		const lifecycleFixture = resolve(directory, "strict-lifecycle.mjs");
 		writeFileSync(lifecycleFixture, readFileSync(resolve(fixtures, "strict-lifecycle.mjs")));
 		console.log(execFileSync(process.execPath, [lifecycleFixture], { cwd: directory, encoding: "utf8" }).trim());
-		const omissionFixture = resolve(directory, "omission-renderer.mjs");
-		writeFileSync(omissionFixture, readFileSync(resolve(fixtures, "omission-renderer.mjs")));
-		console.log(execFileSync(process.execPath, [omissionFixture], { cwd: directory, encoding: "utf8" }).trim());
+		for (const fixture of [
+			"omission-certified.cjs",
+			"omission-cases.cjs",
+			"omission-renderer-cases.cjs",
+			"omission-renderer.mjs",
+			"omission-renderer.cjs",
+			"omission-public.mjs",
+			"omission-public.cjs",
+		]) {
+			const target = resolve(directory, fixture);
+			writeFileSync(target, readFileSync(resolve(fixtures, fixture)));
+			if (fixture.endsWith("-cases.cjs") || fixture === "omission-cases.cjs" || fixture === "omission-certified.cjs")
+				continue;
+			console.log(execFileSync(process.execPath, [target], { cwd: directory, encoding: "utf8" }).trim());
+		}
 		for (const format of ["mjs", "cjs"]) {
 			const scopedFixture = resolve(directory, `scoped-sync.${format}`);
 			writeFileSync(scopedFixture, readFileSync(resolve(fixtures, `scoped-sync.${format}`)));
