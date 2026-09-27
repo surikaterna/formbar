@@ -105,6 +105,40 @@ describe("package artifact policy", () => {
 			).toThrow(/invalid prerelease dependency/);
 		}
 	});
+	it("rejects mixed stable and RC internal dependencies in an RC manifest", () => {
+		const manifest = (version: string, range: string) =>
+			({ version, dependencies: { "@formbar/core": range } }) as PackageManifest;
+		const versions = { "@formbar/core": "0.22.2" };
+		expect(() => validateRcDependencies(policy, manifest("0.23.0-rc.0", "^0.23.0-rc.0"), versions)).toThrow(
+			/invalid prerelease dependency/,
+		);
+		expect(() => validateRcDependencies(policy, manifest("0.23.0-rc.0", "^0.22.2"), versions)).toThrow(
+			/invalid prerelease dependency/,
+		);
+		expect(() =>
+			validateRcDependencies(policy, manifest("0.23.0-rc.0", "^0.14.3"), { "@formbar/core": "0.14.3" }),
+		).toThrow(/invalid prerelease dependency/);
+		const expressions = { "@formbar/expressions": "0.14.3" };
+		const withExpressions = (range: string) =>
+			({ version: "0.23.0-rc.0", dependencies: { "@formbar/expressions": range } }) as PackageManifest;
+		expect(() => validateRcDependencies(policy, withExpressions("^0.14.3"), expressions)).not.toThrow();
+		expect(() =>
+			validateRcDependencies(
+				policy,
+				{
+					version: "0.23.0-rc.0",
+					dependencies: { "@formbar/expressions": "^0.14.3", "@formbar/core": "^0.23.0-rc.0" },
+				} as PackageManifest,
+				{ ...expressions, ...versions },
+			),
+		).toThrow(/invalid prerelease dependency @formbar\/core/);
+		for (const range of ["^0.14.4", "^0.15.0", "^0.14.3-rc.0"]) {
+			expect(() => validateRcDependencies(policy, withExpressions(range), expressions)).toThrow(
+				/invalid prerelease dependency/,
+			);
+		}
+		expect(() => validateRcDependencies(policy, manifest("0.14.3", "^0.22.2"), versions)).not.toThrow();
+	});
 	it("rejects a test file selected by native npm pack", () => {
 		const directory = temporaryDirectory("pack-leak");
 		mkdirSync(resolve(directory, "src/__tests__"), { recursive: true });

@@ -10,6 +10,7 @@ const prohibitedArtifact =
 const unsafeMapSource =
 	/(^|\/)(?:__tests__|tests?|__fixtures__|fixtures?|node_modules|config|scripts?|secrets?)(?:\/|\.|$)/i;
 const semver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const stableParts = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const rcVersion = /^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))-rc\.(0|[1-9]\d*)$/;
 
 export interface MapAudit {
@@ -64,13 +65,31 @@ export function validateRcDependencies(
 	if (!rcVersion.test(manifest.version)) return;
 	for (const [name, range] of Object.entries(manifest.dependencies ?? {})) {
 		const target = versions[name];
-		if (!target || !rcVersion.test(target)) continue;
+		if (target === undefined) continue;
 		const floor = /^\^(.+)$/.exec(range)?.[1];
 		const expected = rcVersion.exec(target);
 		const actual = floor && rcVersion.exec(floor);
-		if (!actual || actual[1] !== expected?.[1] || BigInt(actual[2]) > BigInt(expected[2])) {
-			fail(policy, `invalid prerelease dependency ${name}: ${range} for ${target}`);
+		if (
+			name !== "@formbar/expressions" &&
+			expected &&
+			actual &&
+			actual[1] === expected[1] &&
+			BigInt(actual[2]) <= BigInt(expected[2])
+		)
+			continue;
+		const stableFloor = floor && stableParts.exec(floor);
+		const stableTarget = stableParts.exec(target);
+		if (name === "@formbar/expressions" && stableFloor && stableTarget) {
+			const [, major, minor, patch] = stableFloor.map(Number);
+			const [, targetMajor, targetMinor, targetPatch] = stableTarget.map(Number);
+			if (
+				major === targetMajor &&
+				(major > 0 || minor === targetMinor) &&
+				(targetMinor > minor || (targetMinor === minor && targetPatch >= patch))
+			)
+				continue;
 		}
+		fail(policy, `invalid prerelease dependency ${name}: ${range} for ${target}`);
 	}
 }
 
