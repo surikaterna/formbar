@@ -52,7 +52,8 @@ export async function selectCandidates(
 	const selected: Candidate[] = [];
 	for (const workspace of workspaces) {
 		const npm = await reader.npmVersion(workspace.name, workspace.version);
-		if (npm.exists && npm.gitHead !== releaseCommit) continue;
+		if (npm.exists && npm.gitHead !== releaseCommit)
+			throw new Error(`${workspace.tag} has a conflicting or missing registry gitHead`);
 		selected.push({ ...workspace, releaseCommit, tagAction: "create", releaseAction: "create" });
 	}
 	return Promise.all(selected.map((candidate) => preflightCandidate(candidate, reader)));
