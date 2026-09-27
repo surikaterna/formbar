@@ -10,6 +10,7 @@ const prohibitedArtifact =
 const unsafeMapSource =
 	/(^|\/)(?:__tests__|tests?|__fixtures__|fixtures?|node_modules|config|scripts?|secrets?)(?:\/|\.|$)/i;
 const semver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const rcVersion = /^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))-rc\.(0|[1-9]\d*)$/;
 
 export interface MapAudit {
 	readonly maps: number;
@@ -41,12 +42,49 @@ function packageTarget(target: string, policy: PackagePolicy): string {
 	return normalized;
 }
 
-export function validateManifest(policy: PackagePolicy, manifest: PackageManifest, files: readonly string[]): void {
+export function validateVersion(policy: PackagePolicy, version: string, root: string): void {
+	if (semver.test(version)) return;
+	if (!rcVersion.test(version)) fail(policy, `invalid version ${version}`);
+	const path = resolve(root, ".changeset/pre.json");
+	if (!existsSync(path)) fail(policy, `prerelease version ${version} requires pre.json`);
+	let pre: { mode?: unknown; tag?: unknown };
+	try {
+		pre = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		fail(policy, "invalid pre.json");
+	}
+	if (pre?.mode !== "pre" || pre.tag !== "rc") fail(policy, `prerelease version ${version} requires pre mode rc`);
+}
+
+export function validateRcDependencies(
+	policy: PackagePolicy,
+	manifest: PackageManifest,
+	versions: Readonly<Record<string, string>>,
+): void {
+	if (!rcVersion.test(manifest.version)) return;
+	for (const [name, range] of Object.entries(manifest.dependencies ?? {})) {
+		const target = versions[name];
+		if (!target || !rcVersion.test(target)) continue;
+		const floor = /^\^(.+)$/.exec(range)?.[1];
+		const expected = rcVersion.exec(target);
+		const actual = floor && rcVersion.exec(floor);
+		if (!actual || actual[1] !== expected?.[1] || BigInt(actual[2]) > BigInt(expected[2])) {
+			fail(policy, `invalid prerelease dependency ${name}: ${range} for ${target}`);
+		}
+	}
+}
+
+export function validateManifest(
+	policy: PackagePolicy,
+	manifest: PackageManifest,
+	files: readonly string[],
+	root: string,
+): void {
 	strictEqual(manifest.name, policy.name, `${policy.name}: package name`);
 	strictEqual(manifest.type, "module", `${policy.name}: package type`);
 	strictEqual(manifest.license, "MIT", `${policy.name}: license metadata`);
 	strictEqual(manifest.sideEffects, false, `${policy.name}: sideEffects metadata`);
-	if (!semver.test(manifest.version)) fail(policy, `invalid version ${manifest.version}`);
+	validateVersion(policy, manifest.version, root);
 	deepStrictEqual(manifest.files, [...policy.manifestFiles], `${policy.name}: manifest files allowlist`);
 	validateRepository(policy, manifest);
 	validateExportTargets(policy, manifest, files);

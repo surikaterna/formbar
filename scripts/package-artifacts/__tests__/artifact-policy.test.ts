@@ -4,7 +4,14 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { npmPackDryRun } from "../npm-pack";
 import { type PackageManifest, packagePolicies } from "../policy";
-import { validateAllowedFiles, validateExportTargets, validateLicense, validateSourceMaps } from "../validate";
+import {
+	validateAllowedFiles,
+	validateExportTargets,
+	validateLicense,
+	validateRcDependencies,
+	validateSourceMaps,
+	validateVersion,
+} from "../validate";
 
 const temporaryDirectories: string[] = [];
 const policy = packagePolicies.find(({ directory }) => directory === "core");
@@ -49,6 +56,55 @@ function exportFixture(): PackageManifest {
 }
 
 describe("package artifact policy", () => {
+	it("requires reviewed RC pre mode and strictly formed versions", () => {
+		const root = temporaryDirectory("rc-version");
+		const pre = resolve(root, ".changeset/pre.json");
+		mkdirSync(resolve(root, ".changeset"));
+		expect(() => validateVersion(policy, "0.23.0", root)).not.toThrow();
+		expect(() => validateVersion(policy, "0.23.0-rc.0", root)).toThrow(/requires pre.json/);
+		for (const value of [
+			{ mode: "exit", tag: "rc" },
+			{ mode: "pre", tag: "beta" },
+		]) {
+			writeFileSync(pre, JSON.stringify(value));
+			expect(() => validateVersion(policy, "0.23.0-rc.0", root)).toThrow(/pre mode rc/);
+		}
+		writeFileSync(pre, JSON.stringify({ mode: "pre", tag: "rc" }));
+		for (const version of ["0.23.0-rc.0", "0.23.0-rc.12"]) {
+			expect(() => validateVersion(policy, version, root)).not.toThrow();
+		}
+		for (const version of [
+			"",
+			"0.23",
+			"01.23.0",
+			"0.23.0-rc.01",
+			"0.23.0-beta.0",
+			"0.23.0-rc.0+build",
+			"0.23.0-rc.0extra",
+		]) {
+			expect(() => validateVersion(policy, version, root)).toThrow(/invalid version/);
+		}
+	});
+
+	it("does not allow a prerelease internal dependency floor above the target", () => {
+		const versions = { "@formbar/core": "0.23.0-rc.0" };
+		expect(() =>
+			validateRcDependencies(
+				policy,
+				{ version: "0.23.0-rc.0", dependencies: { "@formbar/core": "^0.23.0-rc.0" } } as PackageManifest,
+				versions,
+			),
+		).not.toThrow();
+		for (const range of ["^0.23.0-rc.00", "^0.23.0-rc.1", "^0.23.0", "^0.22.0-rc.0", "0.23.0-rc.0", "^0.23.0-beta.0"]) {
+			expect(() =>
+				validateRcDependencies(
+					policy,
+					{ version: "0.23.0-rc.0", dependencies: { "@formbar/core": range } } as PackageManifest,
+					versions,
+				),
+			).toThrow(/invalid prerelease dependency/);
+		}
+	});
 	it("rejects a test file selected by native npm pack", () => {
 		const directory = temporaryDirectory("pack-leak");
 		mkdirSync(resolve(directory, "src/__tests__"), { recursive: true });
