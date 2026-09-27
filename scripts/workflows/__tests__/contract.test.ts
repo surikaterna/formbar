@@ -43,20 +43,12 @@ describe("recovery workflow contract", () => {
 			}),
 		);
 		expect(guards[1]).toEqual(guards[0]);
-		expect(guards[2]).toEqual(guards[0]);
 	});
 
 	it("preserves least-privilege workflow permissions and concurrency", async () => {
-		const [ci, release, pages] = await Promise.all(workflowCases.map(({ file }) => loadWorkflow(file)));
+		const [ci, pages] = await Promise.all(workflowCases.map(({ file }) => loadWorkflow(file)));
 		expect(ci.permissions).toEqual({ contents: "read", issues: "read" });
 		expect(ci.concurrency).toBeUndefined();
-		expect(release.permissions).toEqual({
-			contents: "write",
-			issues: "read",
-			"pull-requests": "write",
-			"id-token": "write",
-		});
-		expect(release.concurrency).toBe("${{ github.workflow }}-${{ github.ref }}");
 		expect(pages.permissions).toEqual({ contents: "read", issues: "read", pages: "write", "id-token": "write" });
 		expect(pages.concurrency).toEqual({ group: "pages", "cancel-in-progress": true });
 	});
@@ -66,28 +58,6 @@ describe("recovery workflow contract", () => {
 		const checkout = workflow.jobs[job].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
 		expect(checkout).toEqual({ name: "Checkout", uses: "actions/checkout@v5" });
 		expect(JSON.stringify(checkout)).not.toContain("inputs.");
-	});
-
-	it("retains the direct release identity, Changesets ordering, and OIDC provenance", async () => {
-		const release = await loadWorkflow("release.yml");
-		const steps = release.jobs.publish.steps;
-		const names = steps.map(({ name }) => name);
-		expect(release.name).toBe("Publish");
-		expect(release.jobs.publish.if).toBe("github.repository == 'surikaterna/formbar'");
-		expect(names.indexOf("Version packages")).toBeLessThan(names.indexOf("Preflight release artifacts"));
-		expect(names.indexOf("Preflight release artifacts")).toBeLessThan(names.indexOf("Publish packages"));
-		expect(names.indexOf("Publish packages")).toBeLessThan(names.indexOf("Reconcile release artifacts"));
-
-		const changesets = steps.find(({ name }) => name === "Version packages");
-		expect(changesets).toMatchObject({ uses: "changesets/action@v1" });
-		const releaseSteps = steps.filter(({ name }) =>
-			["Preflight release artifacts", "Publish packages", "Reconcile release artifacts"].includes(name ?? ""),
-		);
-		for (const step of releaseSteps) expect(step.if).toBe("steps.changesets.outputs.hasChangesets == 'false'");
-		expect(steps.find(({ name }) => name === "Publish packages")).toMatchObject({
-			run: "bunx changeset publish",
-			env: { NPM_CONFIG_PROVENANCE: "true" },
-		});
 	});
 
 	it("contains no token publishing, manual fallback, or reusable coordinator", async () => {

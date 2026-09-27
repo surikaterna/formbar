@@ -1,4 +1,4 @@
-name: Publish
+name: Version proposal (release disabled)
 
 on:
   push:
@@ -6,90 +6,34 @@ on:
   workflow_dispatch:
     inputs:
       expected_main_sha:
-        description: Full lowercase SHA currently at the tip of main
-        required: true
-        type: string
-      recovery_issue:
-        description: Open recovery issue number authorizing this run
+        description: Full lowercase SHA at the tip of main (NOT publish authorization)
         required: true
         type: string
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  contents: write
-  issues: read
-  pull-requests: write
-  id-token: write
+  contents: read
 
 jobs:
-  publish:
-    if: github.repository == 'surikaterna/formbar'
+  version-proposal:
+    if: github.repository == 'surikaterna/formbar' && github.event_name == 'push'
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - name: Validate exact-SHA recovery
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        env:
-          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
-          EXPECTED_WORKFLOW_REF: surikaterna/formbar/.github/workflows/release.yml@refs/heads/main
-          GH_TOKEN: ${{ github.token }}
-          RECOVERY_ISSUE: ${{ inputs.recovery_issue }}
-        run: |
-          set -euo pipefail
-
-          fail() {
-            printf '::error::%s\n' "$1"
-            exit 1
-          }
-
-          [[ "$GITHUB_REPOSITORY" == "surikaterna/formbar" ]] || fail "Recovery is restricted to surikaterna/formbar"
-          [[ "$GITHUB_REF" == "refs/heads/main" ]] || fail "Recovery must run on refs/heads/main"
-          [[ "$GITHUB_REF_PROTECTED" == "true" ]] || fail "Recovery requires a protected main ref"
-          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "expected_main_sha must be a full lowercase SHA"
-          [[ "$RECOVERY_ISSUE" =~ ^[1-9][0-9]*$ ]] || fail "recovery_issue must be a positive issue number"
-          [[ "$GITHUB_WORKFLOW_REF" == "$EXPECTED_WORKFLOW_REF" ]] || fail "Workflow must be loaded from its main-branch path"
-          [[ "$GITHUB_WORKFLOW_SHA" == "$EXPECTED_MAIN_SHA" ]] || fail "Workflow SHA does not match expected_main_sha"
-          [[ "$GITHUB_SHA" == "$EXPECTED_MAIN_SHA" ]] || fail "Event SHA does not match expected_main_sha"
-
-          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
-          [[ "$default_branch" == "main" ]] || fail "Repository default branch is not main"
-
-          main_protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
-          [[ "$main_protected" == "true" ]] || fail "The live main branch is not protected"
-
-          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          [[ "$current_main_sha" == "$EXPECTED_MAIN_SHA" ]] || fail "main advanced after the reviewed SHA"
-
-          issue_state="$(gh api "repos/$GITHUB_REPOSITORY/issues/$RECOVERY_ISSUE" --jq '.state')"
-          issue_is_pr="$(gh api "repos/$GITHUB_REPOSITORY/issues/$RECOVERY_ISSUE" --jq 'has("pull_request")')"
-          [[ "$issue_state" == "open" ]] || fail "Recovery issue is not open"
-          [[ "$issue_is_pr" == "false" ]] || fail "recovery_issue must identify an issue, not a pull request"
-          printf 'RECOVERY_EVIDENCE recovery_issue=%s expected_main_sha=%s\n' "$RECOVERY_ISSUE" "$EXPECTED_MAIN_SHA"
-
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
+          bun-version: 1.2.21
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Build packages
         run: bun run build
-
-      - name: Version packages
-        id: changesets
+      - name: Refresh version proposal only
         uses: changesets/action@v1
         with:
           version: bun run version:packages
@@ -98,22 +42,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Preflight release artifacts
-        if: steps.changesets.outputs.hasChangesets == 'false'
-        run: bun scripts/release/plan.ts
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PLAN: ${{ runner.temp }}/formbar-release-plan.json
-
-      - name: Publish packages
-        if: steps.changesets.outputs.hasChangesets == 'false'
-        run: bunx changeset publish
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
-
-      - name: Reconcile release artifacts
-        if: steps.changesets.outputs.hasChangesets == 'false'
-        run: bun scripts/release/apply.ts
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PLAN: ${{ runner.temp }}/formbar-release-plan.json
+  reject-dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse release until independent approval is enforceable
+        run: |
+          printf '::error::#350 release dispatch disabled: no independently verified protected release environment, non-self approval, main protection, or #250 final GO. SHA is not authorization.\n'
+          exit 1
