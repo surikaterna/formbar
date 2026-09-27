@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { extractTarball, npmPack, npmPackDryRun } from "./npm-pack";
 import { type PackageManifest, packagePolicies } from "./policy";
-import { validateAllowedFiles, validateLicense, validateManifest, validateSourceMaps } from "./validate";
+import {
+	validateAllowedFiles,
+	validateLicense,
+	validateManifest,
+	validateRcDependencies,
+	validateSourceMaps,
+} from "./validate";
 
 export interface PackageAudit {
 	readonly bytes: Buffer;
@@ -41,7 +47,12 @@ function validatePackedManifest(source: PackageManifest, packedDirectory: string
 	deepStrictEqual(packed, source, `${source.name}: packed package.json differs from source`);
 }
 
-function auditPackage(root: string, packRoot: string, index: number): PackageAudit {
+function auditPackage(
+	root: string,
+	packRoot: string,
+	index: number,
+	versions: Readonly<Record<string, string>>,
+): PackageAudit {
 	const policy = packagePolicies[index];
 	const packageDirectory = resolve(root, "packages", policy.directory);
 	const dryRun = npmPackDryRun(packageDirectory);
@@ -50,7 +61,20 @@ function auditPackage(root: string, packRoot: string, index: number): PackageAud
 	deepStrictEqual(files, paths(dryRun.files), `${policy.name}: dry-run and packed file lists differ`);
 	validateAllowedFiles(policy, files);
 	const manifest = readManifest(packageDirectory);
-	validateManifest(policy, manifest, files);
+	validateManifest(policy, manifest, files, root);
+	validateRcDependencies(policy, manifest, versions);
+	if (
+		packed.name !== manifest.name ||
+		packed.version !== manifest.version ||
+		dryRun.version !== manifest.version ||
+		packed.filename !== `${manifest.name.slice(1).replace("/", "-")}-${manifest.version}.tgz`
+	)
+		throw new Error(`${policy.name}: npm pack metadata differs from manifest`);
+	if (/^.+-rc\.(?:0|[1-9]\d*)$/.test(manifest.version)) {
+		const changelog = readFileSync(resolve(packageDirectory, "CHANGELOG.md"), "utf8");
+		if (!changelog.split("\n").includes(`## ${manifest.version}`))
+			throw new Error(`${policy.name}: missing RC changelog entry`);
+	}
 	const mapAudit = validateSourceMaps(policy, packageDirectory, files);
 	const tarball = resolve(packRoot, basename(packed.filename));
 	const extracted = resolve(packRoot, `extracted-${policy.directory}`);
@@ -71,9 +95,15 @@ function auditPackage(root: string, packRoot: string, index: number): PackageAud
 
 export function auditPackages(root: string): PackageAudit[] {
 	validateWorkspaceSet(root);
+	const versions = Object.fromEntries(
+		packagePolicies.map((policy) => {
+			const manifest = readManifest(resolve(root, "packages", policy.directory));
+			return [policy.name, manifest.version];
+		}),
+	);
 	const packRoot = mkdtempSync(join(tmpdir(), "formbar-native-packs-"));
 	try {
-		return packagePolicies.map((_, index) => auditPackage(root, packRoot, index));
+		return packagePolicies.map((_, index) => auditPackage(root, packRoot, index, versions));
 	} finally {
 		rmSync(packRoot, { recursive: true, force: true });
 	}
