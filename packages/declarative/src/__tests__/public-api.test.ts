@@ -7,8 +7,7 @@ import type { OutputFormat, ResolvedOutputState, RuntimeSnapshot } from "../inde
 
 const root = new URL("../../../../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf8");
-const stableVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
-const caretStableRange = /^\^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const releaseVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?$/;
 const neutralDependencyManifests = {
 	"@formbar/core": "packages/core/package.json",
 	"@formbar/expressions": "packages/expressions/package.json",
@@ -68,6 +67,71 @@ describe("public package boundary", () => {
 		);
 	});
 
+	it("accepts the generated mixed RC and stable dependency closure", () => {
+		expectNeutralDependencies(
+			{ "@formbar/core": "^0.23.0-rc.0", "@formbar/expressions": "^0.14.3" },
+			{ "@formbar/core": "0.23.0-rc.0", "@formbar/expressions": "0.14.3" },
+		);
+	});
+
+	it("accepts an equal or earlier RC floor only for the same release", () => {
+		const dependencies = { "@formbar/core": "^0.23.0-rc.0", "@formbar/expressions": "^0.14.3" };
+		for (const [version, range] of [
+			["0.23.0-rc.0", "^0.23.0-rc.0"],
+			["0.23.0-rc.12", "^0.23.0-rc.2"],
+			["0.23.0-rc.12", "^0.23.0-rc.12"],
+		]) {
+			expectNeutralDependencies(
+				{ ...dependencies, "@formbar/core": range },
+				{ "@formbar/core": version, "@formbar/expressions": "0.14.3" },
+			);
+		}
+	});
+
+	it("rejects incompatible RC floors, malformed versions and non-caret ranges", () => {
+		const dependencies = { "@formbar/core": "^0.23.0-rc.0", "@formbar/expressions": "^0.14.3" };
+		const versions: NeutralVersions = { "@formbar/core": "0.23.0-rc.0", "@formbar/expressions": "0.14.3" };
+		for (const range of [
+			"^0.23.0-rc.1",
+			"^0.23.0",
+			"^0.22.9",
+			"^0.22.9-rc.0",
+			"^0.23.1-rc.0",
+			"^1.23.0-rc.0",
+			"^0.24.0-rc.0",
+			"^0.23.0-beta.0",
+			"^0.23.0-rc.00",
+			"^00.23.0-rc.0",
+			"^0.23.0-rc.0-extra",
+			"0.23.0-rc.0",
+			"~0.23.0-rc.0",
+			"^0.23.0-rc.*",
+		]) {
+			expect(() => expectNeutralDependencies({ ...dependencies, "@formbar/core": range }, versions), range).toThrow();
+		}
+		for (const version of ["0.23.0-rc.00", "0.23.0-beta.0", "0.23.0-rc.0-extra", "00.23.0-rc.0"]) {
+			expect(
+				() => expectNeutralDependencies(dependencies, { ...versions, "@formbar/core": version }),
+				version,
+			).toThrow();
+		}
+		expect(() =>
+			expectNeutralDependencies({ ...dependencies, "@formbar/expressions": "^0.14.3-rc.0" }, versions),
+		).toThrow();
+		expect(() => expectNeutralDependencies({ ...dependencies, "@formbar/expressions": "^0.14.4" }, versions)).toThrow();
+		expect(() => expectNeutralDependencies({ ...dependencies, react: "^19.0.0" }, versions)).toThrow();
+		expect(() => expectNeutralDependencies({ "@formbar/core": dependencies["@formbar/core"] }, versions)).toThrow();
+	});
+
+	it("preserves stable patch-only and 0.0.x compatibility without admitting RC floors", () => {
+		const dependencies = { "@formbar/core": "^0.0.2", "@formbar/expressions": "^0.14.3" };
+		const versions: NeutralVersions = { "@formbar/core": "0.0.2", "@formbar/expressions": "0.14.3" };
+		expectNeutralDependencies(dependencies, versions);
+		for (const range of ["^0.0.1", "^0.0.3", "^0.0.2-rc.0"]) {
+			expect(() => expectNeutralDependencies({ ...dependencies, "@formbar/core": range }, versions)).toThrow();
+		}
+	});
+
 	it("rejects unexpected dependencies and invalid or incompatible ranges", () => {
 		const versions: NeutralVersions = { "@formbar/core": "0.22.2", "@formbar/expressions": "0.14.3" };
 		const dependencies = { "@formbar/core": "^0.22.0", "@formbar/expressions": "^0.14.3" };
@@ -89,11 +153,24 @@ function expectNeutralDependencies(dependencies: Record<string, string>, version
 	const names = Object.keys(neutralDependencyManifests) as NeutralDependency[];
 	expect(Object.keys(dependencies).sort()).toEqual([...names].sort());
 	for (const name of names) {
-		const version = versions[name];
-		expect(version, `${name} package version`).toMatch(stableVersion);
-		expect(dependencies[name], `${name} dependency range`).toMatch(caretStableRange);
-		const [major, minor, patch] = version.split(".").map(Number);
-		const [rangeMajor, rangeMinor, rangePatch] = dependencies[name].slice(1).split(".").map(Number);
+		const version = releaseVersion.exec(versions[name]);
+		const range = releaseVersion.exec(dependencies[name]?.startsWith("^") ? dependencies[name].slice(1) : "");
+		expect(version, `${name} package version`).not.toBeNull();
+		expect(range, `${name} dependency range`).not.toBeNull();
+		if (!version || !range) continue;
+		const [major, minor, patch] = version.slice(1, 4).map(Number);
+		const [rangeMajor, rangeMinor, rangePatch] = range.slice(1, 4).map(Number);
+		if (version[4] !== undefined || range[4] !== undefined) {
+			const compatible =
+				version[4] !== undefined &&
+				range[4] !== undefined &&
+				major === rangeMajor &&
+				minor === rangeMinor &&
+				patch === rangePatch &&
+				BigInt(range[4]) <= BigInt(version[4]);
+			expect(compatible, `${name} compatible RC dependency range`).toBe(true);
+			continue;
+		}
 		// A caret on 0.x admits patch updates within the minor; 0.0.x admits only its patch.
 		const compatible =
 			rangeMajor === major &&
