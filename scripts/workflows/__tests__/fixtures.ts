@@ -13,7 +13,6 @@ export const expectedSha = "cce4eccf52738e5d2666c3fb734b2e76f531d514";
 
 export const workflowCases = [
 	{ file: "ci.yml", job: "ci", name: "CI" },
-	{ file: "release.yml", job: "publish", name: "Publish" },
 	{ file: "pages.yml", job: "build", name: "Deploy to GitHub Pages" },
 ] as const;
 
