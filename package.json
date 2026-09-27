@@ -10,7 +10,7 @@
 		"test": "vitest run",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
-		"version:packages": "changeset version && biome format --write packages/*/package.json",
+		"version:packages": "changeset version && biome format --write packages/*/package.json && if test -e .changeset/pre.json; then biome format --write .changeset/pre.json; fi",
 		"dev": "bun run --filter @formbar/demos dev"
 	},
 	"devDependencies": {

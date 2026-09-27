@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,6 +73,10 @@ async function readManifests(root: string) {
 	return Object.fromEntries(entries);
 }
 
+async function readPre(root: string) {
+	return readFile(join(root, ".changeset", "pre.json"), "utf8");
+}
+
 describe("version:packages", () => {
 	it("preserves Changesets semantics while formatting generated manifests", async () => {
 		const versionScript = await repositoryVersionScript();
@@ -110,12 +114,89 @@ describe("version:packages", () => {
 			expect({ alpha: afterSecondFormat.alpha.contents, beta: afterSecondFormat.beta.contents }).toEqual(
 				beforeSecondFormat,
 			);
+			await Promise.all(roots.map((root) => expect(access(join(root, ".changeset", "pre.json"))).rejects.toThrow()));
 
 			await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 			await Promise.all(roots.map((root) => expect(access(root)).rejects.toThrow()));
 			roots.length = 0;
 		} finally {
 			await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
+		}
+	}, 15_000);
+
+	it("formats only generated prerelease metadata without changing Changesets output", async () => {
+		const versionScript = await repositoryVersionScript();
+		const roots = [await createFixture(versionScript), await createFixture(versionScript)];
+		try {
+			const [rawRoot, formattedRoot] = roots;
+			await execute(join(binaryDirectory, "biome"), ["format", "--write", "."], {
+				cwd: formattedRoot,
+				env: commandEnvironment,
+			});
+			for (const root of roots) {
+				await execute(join(binaryDirectory, "changeset"), ["pre", "enter", "rc"], {
+					cwd: root,
+					env: commandEnvironment,
+				});
+			}
+			await execute(join(binaryDirectory, "changeset"), ["version"], { cwd: rawRoot, env: commandEnvironment });
+			await execute("bun", ["run", "version:packages"], { cwd: formattedRoot, env: commandEnvironment });
+
+			const rawPre = await readPre(rawRoot);
+			const formattedPre = await readPre(formattedRoot);
+			expect(JSON.parse(formattedPre)).toEqual(JSON.parse(rawPre));
+			expect(JSON.parse(formattedPre)).toMatchObject({ mode: "pre", tag: "rc", changesets: ["fixture"] });
+			const raw = await readManifests(rawRoot);
+			const formatted = await readManifests(formattedRoot);
+			expect(formatted).toMatchObject({
+				alpha: { parsed: { version: "2.0.0-rc.0" } },
+				beta: { parsed: { dependencies: { "@fixture/alpha": "^2.0.0-rc.0" } } },
+			});
+			expect({ alpha: formatted.alpha.parsed, beta: formatted.beta.parsed }).toEqual({
+				alpha: raw.alpha.parsed,
+				beta: raw.beta.parsed,
+			});
+			await expect(
+				execute(join(binaryDirectory, "biome"), ["check", "."], {
+					cwd: formattedRoot,
+					env: commandEnvironment,
+				}),
+			).resolves.toBeDefined();
+
+			const beforeSecondVersion = { pre: formattedPre, manifests: await readManifests(formattedRoot) };
+			await execute("bun", ["run", "version:packages"], { cwd: formattedRoot, env: commandEnvironment });
+			expect({ pre: await readPre(formattedRoot), manifests: await readManifests(formattedRoot) }).toEqual(
+				beforeSecondVersion,
+			);
+		} finally {
+			await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
+		}
+	}, 15_000);
+
+	it("fails when prerelease formatting fails instead of silently accepting invalid metadata", async () => {
+		const root = await createFixture(await repositoryVersionScript());
+		try {
+			await execute(join(binaryDirectory, "changeset"), ["pre", "enter", "rc"], {
+				cwd: root,
+				env: commandEnvironment,
+			});
+			const fixtureBin = join(root, "bin");
+			await mkdir(fixtureBin);
+			const fakeBiome = join(fixtureBin, "biome");
+			await writeFile(
+				fakeBiome,
+				`#!/bin/sh\nif [ "$3" = ".changeset/pre.json" ]; then exit 42; fi\nexec "${join(binaryDirectory, "biome")}" "$@"\n`,
+			);
+			await chmod(fakeBiome, 0o755);
+			await expect(
+				execute("bun", ["run", "version:packages"], {
+					cwd: root,
+					env: { ...commandEnvironment, PATH: `${fixtureBin}:${commandEnvironment.PATH}` },
+				}),
+			).rejects.toThrow();
+			expect(JSON.parse(await readPre(root)).changesets).toEqual(["fixture"]);
+		} finally {
+			await rm(root, { recursive: true, force: true });
 		}
 	}, 15_000);
 });
