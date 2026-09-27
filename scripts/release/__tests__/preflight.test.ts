@@ -10,10 +10,10 @@ describe("candidate selection", () => {
 		expect(await selectCandidates([workspace], sha, services)).toHaveLength(1);
 	});
 
-	it("ignores an already-published version from an unrelated historical gitHead", async () => {
+	it.each(["b".repeat(40), undefined])("rejects conflicting or missing gitHead %s", async (gitHead) => {
 		const services = new FakeServices();
-		services.npm = { exists: true, gitHead: "b".repeat(40) };
-		expect(await selectCandidates([workspace], sha, services)).toEqual([]);
+		services.npm = { exists: true, gitHead };
+		await expect(selectCandidates([workspace], sha, services)).rejects.toThrow("conflicting or missing");
 	});
 });
 
