@@ -145,6 +145,18 @@ describe("#374 disabled existing-version verifier (synthetic transport; live pro
 			},
 		],
 		[
+			"forged dist.provenance alone, without a signed attestation",
+			(f: ReturnType<typeof setup>) => {
+				(f.dist as Record<string, unknown>).provenance = {
+					repository: approved.repository,
+					workflow: approved.workflow,
+					commit: approved.commit,
+					runId: approved.runId,
+				};
+				(f.dist as Partial<typeof f.dist>).attestations = undefined;
+			},
+		],
+		[
 			"wrong downloaded bytes",
 			(f: ReturnType<typeof setup>) => {
 				f.replies[f.dist.tarball].bytes = new Uint8Array([1]);
@@ -157,9 +169,21 @@ describe("#374 disabled existing-version verifier (synthetic transport; live pro
 			},
 		],
 		[
-			"redirect",
+			"tarball redirect",
 			(f: ReturnType<typeof setup>) => {
-				f.replies[f.dist.tarball].location = "redirect";
+				f.replies[f.dist.tarball] = { status: 302, location: "https://evil.example/package.tgz" };
+			},
+		],
+		[
+			"foreign attestation URL",
+			(f: ReturnType<typeof setup>) => {
+				f.dist.attestations.url = "https://evil.example/attestations";
+			},
+		],
+		[
+			"attestation redirect",
+			(f: ReturnType<typeof setup>) => {
+				f.replies[f.dist.attestations.url] = { status: 302, location: "https://evil.example/attestations" };
 			},
 		],
 		[
@@ -230,13 +254,56 @@ describe("#374 disabled existing-version verifier (synthetic transport; live pro
 		mutate(f);
 		expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
 	});
-	it("denies incorrect expected run and a rejected/expired signer", async () => {
+	it("never consults proof for metadata-only provenance or foreign attestation", async () => {
+		for (const url of [undefined, "https://evil.example/attestations"]) {
+			const f = setup();
+			(f.dist as Record<string, unknown>).provenance = { commit: approved.commit };
+			if (url) f.dist.attestations.url = url;
+			else (f.dist as Partial<typeof f.dist>).attestations = undefined;
+			expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
+			expect(f.verifies).toBe(0);
+		}
+	});
+	it.each([401, 403, 429, 500, 502, 503])("denies registry %i at each read without invoking proof", async (status) => {
+		for (const url of [
+			`${host}/${encodeURIComponent(approved.name)}/${approved.version}`,
+			`${host}/${encodeURIComponent(approved.name)}`,
+			`${host}/@changesets/cli/-/cli-2.29.7.tgz`,
+			`${host}/-/npm/v1/attestations/@changesets%2fcli@2.29.7`,
+		]) {
+			const f = setup();
+			f.replies[url] = { status };
+			expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
+			expect(f.verifies).toBe(0);
+		}
+	});
+	it("denies redirects on every registry read, without following foreign locations", async () => {
+		for (const url of [
+			`${host}/${encodeURIComponent(approved.name)}/${approved.version}`,
+			`${host}/${encodeURIComponent(approved.name)}`,
+			`${host}/@changesets/cli/-/cli-2.29.7.tgz`,
+			`${host}/-/npm/v1/attestations/@changesets%2fcli@2.29.7`,
+		]) {
+			const f = setup();
+			const requests: string[] = [];
+			f.replies[url] = { status: 302, location: "https://evil.example/redirected" };
+			const original = f.read.get;
+			f.read.get = async (requested, binary) => {
+				requests.push(requested);
+				return original(requested, binary);
+			};
+			expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
+			expect(requests).not.toContain("https://evil.example/redirected");
+			expect(f.verifies).toBe(0);
+		}
+	});
+	it("denies incorrect expected run and a rejected signer", async () => {
 		const f = setup();
 		expect((await verifyExistingSignedVersion(f.read, f.proof, { ...approved, attempt: "2" })).status).toBe(
 			"UNVERIFIABLE",
 		);
 		f.proof.verify = async () => {
-			throw new Error("invalid/expired signing certificate");
+			throw new Error("rejected signing certificate");
 		};
 		expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
 	});

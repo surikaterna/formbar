@@ -26,6 +26,11 @@ count as proof. The signed subject of *both* registry publish and SLSA bundles
 must be the exact npm PURL and SHA512 hex digest of the completed registry
 tarball bytes (<=20 MB); exact metadata SRI and SHA1 must also match those
 bytes. Version/full-packument/tag reads are repeated and redirects denied.
+Adversarial injected reads reject 401/403/429/5xx and redirects at version,
+packument, tarball and attestation boundaries; only a version GET 404 is
+observed absence. A forged `dist.provenance` without `dist.attestations` is
+unverifiable, regardless of its claimed identity. These tests use GET-only
+transport injection and never write to the registry or request OIDC tokens.
 The registry reader caps actual JSON bytes (2 MB), tarball bytes (20 MB), and
 each request at 10s. `npm audit` is capped at 90s/8 MB output; Sigstore at
 45s/60 KB bundle input. No arbitrary unbounded polling or missing-version
@@ -58,6 +63,21 @@ bytes/signatures: its positive only tests orchestration. The opt-in live test
 is the genuine cryptographic-positive proof. It must be repeated by Auditor
 against the exact pushed SHA; never treat an injected fake `AuditProof` as a
 trusted production verifier.
+
+The opt-in live test also runs the **pinned Sigstore certificate-chain verifier**
+against the genuine Fulcio leaf and trusted TUF chain from the real bundle. It
+first accepts the authentic integrated signing time, then tests a timestamp
+one second after the leaf expiry with CA selection held fixed: the nested
+`CERTIFICATE_ERROR` must be the verifier's *certificate is not valid or expired
+at the specified date*, rather than a chain/path or stub error. This tests
+the actual signing-time validity branch, not a purported cryptographically
+genuine expired-at-signing bundle. Constructing such a full publicly trusted
+bundle would require control of Fulcio signing and a valid transparency log
+entry for a signing time outside its leaf validity; mutating its recorded
+timestamp would invalidate Rekor's signed proof. No revocation check is
+claimed (Sigstore's pinned API here validates chain/time/SCT/tlog, not a
+revocation status service). A requirement for end-to-end revoked or expired
+*publicly trusted* bundles needs an explicit risk decision before release use.
 
 References: [npm CLI 11 audit signatures](https://docs.npmjs.com/cli/v11/commands/npm-audit/#audit-signatures),
 [npm CLI 11.20.0 verification](https://raw.githubusercontent.com/npm/cli/v11.20.0/lib/utils/verify-signatures.js),

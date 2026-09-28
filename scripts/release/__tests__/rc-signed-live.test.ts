@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createPinnedAudit } from "../rc-signed-audit";
 import { verifyExistingSignedVersion } from "../rc-signed-existing";
@@ -7,6 +9,44 @@ import { createSignedRegistryReader } from "../rc-signed-reader";
 const node = process.env.RC_SIGNED_NODE;
 const npmRoot = process.env.RC_SIGNED_NPM_ROOT;
 const install = process.env.RC_SIGNED_INSTALL;
+
+async function verifySigningTimeBoundary(root: string, signed: unknown) {
+	const requirePinned = createRequire(join(root, "package.json"));
+	const { bundleFromJSON } = requirePinned("@sigstore/bundle");
+	const { toSignedEntity, toTrustMaterial } = requirePinned("@sigstore/verify");
+	const { getTrustedRoot } = requirePinned("@sigstore/tuf");
+	const { verifyCertificateChain } = requirePinned(join(root, "node_modules/@sigstore/verify/dist/key/certificate.js"));
+	const bundle = bundleFromJSON(signed);
+	const entity = toSignedEntity(bundle);
+	if (entity.key.$case !== "certificate") throw new Error("expected real Fulcio leaf certificate");
+	const leaf = entity.key.certificate;
+	const trust = toTrustMaterial(await getTrustedRoot());
+	const signingTime = new Date(Number(bundle.verificationMaterial.tlogEntries[0].integratedTime) * 1000);
+	const authority = trust.certificateAuthorities.filter(
+		(ca: { validFor: { start: Date; end: Date } }) =>
+			ca.validFor.start <= signingTime && signingTime <= ca.validFor.end,
+	);
+	// Keep the genuine trusted chain but isolate leaf validity: a timestamp just
+	// after its expiry cannot be a valid signing time, even though the chain signs correctly.
+	const leafExpiredTime = new Date(leaf.notAfter.getTime() + 1000);
+	const validChain = verifyCertificateChain(signingTime, leaf, authority);
+	if (validChain[0].notAfter.getTime() !== leaf.notAfter.getTime()) throw new Error("wrong leaf");
+	const isolated = authority.map((ca: { certChain: unknown[]; validFor: { start: Date; end: Date } }) => ({
+		...ca,
+		validFor: {
+			start: ca.validFor.start,
+			end: new Date(Math.max(ca.validFor.end.getTime(), leafExpiredTime.getTime())),
+		},
+	}));
+	try {
+		verifyCertificateChain(leafExpiredTime, leaf, isolated);
+		throw new Error("expired leaf accepted");
+	} catch (error) {
+		expect((error as { cause?: Error }).cause?.message).toBe(
+			"certificate is not valid or expired at the specified date",
+		);
+	}
+}
 
 it.skipIf(!node || !npmRoot || !install)(
 	"verifies REAL published @changesets/cli@2.29.7 signed bytes and approved run",
@@ -57,6 +97,7 @@ it.skipIf(!node || !npmRoot || !install)(
 			response.attestations.find((entry) => entry.predicateType === "https://slsa.dev/provenance/v1")?.bundle,
 		);
 		if (!signed) throw new Error("missing live signed bundle");
+		await verifySigningTimeBoundary(npmRoot, signed);
 		signed.dsseEnvelope.signatures[0].sig = "invalid-signature";
 		await expect(proof.verify(signed, signerPolicy(approved))).rejects.toThrow();
 	},
