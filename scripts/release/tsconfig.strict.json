@@ -15,6 +15,8 @@
 		"live-go.ts",
 		"live-policy.ts",
 		"rc-source-check.ts",
+		"rc-registry-proof.ts",
+		"__tests__/rc-registry-proof.test.ts",
 		"__tests__/github-read.test.ts",
 		"__tests__/live-evidence.test.ts",
 		"__tests__/rc-source-check.test.ts"
