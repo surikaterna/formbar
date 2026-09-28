@@ -100,7 +100,7 @@ export async function runProtectedRc(): Promise<{ status: "VERIFIED_SEVEN"; name
 	)
 		throw new Error("unreviewed seven-package candidate plan");
 	const state: State = { run, candidates, token };
-	await claimVerifiedRun(run);
+	await claimVerifiedRun(run, candidates);
 	const first = await observe(state);
 	for (const [index, item] of first.entries()) if (present(item)) await signed(state, candidates[index]);
 	for (const candidate of candidates) {

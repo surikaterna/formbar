@@ -193,8 +193,8 @@ export async function traceDisabledRc(
 	const completed: string[] = [];
 	let uncertain: string | undefined;
 	try {
-		await claimVerifiedRun(run);
 		const ordered = candidatesByName(candidates);
+		await claimVerifiedRun(run, [...ordered.values()]);
 		const initial = await observe(run, ordered, settings.githubReadToken);
 		for (const item of initial.view.packages) {
 			const candidate = ordered.get(item.name);

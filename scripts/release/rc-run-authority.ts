@@ -3,13 +3,15 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createGitHubRead } from "./github-read";
 import { type RunWitness, fetchRcEvidence } from "./live-evidence";
+import { claimAttempt, planDigest } from "./rc-attempt-fence";
 import { loadRcSource } from "./rc-pack-evidence";
+import type { PrepackedCandidate } from "./rc-prepacked-candidates";
+import { consumed, rcPackages, rcVersion } from "./rc-reviewed-plan";
 
 declare const brand: unique symbol;
 export type VerifiedRun = { readonly [brand]: true };
 type Binding = { root: string; token: string; runId: number; sha: string; tree: string };
 const bindings = new WeakMap<object, Binding>();
-const claimedRuns = new Set<string>();
 const sha = /^[0-9a-f]{40}$/;
 
 function git(root: string, ...args: string[]): string {
@@ -94,10 +96,45 @@ export async function refreshVerifiedRun(
 }
 
 /** An attempted sequence consumes this exact run even if no PUT was acknowledged. */
-export async function claimVerifiedRun(value: unknown): ReturnType<typeof refreshVerifiedRun> {
+export async function claimVerifiedRun(
+	value: unknown,
+	candidates: readonly PrepackedCandidate[],
+): ReturnType<typeof refreshVerifiedRun> {
 	const source = await refreshVerifiedRun(value);
-	const key = `${source.runId}/${source.sha}`;
-	if (claimedRuns.has(key)) throw new Error("run already attempted; new protected run and FINAL GO required");
-	claimedRuns.add(key);
+	if (process.env.GITHUB_RUN_ATTEMPT !== "1" || candidates.length !== rcPackages.length)
+		throw new Error("unreviewed first-attempt candidate plan");
+	const { verifiedCandidateBytes } = await import("./rc-prepacked-candidates");
+	const packed = [];
+	for (const [index, candidate] of candidates.entries()) {
+		if (
+			candidate.name !== `@formbar/${rcPackages[index]}` ||
+			candidate.version !== rcVersion ||
+			!/^sha512-[A-Za-z0-9+/]{86}==$/.test(candidate.integrity) ||
+			!/^[0-9a-f]{128}$/.test(candidate.sha512) ||
+			!/^[0-9a-f]{40}$/.test(candidate.shasum)
+		)
+			throw new Error("unreviewed candidate identity");
+		const bytes = await verifiedCandidateBytes(value as VerifiedRun, candidate);
+		packed.push({
+			name: candidate.name,
+			version: candidate.version,
+			integrity: candidate.integrity,
+			shasum: candidate.shasum,
+			sha512: candidate.sha512,
+			length: bytes.length,
+		});
+	}
+	const witness = loadRcSource(source.root, source.sha, source.tree);
+	const digest = planDigest({
+		packages: rcPackages,
+		version: rcVersion,
+		consumed,
+		pre: witness.pre,
+		manifests: rcPackages.map((name) => witness.manifests[name]),
+		changelogs: rcPackages.map((name) => witness.changelogs[name]),
+		packed,
+	});
+	await refreshVerifiedRun(value);
+	claimAttempt(source.runId, source.sha, source.tree, digest);
 	return source;
 }
