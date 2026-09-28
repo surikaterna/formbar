@@ -8,7 +8,7 @@ import {
 	consumed,
 	inspectRcSource,
 } from "../rc-source-check";
-import type { ReleasePlan, ReleaseReader } from "../types";
+import type { GithubReleaseState, ReleasePlan, ReleaseReader, TagState } from "../types";
 
 vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
 const sha = "a".repeat(40);
@@ -90,42 +90,51 @@ const plan: ReleasePlan = {
 };
 const reader: ReleaseReader = {
 	npmVersion: vi.fn(async () => ({ exists: false })),
-	tag: vi.fn(async () => ({ kind: "absent" })),
-	release: vi.fn(async () => ({ kind: "absent" })),
+	tag: vi.fn(async (): Promise<TagState> => ({ kind: "absent" })),
+	release: vi.fn(async (): Promise<GithubReleaseState> => ({ kind: "absent" })),
 };
 const files = readFile as ReturnType<typeof vi.fn>;
+
+type EvidenceChange = {
+	context?: Partial<DispatchContext>;
+	source?: Partial<ReviewedSource>;
+	go?: Partial<GoEvidence>;
+	review?: Partial<ReviewContract>;
+};
+
+const invalidEvidence: ReadonlyArray<readonly [EvidenceChange, string]> = [
+	[{ context: { event: "push" } }, "dispatch"],
+	[{ source: { observedHead: sha } }, "#298"],
+	[{ source: { base: sha, observedBase: sha } }, "#298"],
+	[{ source: { reviewedMainTree: sha } }, "tree"],
+	[{ go: { issue: 362 } }, "GO"],
+	[{ go: { runId: 41 } }, "approval"],
+	[{ go: { runAttempt: 2 } }, "GO"],
+	[{ go: { runCreatedAt: go.createdAt } }, "GO"],
+	[{ go: { runCreatedAt: "not-a-date" } }, "GO"],
+	[{ go: { author: "stranger" } }, "GO"],
+	[{ go: { updatedAt: "2026-09-27T10:01:00Z" } }, "GO"],
+	[{ go: { checkedAt: "2026-09-28T10:00:00Z" } }, "GO"],
+	[{ go: { commit: head } }, "GO"],
+	[{ go: { tree: sha } }, "GO"],
+	[{ go: { acknowledgesLegacyIssueMigration: false } }, "GO"],
+	[{ go: { distTag: "latest" } }, "GO"],
+	[{ review: { reviewer: "eaglez" } }, "approval"],
+	[{ review: { reviewer: "stranger" } }, "approval"],
+	[{ review: { dispatcher: "spralle" } }, "approval"],
+	[{ review: { runAttempt: 2 } }, "approval"],
+	[{ review: { protectedMain: false } }, "approval"],
+	[{ review: { noBypass: false } }, "approval"],
+	[{ review: { environment: "unprotected" } }, "approval"],
+	[{ review: { approvedRunId: 41 } }, "approval"],
+];
 
 describe("disabled RC source inspection", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		files.mockReset();
 	});
-	it.each([
-		[{ context: { event: "push" } }, "dispatch"],
-		[{ source: { observedHead: sha } }, "#298"],
-		[{ source: { base: sha, observedBase: sha } }, "#298"],
-		[{ source: { reviewedMainTree: sha } }, "tree"],
-		[{ go: { issue: 362 } }, "GO"],
-		[{ go: { runId: 41 } }, "approval"],
-		[{ go: { runAttempt: 2 } }, "GO"],
-		[{ go: { runCreatedAt: go.createdAt } }, "GO"],
-		[{ go: { runCreatedAt: "not-a-date" } }, "GO"],
-		[{ go: { author: "stranger" } }, "GO"],
-		[{ go: { updatedAt: "2026-09-27T10:01:00Z" } }, "GO"],
-		[{ go: { checkedAt: "2026-09-28T10:00:00Z" } }, "GO"],
-		[{ go: { commit: head } }, "GO"],
-		[{ go: { tree: sha } }, "GO"],
-		[{ go: { acknowledgesLegacyIssueMigration: false } }, "GO"],
-		[{ go: { distTag: "latest" } }, "GO"],
-		[{ review: { reviewer: "eaglez" } }, "approval"],
-		[{ review: { reviewer: "stranger" } }, "approval"],
-		[{ review: { dispatcher: "spralle" } }, "approval"],
-		[{ review: { runAttempt: 2 } }, "approval"],
-		[{ review: { protectedMain: false } }, "approval"],
-		[{ review: { noBypass: false } }, "approval"],
-		[{ review: { environment: "unprotected" } }, "approval"],
-		[{ review: { approvedRunId: 41 } }, "approval"],
-	] as const)("rejects bad evidence %# without writes", async (change, message) => {
+	it.each(invalidEvidence)("rejects bad evidence %# without writes", async (change, message) => {
 		const selected = { ...source, ...change.source };
 		await expect(
 			inspectRcSource(

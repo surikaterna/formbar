@@ -146,9 +146,9 @@ function requireReview(review: ReviewContract, go: GoEvidence): void {
 		review.runId !== go.runId ||
 		review.runAttempt !== go.runAttempt ||
 		review.runAttempt !== 1 ||
+		review.reviewer === review.dispatcher ||
 		review.dispatcher !== "eaglez" ||
 		review.reviewer !== "spralle" ||
-		review.reviewer === review.dispatcher ||
 		go.signer !== "spralle" ||
 		review.goSigner !== go.signer
 	)

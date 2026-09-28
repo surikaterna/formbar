@@ -9,6 +9,7 @@
 		"check:kalada-preflight": "node scripts/kalada-preflight/check.mjs",
 		"test": "vitest run",
 		"lint": "biome check .",
+		"typecheck:release-scripts": "tsc --project scripts/release/tsconfig.strict.json",
 		"lint:fix": "biome check --write .",
 		"version:packages": "changeset version && biome format --write packages/*/package.json && if test -e .changeset/pre.json; then biome format --write .changeset/pre.json; fi",
 		"dev": "bun run --filter @formbar/demos dev"
@@ -16,6 +17,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@changesets/cli": "^2.27.0",
+		"@types/node": "^22",
 		"tsup": "^8.3.0",
 		"typescript": "^5.7.0",
 		"vitest": "^3.1.0",
