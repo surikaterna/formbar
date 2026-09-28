@@ -317,7 +317,7 @@ function install(options: RuntimeOptions) {
 
 function writer(installed: ReturnType<typeof install>, valid: () => boolean, revision: () => number) {
 	const { admitted, strategy, context } = installed;
-	return (path: string, row: EnumeratedRow, value: unknown) =>
+	return (path: string, row: EnumeratedRow | undefined, value: unknown) =>
 		directWrite({
 			path,
 			row,
