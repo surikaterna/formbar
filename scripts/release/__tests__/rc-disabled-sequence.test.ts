@@ -1,5 +1,9 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -33,6 +37,7 @@ import type { VerifiedRun } from "../rc-run-authority";
 import type { ApprovedVersion } from "../rc-signed-existing";
 
 const run = Object.freeze({}) as VerifiedRun; // Mock-only: real authority rejects this object.
+const exec = promisify(execFile);
 const sha = "a".repeat(40);
 const expectedBytes = new Map(rcPackages.map((name) => [`@formbar/${name}`, Buffer.from(`tarball-${name}`)]));
 
@@ -106,9 +111,17 @@ function fakeWriter(present: Set<string>, actions: string[]) {
 		exchange: vi.fn(async (name: string) => {
 			actions.push(`exchange:${name}`);
 		}),
-		publish: vi.fn(async (name: string, path: string, args: readonly string[]) => {
+		publish: vi.fn(async (name: string, path: string, args: readonly string[], cwd: string) => {
 			const bytes = await readFile(path);
 			expect(bytes).toEqual(expectedBytes.get(name));
+			expect(path.startsWith(`${cwd}/`)).toBe(true);
+			const userconfig = join(cwd, ".npm-userrc");
+			const globalconfig = join(cwd, ".npm-globalrc");
+			expect(userconfig).not.toBe(globalconfig);
+			for (const config of [userconfig, globalconfig]) {
+				expect(await readFile(config, "utf8")).toBe("");
+				expect((await stat(config)).mode & 0o777).toBe(0o600);
+			}
 			expect(args).toEqual([
 				"publish",
 				path,
@@ -118,8 +131,8 @@ function fakeWriter(present: Set<string>, actions: string[]) {
 				"public",
 				"--provenance",
 				"--registry=https://registry.npmjs.org/",
-				"--userconfig=/dev/null",
-				"--globalconfig=/dev/null",
+				`--userconfig=${userconfig}`,
+				`--globalconfig=${globalconfig}`,
 			]);
 			actions.push(`PUT:${name}`);
 			present.add(name);
@@ -168,6 +181,54 @@ describe("#389 disabled synthetic seven-package sequence; no genuine OIDC/signat
 		expect(mocks.refresh.mock.calls.length).toBeGreaterThan(mocks.observe.mock.calls.length);
 		expect(mocks.pinned).toHaveBeenCalledTimes(7);
 		expect(mocks.pinned).toHaveBeenCalledWith("/pinned/node", "/pinned/npm");
+	});
+	it.skipIf(!process.env.RC_SIGNED_NODE || !process.env.RC_SIGNED_NPM_ROOT)(
+		"preflights pinned npm config list with isolated publish argv; no real publish or OIDC",
+		async () => {
+			const node = process.env.RC_SIGNED_NODE;
+			const npmRoot = process.env.RC_SIGNED_NPM_ROOT;
+			if (!node || !npmRoot) throw new Error("pinned npm required");
+			const f = fixture();
+			f.writer.publish.mockImplementationOnce(async (_name, _path, args, cwd) => {
+				const { stdout, stderr } = await exec(
+					node,
+					[join(npmRoot, "bin/npm-cli.js"), "config", "list", ...args.slice(8)],
+					{
+						cwd,
+						env: { PATH: process.env.PATH ?? "", HOME: cwd, TMPDIR: cwd },
+						timeout: 10_000,
+					},
+				);
+				expect(stderr).toBe("");
+				expect(stdout).toContain(`userconfig = "${join(cwd, ".npm-userrc")}"`);
+				expect(stdout).toContain(`globalconfig = "${join(cwd, ".npm-globalrc")}"`);
+				expect(stdout).not.toMatch(/_authToken|NPM_TOKEN|double-loading/i);
+				throw new Error("preflight only; no PUT");
+			});
+			const result = await traceDisabledRc(run, f.candidates, f.settings);
+			expect(result).toMatchObject({ status: "STOPPED", uncertain: "@formbar/expressions" });
+			expect(f.writer.publish).toHaveBeenCalledTimes(1);
+			expect(f.actions).not.toContain("PUT:@formbar/expressions");
+		},
+	);
+	it("denies an unexpected project npmrc or ambient NPM_TOKEN before exchange", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "formbar-rc-npmrc-deny-"));
+		const cwd = vi.spyOn(process, "cwd");
+		try {
+			await writeFile(join(directory, ".npmrc"), "registry=https://example.invalid/\n");
+			const f = fixture();
+			cwd.mockReturnValue(directory);
+			expect((await traceDisabledRc(run, f.candidates, f.settings)).status).toBe("STOPPED");
+			expect(f.writer.exchange).not.toHaveBeenCalled();
+			cwd.mockRestore();
+			const token = fixture();
+			vi.stubEnv("NPM_TOKEN", "forbidden");
+			expect((await traceDisabledRc(run, token.candidates, token.settings)).status).toBe("STOPPED");
+			expect(token.writer.exchange).not.toHaveBeenCalled();
+		} finally {
+			cwd.mockRestore();
+			await rm(directory, { recursive: true, force: true });
+		}
 	});
 	it("skips existing only after signed byte-bound proof without exchange or PUT", async () => {
 		const f = fixture(["@formbar/expressions"]);

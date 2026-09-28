@@ -1,5 +1,6 @@
 /** #389 disabled, injected publish trace. release.yml never imports this module. */
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ import { createSignedRegistryReader } from "./rc-signed-reader";
 export interface InjectedWriter {
 	// Tests simulate package-scoped OIDC here; never return or pass an npm bearer token to this runner.
 	exchange(name: string): Promise<void>;
-	publish(name: string, path: string, args: readonly string[]): Promise<void>;
+	publish(name: string, path: string, args: readonly string[], cwd: string): Promise<void>;
 }
 export type Trace = {
 	status: "STOPPED" | "UNVERIFIABLE";
@@ -70,6 +71,7 @@ function published(item: PackageEvidence): boolean {
 }
 
 function noNpmCredentials(): void {
+	if (existsSync(join(process.cwd(), ".npmrc"))) throw new Error("unexpected project npmrc forbidden");
 	if (
 		Object.entries(process.env).some(
 			([key, value]) =>
@@ -152,22 +154,31 @@ async function publish(candidate: PrepackedCandidate, run: VerifiedRun, writer: 
 		throw new Error("prepacked bytes changed before publish");
 	const directory = await mkdtemp(join(tmpdir(), "formbar-rc-tarball-"));
 	const tarball = join(directory, `${candidate.name.slice(9)}-${candidate.version}.tgz`);
+	const userconfig = join(directory, ".npm-userrc");
+	const globalconfig = join(directory, ".npm-globalrc");
 	try {
+		await writeFile(userconfig, "", { flag: "wx", mode: 0o600 });
+		await writeFile(globalconfig, "", { flag: "wx", mode: 0o600 });
 		await writeFile(tarball, bytes, { flag: "wx" });
 		await refreshVerifiedRun(run);
 		if (!Buffer.from(await readFile(tarball)).equals(bytes)) throw new Error("tampered prepacked tarball");
-		await writer.publish(candidate.name, tarball, [
-			"publish",
+		await writer.publish(
+			candidate.name,
 			tarball,
-			"--tag",
-			"rc",
-			"--access",
-			"public",
-			"--provenance",
-			"--registry=https://registry.npmjs.org/",
-			"--userconfig=/dev/null",
-			"--globalconfig=/dev/null",
-		]);
+			[
+				"publish",
+				tarball,
+				"--tag",
+				"rc",
+				"--access",
+				"public",
+				"--provenance",
+				"--registry=https://registry.npmjs.org/",
+				`--userconfig=${userconfig}`,
+				`--globalconfig=${globalconfig}`,
+			],
+			directory,
+		);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
