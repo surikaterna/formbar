@@ -48,6 +48,9 @@ export interface GoEvidence {
 	repository: string;
 	issue: number;
 	commentId: number;
+	runId: number;
+	runAttempt: number;
+	runCreatedAt: string;
 	author: string;
 	signer: string;
 	createdAt: string;
@@ -75,6 +78,7 @@ export interface ReviewContract {
 	dispatcher: string;
 	reviewer: string;
 	goSigner: string;
+	runAttempt: number;
 }
 
 function requireReviewedSource(source: ReviewedSource): void {
@@ -96,17 +100,23 @@ function requireGo(go: GoEvidence, source: ReviewedSource, context: DispatchCont
 	const created = Date.parse(go.createdAt);
 	const expires = Date.parse(go.expiresAt);
 	const now = Date.parse(go.checkedAt);
+	const runCreated = Date.parse(go.runCreatedAt);
 	if (
 		go.repository !== "surikaterna/formbar" ||
 		go.issue !== 250 ||
 		!Number.isSafeInteger(go.commentId) ||
 		go.commentId <= 0 ||
+		!Number.isSafeInteger(go.runId) ||
+		go.runId <= 0 ||
+		go.runAttempt !== 1 ||
 		!go.signer ||
 		go.author !== go.signer ||
 		go.createdAt !== go.updatedAt ||
 		!Number.isFinite(created) ||
 		!Number.isFinite(expires) ||
 		!Number.isFinite(now) ||
+		!Number.isFinite(runCreated) ||
+		created <= runCreated ||
 		created > now ||
 		now >= expires ||
 		expires > created + 86_400_000 ||
@@ -125,7 +135,7 @@ function requireGo(go: GoEvidence, source: ReviewedSource, context: DispatchCont
 
 function requireReview(review: ReviewContract, go: GoEvidence): void {
 	if (
-		review.environment !== "release" ||
+		review.environment !== "formbar-rc" ||
 		!review.protectedMain ||
 		!review.noBypass ||
 		!review.protectedBranchesOnly ||
@@ -133,10 +143,13 @@ function requireReview(review: ReviewContract, go: GoEvidence): void {
 		!Number.isSafeInteger(review.runId) ||
 		review.runId <= 0 ||
 		review.approvedRunId !== review.runId ||
-		!review.dispatcher ||
-		!review.reviewer ||
+		review.runId !== go.runId ||
+		review.runAttempt !== go.runAttempt ||
+		review.runAttempt !== 1 ||
 		review.reviewer === review.dispatcher ||
-		review.reviewer === go.signer ||
+		review.dispatcher !== "eaglez" ||
+		review.reviewer !== "spralle" ||
+		go.signer !== "spralle" ||
 		review.goSigner !== go.signer
 	)
 		throw new Error("Missing protected, independent per-run environment approval");
