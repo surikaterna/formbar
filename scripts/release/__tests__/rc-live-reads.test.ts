@@ -82,12 +82,21 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 		const f = fixture();
 		const absent = await inspectLiveRc(f.read, f.pack, f.source);
 		expect(absent.packages).toHaveLength(6);
-		expect(absent.packages.every((p) => p.observation === "UNVERIFIABLE" && p.reason.includes("authorization"))).toBe(
-			true,
+		expect(
+			absent.packages.every((p) => p.observation === "PUBLIC_ABSENT_OBSERVED" && p.reason.includes("authorization")),
+		).toBe(true);
+		expect(absent.decision).toBe("UNVERIFIABLE");
+		expect(absent.packages[0]?.gets).toEqual(
+			expect.arrayContaining([
+				{ url: `${root}/${encodeURIComponent("@formbar/arbiter")}/${version}`, status: 404 },
+				{ url: `${gh}/releases/tags/${encodeURIComponent(`@formbar/arbiter@${version}`)}`, status: 404 },
+			]),
 		);
 		for (const name of names) f.published(name);
 		const existing = await inspectLiveRc(f.read, f.pack, f.source);
-		expect(existing.packages.every((p) => p.observation === "EXISTING" && p.local?.shasum === shasum)).toBe(true);
+		expect(
+			existing.packages.every((p) => p.observation === "PUBLIC_EXISTING_OBSERVED" && p.local?.shasum === shasum),
+		).toBe(true);
 		expect(existing.decision).toBe("UNVERIFIABLE");
 		f.replies.set(`${root}/${encodeURIComponent("@formbar/core")}/${version}`, { status: 404 });
 		expect((await inspectLiveRc(f.read, f.pack, f.source)).decision).toBe("UNVERIFIABLE");
@@ -96,6 +105,11 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 	it.each([401, 403, 404, 429, 500])("rejects ambiguous packument HTTP %i", async (status) => {
 		const f = fixture();
 		f.replies.set(`${root}/${encodeURIComponent("@formbar/core")}`, { status });
+		expect((await inspectLiveRc(f.read, f.pack, f.source)).packages[1]?.observation).toBe("UNVERIFIABLE");
+	});
+	it.each([401, 403, 429, 500])("does not infer public absence from version HTTP %i", async (status) => {
+		const f = fixture();
+		f.replies.set(`${root}/${encodeURIComponent("@formbar/core")}/${version}`, { status });
 		expect((await inspectLiveRc(f.read, f.pack, f.source)).packages[1]?.observation).toBe("UNVERIFIABLE");
 	});
 	it("denies partial JSON, forged booleans, incorrect tags and version disagreement", async () => {
@@ -165,6 +179,21 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 			(await inspectLiveRc(f.read, f.pack, f.source)).packages.every((p) => p.reason.includes("release conflict")),
 		).toBe(true);
 	});
+	it("does not fetch or report a forged tag-object URL", async () => {
+		const f = fixture();
+		const tag = encodeURIComponent(`@formbar/core@${version}`);
+		f.replies.set(`${gh}/git/ref/tags/${tag}`, {
+			status: 200,
+			body: {
+				ref: `refs/tags/@formbar/core@${version}`,
+				object: { type: "tag", sha: "?secret=forged" },
+			},
+		});
+		const result = await inspectLiveRc(f.read, f.pack, f.source);
+		expect(result.packages.every((p) => p.observation === "CONFLICT")).toBe(true);
+		expect(JSON.stringify(result)).not.toContain("forged");
+		expect(f.calls.every((url) => !url.includes("secret"))).toBe(true);
+	});
 	it("transport issues only authenticated GETs and never follows redirects or exposes credentials in evidence", async () => {
 		const requests: RequestInit[] = [];
 		const reader = createRegistryGitHubReader("npm-secret", "gh-secret", async (_url, init) => {
@@ -175,6 +204,16 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 		await expect(reader.get("https://evil.example/")).rejects.toThrow("untrusted");
 		expect(requests).toHaveLength(1);
 		expect(requests[0]).toMatchObject({ method: "GET", redirect: "manual" });
+	});
+	it("public reader sends no token and never issues mutating requests", async () => {
+		const requests: RequestInit[] = [];
+		const reader = createRegistryGitHubReader("", "", async (_url, init) => {
+			requests.push(init ?? {});
+			return new Response(null, { status: 404 });
+		});
+		expect((await reader.get(`${root}/%40formbar%2Fcore/${version}`)).status).toBe(404);
+		expect(requests).toEqual([expect.objectContaining({ method: "GET", redirect: "manual" })]);
+		expect(requests[0]?.headers).toBeUndefined();
 	});
 	it("redacts injected transport failures from the complete six-state report", async () => {
 		const f = fixture();
@@ -187,5 +226,19 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 		expect(plan.packages.every((p) => p.observation === "UNVERIFIABLE" && p.reason === "GitHub: read failed")).toBe(
 			true,
 		);
+	});
+	it("denies a changing full packument even if both snapshots could separately imply absence", async () => {
+		const f = fixture();
+		const get = f.read.get;
+		let count = 0;
+		f.read.get = async (url) => {
+			const reply = await get(url);
+			if (url === `${root}/${encodeURIComponent("@formbar/core")}` && ++count === 2)
+				return { status: 200, body: { name: "@formbar/core", versions: {}, "dist-tags": { latest: "0.21.0" } } };
+			return reply;
+		};
+		const result = await inspectLiveRc(f.read, f.pack, f.source);
+		expect(result.packages[1]).toMatchObject({ observation: "CONFLICT", reason: "registry reads drift" });
+		expect(result.decision).toBe("UNVERIFIABLE");
 	});
 });

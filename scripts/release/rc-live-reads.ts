@@ -9,7 +9,7 @@ const repo = "https://api.github.com/repos/surikaterna/formbar";
 const conflict = /mismatch|conflict|disagrees|drift|nondeterministic/;
 function safeReason(error: unknown): string {
 	if (!(error instanceof Error)) return "read failed";
-	return /^(invalid JSON object|empty\/invalid pack bytes|nondeterministic pack bytes|redirect denied|packument identity mismatch|latest tag drift|rc tag drift|404 disagrees with packument|version\/packument disagreement|published identity, gitHead or rc mismatch|metadata digest or tarball conflict|tarball bytes conflict|foreign\/lightweight tag|foreign annotated tag|release conflict|commit tree drift|tarball exceeds read bound)$/.test(
+	return /^(invalid JSON object|empty\/invalid pack bytes|nondeterministic pack bytes|redirect denied|registry reads drift|packument identity mismatch|latest tag drift|rc tag drift|404 disagrees with packument|version\/packument disagreement|published identity, gitHead or rc mismatch|metadata digest or tarball conflict|tarball bytes conflict|foreign\/lightweight tag|foreign annotated tag|release conflict|commit tree drift|tarball exceeds read bound)$/.test(
 		error.message,
 	) ||
 		/^(version|packument|tarball) HTTP (\d{3})$/.test(error.message) ||
@@ -17,7 +17,7 @@ function safeReason(error: unknown): string {
 		? error.message
 		: "read failed";
 }
-export type Observation = "ABSENT" | "EXISTING" | "CONFLICT" | "UNVERIFIABLE";
+export type Observation = "PUBLIC_ABSENT_OBSERVED" | "PUBLIC_EXISTING_OBSERVED" | "CONFLICT" | "UNVERIFIABLE";
 export type ReadReply = { status: number; body?: unknown; bytes?: Uint8Array; location?: string };
 export interface ReadOnlyTransport {
 	get(url: string, binary?: boolean): Promise<ReadReply>;
@@ -139,8 +139,19 @@ async function inspectPackageReads(
 	evidence.local = local;
 	const get = recordedGet(read, evidence);
 	const encoded = encodeURIComponent(evidence.name);
-	const versionReply = await get(`${registry}/${encoded}/${version}`);
-	const packumentReply = await get(`${registry}/${encoded}`);
+	const versionUrl = `${registry}/${encoded}/${version}`;
+	const packumentUrl = `${registry}/${encoded}`;
+	const versionReply = await get(versionUrl);
+	const packumentReply = await get(packumentUrl);
+	const versionAgain = await get(versionUrl);
+	const packumentAgain = await get(packumentUrl);
+	if (
+		versionAgain.status !== versionReply.status ||
+		JSON.stringify(versionAgain.body) !== JSON.stringify(versionReply.body) ||
+		packumentAgain.status !== packumentReply.status ||
+		JSON.stringify(packumentAgain.body) !== JSON.stringify(packumentReply.body)
+	)
+		throw new Error("registry reads drift");
 	if (packumentReply.status !== 200) throw new Error(`packument HTTP ${packumentReply.status}`);
 	const packument = record(packumentReply.body);
 	if (packument.name !== evidence.name) throw new Error("packument identity mismatch");
@@ -150,7 +161,8 @@ async function inspectPackageReads(
 	if (tags.rc !== undefined && tags.rc !== version) throw new Error("rc tag drift");
 	if (versionReply.status === 404) {
 		if (Object.hasOwn(versions, version) || tags.rc === version) throw new Error("404 disagrees with packument");
-		evidence.reason = "404 and packument absence; npm package authorization not independently established";
+		evidence.observation = "PUBLIC_ABSENT_OBSERVED";
+		evidence.reason = "public 404 and packument absence only; npm authorization not established";
 		return;
 	}
 	if (versionReply.status !== 200) throw new Error(`version HTTP ${versionReply.status}`);
@@ -160,13 +172,18 @@ async function inspectPackageReads(
 	if (tar.status !== 200 || !tar.bytes) throw new Error(`tarball HTTP ${tar.status}`);
 	const remote = digest(tar.bytes);
 	if (remote.integrity !== local.integrity || remote.shasum !== local.shasum) throw new Error("tarball bytes conflict");
-	evidence.observation = "EXISTING";
+	evidence.observation = "PUBLIC_EXISTING_OBSERVED";
 	evidence.reason = "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
 }
 
-async function inspectGithub(read: ReadOnlyTransport, source: SourceWitness): Promise<void> {
-	const get = async (url: string, absent = false) => {
+async function inspectGithub(
+	read: ReadOnlyTransport,
+	source: SourceWitness,
+	packages: PackageEvidence[],
+): Promise<void> {
+	const get = async (url: string, absent = false, items = packages) => {
 		const reply = await read.get(url);
+		for (const item of items) item.gets.push({ url, status: reply.status });
 		if (absent && reply.status === 404) return undefined;
 		if (reply.status !== 200 || reply.location) throw new Error(`GitHub GET ${reply.status}`);
 		return record(reply.body);
@@ -174,13 +191,20 @@ async function inspectGithub(read: ReadOnlyTransport, source: SourceWitness): Pr
 	const commit = await get(`${repo}/commits/${source.commit}`);
 	if (record(record(commit?.commit).tree).sha !== source.tree) throw new Error("commit tree drift");
 	for (const name of names) {
+		const item = packages.find((entry) => entry.name === `@formbar/${name}`);
+		if (!item) throw new Error("invalid JSON object");
 		const tag = `@formbar/${name}@${version}`;
-		const ref = await get(`${repo}/git/ref/tags/${encodeURIComponent(tag)}`, true);
+		const ref = await get(`${repo}/git/ref/tags/${encodeURIComponent(tag)}`, true, [item]);
 		if (ref) {
 			const obj = record(ref.object);
-			if (ref.ref !== `refs/tags/${tag}` || obj.type !== "tag" || typeof obj.sha !== "string")
+			if (
+				ref.ref !== `refs/tags/${tag}` ||
+				obj.type !== "tag" ||
+				typeof obj.sha !== "string" ||
+				!/^[0-9a-f]{40}$/.test(obj.sha)
+			)
 				throw new Error("foreign/lightweight tag");
-			const annotated = await get(`${repo}/git/tags/${obj.sha}`);
+			const annotated = await get(`${repo}/git/tags/${obj.sha}`, false, [item]);
 			if (
 				annotated?.sha !== obj.sha ||
 				annotated.tag !== tag ||
@@ -189,7 +213,7 @@ async function inspectGithub(read: ReadOnlyTransport, source: SourceWitness): Pr
 			)
 				throw new Error("foreign annotated tag");
 		}
-		const release = await get(`${repo}/releases/tags/${encodeURIComponent(tag)}`, true);
+		const release = await get(`${repo}/releases/tags/${encodeURIComponent(tag)}`, true, [item]);
 		const notes = source.changelogs[name]?.split(`## ${version}`)[1]?.split("\n## ")[0]?.trim();
 		if (
 			release &&
@@ -228,7 +252,7 @@ export async function inspectLiveRc(
 	}
 	for (const name of names) packages.push(await inspectPackage(read, pack, source, name));
 	try {
-		await inspectGithub(read, source);
+		await inspectGithub(read, source, packages);
 	} catch (error) {
 		const reason = safeReason(error);
 		for (const item of packages) {
@@ -261,16 +285,17 @@ export function createRegistryGitHubReader(
 				!["registry.npmjs.org", "api.github.com"].includes(parsed.host) ||
 				parsed.username ||
 				parsed.password ||
+				parsed.search ||
 				parsed.hash
 			)
 				throw new Error("untrusted GET host");
 			const token = parsed.host === "registry.npmjs.org" ? npmToken : githubToken;
-			if (!token) throw new Error("missing read credential");
+			// Public observation only: an injected token never proves package authorization.
 			const response = await fetcher(url, {
 				method: "GET",
 				redirect: "manual",
 				signal: AbortSignal.timeout(10_000),
-				headers: { Authorization: `Bearer ${token}` },
+				...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
 			});
 			if (binary && Number(response.headers.get("content-length")) > 20_000_000)
 				throw new Error("tarball exceeds read bound");
