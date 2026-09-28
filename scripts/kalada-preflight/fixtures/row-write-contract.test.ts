@@ -132,6 +132,7 @@ function direct(test: ReturnType<typeof fixture>, overrides: Partial<DirectWrite
 		{ instance: test.id, policyGeneration: "g1", policyFingerprint: "host" },
 		{
 			contract: "formbar-direct-write-v1",
+			targetKind: "row",
 			reference: { namespace: "data", path: referencePath },
 			scope: test.row.scope,
 			expectedInstance: test.id,
@@ -209,6 +210,7 @@ for (const [name, factory] of [
 				{ instance: otherId, policyGeneration: "g1", policyFingerprint: "host" },
 				{
 					contract: "formbar-direct-write-v1",
+					targetKind: "row",
 					reference: { namespace: "data", path: referencePath },
 					scope: row.scope,
 					expectedInstance: id,

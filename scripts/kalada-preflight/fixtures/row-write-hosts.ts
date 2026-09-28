@@ -26,14 +26,45 @@ export const node = (id: string, value: string): Node => ({
 	readOnly: false,
 });
 export type TreeNode = Omit<Node, "children"> & { children: TreeNode[] };
-export type TreeState = { revision: object; roots: TreeNode[]; notify: () => void };
-export type RegistryVersion = { revision: object; roots: string[]; nodes: Map<string, Node> };
+export type FormField = { value: string; missing: boolean; denied: boolean; readOnly: boolean };
+export type TreeState = { revision: object; roots: TreeNode[]; field: FormField; notify: () => void };
+export type RegistryVersion = { revision: object; roots: string[]; nodes: Map<string, Node>; field: FormField };
 export type RegistryState = { version: RegistryVersion; notify: () => void };
 export const receipt = () => ({ artifact: KALADA_RUNTIME_ARTIFACT, policyGeneration: "g1", policyFingerprint: "host" });
 export const referencePath = ["rows", { row: "outer" }, "nested", { row: "inner" }, "value"];
+export const nonrowPath = ["profile", "name"];
+export const formField = (): FormField => ({ value: "original", missing: false, denied: false, readOnly: false });
+
+function readField(field: FormField) {
+	if (field.missing) return { status: "missing" } as const;
+	if (field.denied) return { status: "denied" } as const;
+	return { status: "found", value: field.value } as const;
+}
+
+function isNonrowRead(reference: { namespace: string; path: readonly unknown[] }, scope: ReadScope) {
+	return (
+		reference.namespace === "data" &&
+		JSON.stringify(reference.path) === JSON.stringify(nonrowPath) &&
+		scope.rows.length === 0
+	);
+}
+
+export function validNonrow(request: DirectWriteRequest, context: DataContext, revision: object, field: FormField) {
+	if (request.expectedInstance !== context.instance) return "stale";
+	if (request.contract !== "formbar-direct-write-v1" || request.targetKind !== "non-repeater") return "invalid-target";
+	if (request.scope.rows.length || "expectedRowRevision" in request) return "invalid-target";
+	if (request.reference.namespace !== "data" || JSON.stringify(request.reference.path) !== JSON.stringify(nonrowPath))
+		return "invalid-target";
+	if (request.expectedRevision !== revision) return "stale";
+	if (field.missing) return "missing";
+	if (field.denied || field.readOnly) return "denied";
+	if (typeof request.value !== "string") return "invalid-target";
+	return undefined;
+}
 
 export function validTarget(request: DirectWriteRequest, context: DataContext) {
 	if (request.expectedInstance !== context.instance || request.contract !== "formbar-direct-write-v1") return "stale";
+	if (request.targetKind !== "row" || !request.scope.rows.length) return "invalid-target";
 	if (request.scope.rows.map((row) => row.name).join("/") !== "outer/inner") return "invalid-target";
 	if (
 		request.reference.namespace !== "data" ||
@@ -75,6 +106,7 @@ export function serialHost() {
 				first.children.push(make("child", "child"));
 				states.set(context.instance, {
 					revision: {},
+					field: formField(),
 					roots: [first, make("second", "second")],
 					notify: () => notifications(),
 				});
@@ -87,8 +119,9 @@ export function serialHost() {
 			return {
 				instance: context.instance,
 				token,
-				read(_reference, scope) {
+				read(reference, scope) {
 					if (current.revision !== token) return { status: "stale" };
+					if (isNonrowRead(reference, scope)) return readField(current.field);
 					const found = resolve(current, scope);
 					return found ? { status: "found", value: found.value } : { status: "missing" };
 				},
@@ -111,13 +144,23 @@ export function serialHost() {
 		},
 		current: (context) => state(context).revision,
 		subscribe(context, notify) {
-			state(context).notify = notify;
+			state(context).notify = () => {
+				notifications();
+				notify();
+			};
 			return () => {
 				state(context).notify = () => {};
 			};
 		},
 		writeDirect(context, request) {
 			const current = state(context);
+			if (request.targetKind === "non-repeater") {
+				const invalid = validNonrow(request, context, current.revision, current.field);
+				if (invalid) return { status: invalid };
+				current.field.value = request.value as string;
+				bump(current);
+				return { status: "applied" };
+			}
 			const invalid = validTarget(request, context);
 			if (invalid) return { status: invalid };
 			if (request.expectedRevision !== current.revision) return { status: "stale" };
@@ -164,6 +207,7 @@ export function versionedHost() {
 				states.set(context.instance, {
 					version: {
 						revision: {},
+						field: formField(),
 						roots: ["first", "second"],
 						nodes: new Map([
 							["first", first],
@@ -182,8 +226,9 @@ export function versionedHost() {
 			return {
 				instance: context.instance,
 				token: version.revision,
-				read(_reference, scope) {
+				read(reference, scope) {
 					if (owner.version !== version) return { status: "stale" };
+					if (isNonrowRead(reference, scope)) return readField(version.field);
 					const found = resolve(version, scope);
 					return found ? { status: "found", value: found.value } : { status: "missing" };
 				},
@@ -209,7 +254,10 @@ export function versionedHost() {
 		},
 		current: (context) => state(context).version.revision,
 		subscribe(context, notify) {
-			state(context).notify = notify;
+			state(context).notify = () => {
+				notifications();
+				notify();
+			};
 			return () => {
 				state(context).notify = () => {};
 			};
@@ -217,6 +265,13 @@ export function versionedHost() {
 		writeDirect(context, request) {
 			const owner = state(context);
 			const version = owner.version;
+			if (request.targetKind === "non-repeater") {
+				const invalid = validNonrow(request, context, version.revision, version.field);
+				if (invalid) return { status: invalid };
+				owner.version = { ...version, revision: {}, field: { ...version.field, value: request.value as string } };
+				owner.notify();
+				return { status: "applied" };
+			}
 			const invalid = validTarget(request, context);
 			if (invalid) return { status: invalid };
 			if (request.expectedRevision !== version.revision) return { status: "stale" };
@@ -229,7 +284,7 @@ export function versionedHost() {
 			// No old node or version is modified before the single owner pointer swap.
 			const nodes = new Map(version.nodes);
 			nodes.set(child.id, { ...child, value: request.value, revision: {} });
-			owner.version = { revision: {}, roots: version.roots, nodes };
+			owner.version = { revision: {}, roots: version.roots, nodes, field: version.field };
 			owner.notify();
 			return { status: "applied" };
 		},
@@ -243,6 +298,7 @@ export function versionedHost() {
 			if (!owner) throw new Error("foreign instance");
 			const draft = {
 				revision: {},
+				field: { ...owner.version.field },
 				roots: [...owner.version.roots],
 				nodes: new Map([...owner.version.nodes].map(([id, item]) => [id, { ...item, children: [...item.children] }])),
 			};

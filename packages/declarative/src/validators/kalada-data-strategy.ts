@@ -39,15 +39,28 @@ export interface DataFrame {
 	enumerateRows?(parent: ReadScope, binding: StaticReference, childScopeName: string, capacity: number): RowEnumeration;
 }
 
-export interface DirectWriteRequest {
+interface DirectWriteBase {
 	readonly contract: "formbar-direct-write-v1";
 	readonly reference: StaticReference;
-	readonly scope: ReadScope;
 	readonly expectedInstance: object;
+	/** Host-owned current revision of this exact form instance, not a row or position. */
 	readonly expectedRevision: object;
-	readonly expectedRowRevision: object;
 	readonly value: JsonValue;
 }
+
+export type DirectWriteRequest = DirectWriteBase &
+	(
+		| {
+				readonly targetKind: "non-repeater";
+				readonly scope: ReadScope & { readonly rows: readonly [] };
+				readonly expectedRowRevision?: never;
+		  }
+		| {
+				readonly targetKind: "row";
+				readonly scope: ReadScope;
+				readonly expectedRowRevision: object;
+		  }
+	);
 
 export type DirectWriteResult = {
 	readonly status: "applied" | "denied" | "missing" | "stale" | "conflict" | "invalid-target" | "unsupported";
@@ -63,8 +76,8 @@ export interface FormbarDataStrategyV1 {
 	capture(context: DataContext): DataFrame;
 	current(context: DataContext): object;
 	subscribe(context: DataContext, invalidate: () => void): () => void;
-	/** Private only. Resolve every lexical row by identity, permissions, type, readOnly and both revisions
-	 * in the SAME serialized transaction as mutation. Missing/duplicate ids fail closed; removal retires ids.
-	 * Never resolve to cached numeric positions. A token is not an authorization grant. */
+	/** Private only. Atomically check instance, current grant, readOnly, type, target and form revision
+	 * with mutation. Row targets also require stable lexical identities and row revision (#185).
+	 * No token or captured revision is an authorization grant; never resolve rows by position. */
 	writeDirect?(context: DataContext, request: DirectWriteRequest): DirectWriteResult;
 }
