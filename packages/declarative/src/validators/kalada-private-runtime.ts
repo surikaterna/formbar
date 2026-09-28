@@ -10,6 +10,7 @@ import type {
 } from "./kalada-data-strategy.js";
 import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
+import { type TrustedDirectLocations, checkPrivateDirectLocation } from "./kalada-direct-location.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
 import { directWrite } from "./kalada-private-write.js";
 import { type KaladaReference, ProgramAdmissionError } from "./kalada-program.js";
@@ -34,6 +35,8 @@ interface RuntimeOptions {
 	readonly policy: AdmissionPolicy;
 	readonly identity: PolicyIdentity;
 	readonly strategy: FormbarDataStrategyV1;
+	/** Supplied by the installing host, never by a definition or browser expression. */
+	readonly directLocations?: TrustedDirectLocations;
 }
 
 export type PrivateRows =
@@ -312,7 +315,7 @@ function install(options: RuntimeOptions) {
 	if (!matches()) throw new ProgramAdmissionError("root", "STALE_INSTALLATION");
 	const admitted = admitKaladaDefinitionWithPolicy(options.definition, policy, identity);
 	const slots = prepare(admitted);
-	return { context, strategy, admitted, slots, matches };
+	return { context, strategy, admitted, slots, matches, directLocations: options.directLocations };
 }
 
 function writer(installed: ReturnType<typeof install>, valid: () => boolean, revision: () => number) {
@@ -331,6 +334,15 @@ function writer(installed: ReturnType<typeof install>, valid: () => boolean, rev
 		});
 }
 
+function checkedWriter(installed: ReturnType<typeof install>, valid: () => boolean, revision: () => number) {
+	return (path: string, source: string, value: unknown) => {
+		if (!valid()) return { status: "stale" as const };
+		const checked = checkPrivateDirectLocation(path, source, installed.admitted, installed.directLocations);
+		if (!checked?.ok) return { status: "invalid-target" as const };
+		return writer(installed, valid, revision)(path, undefined, value);
+	};
+}
+
 /** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
 export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 	const installed = install(options);
@@ -340,6 +352,8 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 	const unsubscribe = strategy.subscribe(context, () => {
 		revision++;
 	});
+	const live = () => !disposed && matches();
+	const write = writer(installed, live, () => revision);
 	function capture() {
 		const start = revision;
 		return capturedSession({
@@ -353,12 +367,10 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 	}
 	return {
 		capture,
-		/** Test-harness-only entry point; not exported through any public Formbar write dispatch. */
-		writeDirect: writer(
-			installed,
-			() => !disposed && matches(),
-			() => revision,
-		),
+		writeChecked: checkedWriter(installed, live, () => revision),
+		checkDirectLocation: (path: string, source: string) =>
+			checkPrivateDirectLocation(path, source, admitted, installed.directLocations),
+		writeDirect: write,
 		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
 			const start = revision;
 			return standaloneRead({

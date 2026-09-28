@@ -60,7 +60,7 @@ const runEnv = {
 	npm_config_cache: join(temp, "npm-cache"),
 	BUN_INSTALL_CACHE_DIR: bunCache,
 };
-const commit = "a8f07990b237ee65d50e23b099a6fb3facd421e4";
+const commit = "1ed0ec83a7673dffa2ae3cda062e5c4176b4143a";
 const excluded = new Set([".git", ".npmrc", "trees", "node_modules", "dist"]);
 const inputs = ["package.json", "packages/declarative/package.json", "bun.lock"];
 const workspaceManifests = ["packages", "apps"].flatMap((group) =>
@@ -78,12 +78,12 @@ const packages = [
 // SHA256s from #302's pinned, locally built Changesets packs (not registry packages).
 const pinnedHashes = {
 	core: "44c8bd208fa4b1d0588821345a5b84eb521619acf7ecaf6eddabd1a79e63c0be",
-	syntax: "604e378e9aab170100df54217e48c6441b8339490d2f0430385c441dcf727048",
+	syntax: "a4ba2c6c935b8ab8708ed159ced0c6580ddfdf2bc60a52057843020209644524",
 	"provider-routing": "086b20a7d85af5e261b4e2c9d27529d0f765a49ead2f764b97121c50bf84e2f9",
 };
 const pinnedIntegrity = {
 	core: "sha512-KE+Bkgw04bUrC7S15n0qRdteUYdZ5G7l9s8kP0JKc/0lf8jc9MYPZ7c+5CDne2pmTPUQo+lAfiedx8HTEVoxTg==",
-	syntax: "sha512-9XCHNIifWorTNWElnXNlUN9H8vVxIvzIM8833XI51u3EG8nFWr4B6bT6dxRfwrV78//TcqPCMhsmJAdfsJtZYA==",
+	syntax: "sha512-KTZvBKqLQmheP15VHNY9OzOAZS+QAS4EckuOR87av1gRnfk26VaZgf0OnbnFsmzpGXdJLDMO1VC1j8OFRWtExw==",
 	"provider-routing": "sha512-R+i+4MzyKC70859QpfZHzDWYtA6OFvCp35Ncn5kBb/qkhpWBSbhH1jnnJO85WVarjQSJIg3j0r1We0lkaNQVyg==",
 };
 
@@ -377,7 +377,7 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/391-nonrepeater-write-contract");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/195-direct-write-proof");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -386,7 +386,7 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/391-nonrepeater-write-contract");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/195-direct-write-proof");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
