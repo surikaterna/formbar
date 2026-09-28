@@ -11,6 +11,7 @@ import {
 	provePublishMethod,
 	rcPackages,
 } from "../rc-publish-method";
+import { consumed, initialVersions, rcEdges } from "../rc-reviewed-plan";
 
 const roots: string[] = [];
 const commit = "a".repeat(40);
@@ -38,26 +39,10 @@ async function fixture(): Promise<string> {
 		JSON.stringify({
 			mode: "pre",
 			tag: "rc",
-			changesets: [],
-			initialVersions: {
-				"@formbar/arbiter": "0.22.0",
-				"@formbar/core": "0.22.3",
-				"@formbar/declarative": "0.22.1",
-				"@formbar/from-schema": "0.22.0",
-				"@formbar/react": "0.22.0",
-				"@formbar/react-schema": "0.22.0",
-				"@formbar/expressions": "0.14.3",
-				"@formbar/demos": "0.0.0",
-			},
+			changesets: consumed,
+			initialVersions,
 		}),
 	);
-	const edges: Record<string, string[]> = {
-		declarative: ["core"],
-		"from-schema": ["core", "declarative"],
-		react: ["core"],
-		arbiter: ["core"],
-		"react-schema": ["core", "declarative", "from-schema", "react"],
-	};
 	for (const directory of rcPackages) {
 		await mkdir(join(root, "packages", directory));
 		await writeFile(
@@ -66,10 +51,13 @@ async function fixture(): Promise<string> {
 				name: name(directory),
 				version,
 				dependencies: {
-					...Object.fromEntries((edges[directory] ?? []).map((edge) => [name(edge), `^${version}`])),
-					...(directory === "react-schema" ? {} : { [name("expressions")]: "^0.14.3" }),
+					...Object.fromEntries(rcEdges[directory].map((edge) => [name(edge), `^${version}`])),
 				},
 			}),
+		);
+		await writeFile(
+			join(root, "packages", directory, "CHANGELOG.md"),
+			`# ${name(directory)}\n\n## ${version}\n\nNotes`,
 		);
 	}
 	return root;
@@ -178,13 +166,13 @@ test("reverse core to react edge is forbidden even at the correct range", async 
 	await expect(loadRcManifests(root)).rejects.toThrow("invalid RC dependency graph");
 });
 
-test("missing stable expressions edge is rejected", async () => {
+test("missing prerelease expressions edge is rejected", async () => {
 	const root = await fixture();
 	const path = join(root, "packages/core/package.json");
 	const manifest = JSON.parse(await readFile(path, "utf8"));
 	delete manifest.dependencies[name("expressions")];
 	await writeFile(path, JSON.stringify(manifest));
-	await expect(loadRcManifests(root)).rejects.toThrow("invalid stable prerequisite");
+	await expect(loadRcManifests(root)).rejects.toThrow("invalid RC dependency graph");
 });
 
 test("manifest validation rejects absent pre state and unsupported publish config", async () => {

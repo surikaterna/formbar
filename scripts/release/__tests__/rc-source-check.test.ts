@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DispatchContext } from "../guard";
+import { initialVersions, rcEdges, rcPackages, reviewedBase, reviewedHead, reviewedTree } from "../rc-reviewed-plan";
 import {
 	type GoEvidence,
 	type ReviewContract,
@@ -11,11 +12,12 @@ import {
 import type { GithubReleaseState, ReleasePlan, ReleaseReader, TagState } from "../types";
 
 vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
+vi.mock("../rc-reviewed-plan", async (original) => ({ ...(await original()), checkChangelog: vi.fn() }));
 const sha = "a".repeat(40);
-const tree = "b".repeat(40);
-const head = "403995aefdb6ae8faaf990eef95f32c03b2debce";
-const base = "ed949ab79f34cea6c205969b0d3e6bd038060721";
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"];
+const tree = reviewedTree;
+const head = reviewedHead;
+const base = reviewedBase;
+const names = rcPackages;
 const context: DispatchContext = {
 	event: "workflow_dispatch",
 	repository: "surikaterna/formbar",
@@ -162,12 +164,18 @@ describe("disabled RC source inspection", () => {
 				return JSON.stringify({
 					mode: "pre",
 					tag: "rc",
-					initialVersions: { "@formbar/expressions": "0.14.3" },
+					initialVersions,
 					changesets: consumed,
 				});
 			if (path.endsWith("CHANGELOG.md")) return "## 0.23.0-rc.0\n\nnotes";
 			const name = path.split("/").at(-2);
-			return JSON.stringify({ name: `@formbar/${name}`, version: name === "expressions" ? "0.14.3" : "0.23.0-rc.0" });
+			return JSON.stringify({
+				name: `@formbar/${name}`,
+				version: "0.23.0-rc.0",
+				dependencies: Object.fromEntries(
+					(rcEdges[name ?? ""] ?? []).map((edge) => [`@formbar/${edge}`, "^0.23.0-rc.0"]),
+				),
+			});
 		});
 		await expect(
 			inspectRcSource(

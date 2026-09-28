@@ -1,9 +1,10 @@
 /** #371: GET-only observations. Neither these reads nor #366 authorize a release. */
 import { createHash } from "node:crypto";
 import { type RcPlan, type RcRead, type SourceWitness, inspectRcRegistry, sourceCheck } from "./rc-registry-proof";
+import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"] as const;
-const version = "0.23.0-rc.0";
+const names = rcPackages;
+const version = rcVersion;
 const registry = "https://registry.npmjs.org";
 const repo = "https://api.github.com/repos/surikaterna/formbar";
 const conflict = /mismatch|conflict|disagrees|drift|nondeterministic/;

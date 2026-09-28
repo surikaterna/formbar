@@ -5,9 +5,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type PackageAudit, auditPackages } from "../package-artifacts/audit";
 import { type SourceWitness, sourceCheck } from "./rc-registry-proof";
+import { checkChangelog, rcPackages, rcVersion, reviewedBase, reviewedHead, reviewedTree } from "./rc-reviewed-plan";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"];
-const version = "0.23.0-rc.0";
+const names = rcPackages;
+const version = rcVersion;
 const command = "npm pack --dry-run --json; npm pack --pack-destination <isolated temp> --json";
 const lifecycle = "npm pack defaults (prepack, prepare, postpack if configured); no package defines these scripts";
 
@@ -21,25 +22,28 @@ export function checkSnapshot(root: string, sha: string, tree: string): void {
 	if (
 		!/^[0-9a-f]{40}$/.test(sha) ||
 		!/^[0-9a-f]{40}$/.test(tree) ||
+		sha !== reviewedHead ||
+		tree !== reviewedTree ||
 		run("git", ["rev-parse", "HEAD"], root) !== sha ||
 		run("git", ["rev-parse", "HEAD^{tree}"], root) !== tree ||
 		run("git", ["status", "--porcelain"], root) !== ""
 	)
 		throw new Error("dirty or drifting audited checkout");
-	const current = JSON.parse(run("gh", ["pr", "view", "298", "--json", "headRefOid"], root));
-	if (current.headRefOid !== sha) throw new Error("version PR head drift");
+	const current = JSON.parse(run("gh", ["pr", "view", "298", "--json", "headRefOid,baseRefOid"], root));
+	if (current.headRefOid !== sha || current.baseRefOid !== reviewedBase) throw new Error("version PR head/base drift");
 }
 
 export function loadRcSource(root: string, sha: string, tree: string): SourceWitness {
 	const manifests: Record<string, unknown> = {};
 	const changelogs: Record<string, string> = {};
-	for (const name of [...names, "expressions"]) {
+	for (const name of names) {
 		const directory = resolve(root, "packages", name);
 		const manifest = json(resolve(directory, "package.json")) as { scripts?: Record<string, string> };
 		if (["prepack", "prepare", "postpack", "publish", "prepublishOnly"].some((key) => manifest.scripts?.[key]))
 			throw new Error("unexpected npm pack lifecycle script");
 		manifests[name] = manifest;
-		if (name !== "expressions") changelogs[name] = readFileSync(resolve(directory, "CHANGELOG.md"), "utf8");
+		changelogs[name] = readFileSync(resolve(directory, "CHANGELOG.md"), "utf8");
+		checkChangelog(name, changelogs[name]);
 	}
 	const pre = json(resolve(root, ".changeset/pre.json")) as { initialVersions: Record<string, string> };
 	const source: SourceWitness = {
@@ -48,7 +52,7 @@ export function loadRcSource(root: string, sha: string, tree: string): SourceWit
 		pre,
 		manifests,
 		changelogs,
-		artifacts: {},
+		artifacts: Object.fromEntries(names.map((name) => [name, undefined])),
 		initialLatest: Object.fromEntries(names.map((name) => [name, pre.initialVersions[`@formbar/${name}`]])),
 	};
 	sourceCheck(source);
@@ -57,14 +61,14 @@ export function loadRcSource(root: string, sha: string, tree: string): SourceWit
 
 function packDigests(left: PackageAudit[], right: PackageAudit[]) {
 	const outputs = [];
-	for (const name of [...names, "expressions"]) {
+	for (const name of names) {
 		const packageName = `@formbar/${name}`;
 		const a = left.find((pack) => pack.name === packageName);
 		const b = right.find((pack) => pack.name === packageName);
 		if (!a || !b || !a.bytes.equals(b.bytes)) throw new Error("npm pack bytes not reproducible");
 		outputs.push({
 			name: packageName,
-			version: name === "expressions" ? "0.14.3" : version,
+			version,
 			integrity: `sha512-${createHash("sha512").update(a.bytes).digest("base64")}`,
 			shasum: createHash("sha1").update(a.bytes).digest("hex"),
 			size: a.bytes.length,
@@ -79,7 +83,7 @@ export function observeLocalPacks(
 	tree: string,
 	capture?: (bytes: readonly PackageAudit[]) => void,
 ) {
-	if (run("node", ["--version"], root) !== "v22.23.2" || run("npm", ["--version"], root) !== "10.9.8")
+	if (run("node", ["--version"], root) !== "v22.23.2" || run("npm", ["--version"], root) !== "11.20.0")
 		throw new Error("Node/npm versions not pinned");
 	checkSnapshot(root, sha, tree);
 	loadRcSource(root, sha, tree);
@@ -98,7 +102,7 @@ export function observeLocalPacks(
 			commit: sha,
 			tree,
 			node: "v22.23.2",
-			npm: "10.9.8",
+			npm: "11.20.0",
 			command,
 			lifecycle,
 			decision: "UNVERIFIABLE" as const,

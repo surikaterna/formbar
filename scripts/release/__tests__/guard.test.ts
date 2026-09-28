@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import YAML from "yaml";
 import { checkRcCandidate, requireReleaseAuthority } from "../guard";
 import type { DispatchContext } from "../guard";
+import { rcPackages } from "../rc-reviewed-plan";
 import type { ReleasePlan, ReleaseReader } from "../types";
 
 const sha = "a".repeat(40);
@@ -23,7 +24,7 @@ const plan: ReleasePlan = {
 	schemaVersion: 1,
 	repository: context.repository,
 	releaseCommit: sha,
-	candidates: ["core", "arbiter", "declarative", "from-schema", "react", "react-schema"].map((name) => ({
+	candidates: rcPackages.map((name) => ({
 		name: `@formbar/${name}`,
 		version: "0.23.0-rc.0",
 		directory: name,
@@ -88,7 +89,7 @@ describe("#350 fail-closed release", () => {
 		const stable = { ...plan, candidates: plan.candidates.map((c) => ({ ...c, version: "0.23.0" })) };
 		await expect(checkRcCandidate(context, stable, reader)).rejects.toThrow("rc.0");
 		await expect(checkRcCandidate(context, { ...plan, candidates: plan.candidates.slice(1) }, reader)).rejects.toThrow(
-			"six-package",
+			"seven-package",
 		);
 		const conflict: ReleaseReader = { ...reader, npmVersion: async () => ({ exists: true, gitHead: "b".repeat(40) }) };
 		await expect(checkRcCandidate(context, plan, conflict)).rejects.toThrow("conflicting");

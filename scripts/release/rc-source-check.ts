@@ -2,36 +2,19 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type DispatchContext, checkRcCandidate } from "./guard";
 import { preflightAll } from "./preflight";
+import {
+	checkChangelog,
+	checkManifest,
+	checkPre,
+	rcPackages,
+	reviewedBase,
+	reviewedHead,
+	reviewedTree,
+} from "./rc-reviewed-plan";
 import type { ReleasePlan, ReleaseReader } from "./types";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"];
 const shaPattern = /^[0-9a-f]{40}$/;
-const auditedBase = "ed949ab79f34cea6c205969b0d3e6bd038060721";
-const auditedHead = "403995aefdb6ae8faaf990eef95f32c03b2debce";
-export const consumed = [
-	"bound-noop-witness",
-	"certified-object-descendants",
-	"checked-bound-handler",
-	"final-owned-generation",
-	"final-retained-attempt-gate",
-	"original-bound-attempt-receipt",
-	"owned-disposal-settlement",
-	"owned-scheduling-boundary",
-	"owned-semantic-epoch",
-	"public-bound-omission",
-	"react-omission-attempt-ui",
-	"real-bound-guarded-bridge",
-	"real-bound-omission-supplier",
-	"scoped-async-core",
-	"scoped-async-declarative",
-	"scoped-async-from-schema",
-	"scoped-async-react-schema",
-	"scoped-final-async",
-	"scoped-ownership-receipt",
-	"scoped-validation-public-types",
-	"unified-issue-ownership",
-	"validated-hidden-submission-policy",
-];
+export { consumed } from "./rc-reviewed-plan";
 
 export interface ReviewedSource {
 	base: string;
@@ -83,8 +66,9 @@ export interface ReviewContract {
 
 function requireReviewedSource(source: ReviewedSource): void {
 	if (
-		source.base !== auditedBase ||
-		source.head !== auditedHead ||
+		source.base !== reviewedBase ||
+		source.head !== reviewedHead ||
+		source.versionTree !== reviewedTree ||
 		![source.base, source.head, source.versionTree, source.mainTree, source.reviewedMainTree].every((s) =>
 			shaPattern.test(s),
 		) ||
@@ -127,8 +111,7 @@ function requireGo(go: GoEvidence, source: ReviewedSource, context: DispatchCont
 		!go.acknowledgesLegacyIssueMigration ||
 		go.distTag !== "rc" ||
 		!go.provenance ||
-		go.versions.length !== 6 ||
-		names.some((name) => !go.versions.includes(`@formbar/${name}@0.23.0-rc.0`))
+		JSON.stringify(go.versions) !== JSON.stringify(rcPackages.map((name) => `@formbar/${name}@0.23.0-rc.0`))
 	)
 		throw new Error("Missing, edited, stale or mismatched #250 FINAL GO evidence");
 }
@@ -157,29 +140,11 @@ function requireReview(review: ReviewContract, go: GoEvidence): void {
 
 async function requireVersionSource(root: string): Promise<void> {
 	const pre = JSON.parse(await readFile(join(root, ".changeset/pre.json"), "utf8"));
-	if (
-		pre.mode !== "pre" ||
-		pre.tag !== "rc" ||
-		!Array.isArray(pre.changesets) ||
-		JSON.stringify([...pre.changesets].sort()) !== JSON.stringify(consumed) ||
-		pre.initialVersions?.["@formbar/expressions"] !== "0.14.3"
-	)
-		throw new Error("Unexpected Changesets prerelease state or consumed IDs");
-	for (const name of [...names, "expressions"]) {
+	checkPre(pre);
+	for (const name of rcPackages) {
 		const pkg = JSON.parse(await readFile(join(root, `packages/${name}/package.json`), "utf8"));
-		const version = name === "expressions" ? "0.14.3" : "0.23.0-rc.0";
-		if (pkg.name !== `@formbar/${name}` || pkg.version !== version) throw new Error(`Unexpected ${name} version`);
-		for (const [dependency, range] of Object.entries(pkg.dependencies ?? {})) {
-			if (
-				dependency.startsWith("@formbar/") &&
-				range !== (dependency === "@formbar/expressions" ? "^0.14.3" : "^0.23.0-rc.0")
-			)
-				throw new Error(`Unexpected prerelease dependency ${name} -> ${dependency}`);
-		}
-		if (name !== "expressions") {
-			const log = await readFile(join(root, `packages/${name}/CHANGELOG.md`), "utf8");
-			if (!log.includes("## 0.23.0-rc.0")) throw new Error(`Missing ${name} rc changelog`);
-		}
+		checkManifest(name, pkg);
+		checkChangelog(name, await readFile(join(root, `packages/${name}/CHANGELOG.md`), "utf8"));
 	}
 }
 

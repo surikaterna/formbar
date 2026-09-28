@@ -44,7 +44,7 @@ async function get(read: ReadOnlyTransport, url: string, binary = false) {
 	return reply;
 }
 
-async function snapshot(read: ReadOnlyTransport, approved: ApprovedVersion) {
+async function snapshot(read: ReadOnlyTransport, approved: ApprovedVersion, allowAbsentGitHead = false) {
 	const base = `${registry}/${encodeURIComponent(approved.name)}`;
 	const ver = await get(read, `${base}/${approved.version}`);
 	const full = await get(read, base);
@@ -58,7 +58,9 @@ async function snapshot(read: ReadOnlyTransport, approved: ApprovedVersion) {
 		pack.name !== approved.name ||
 		metadata.name !== approved.name ||
 		metadata.version !== approved.version ||
-		metadata.gitHead !== approved.commit ||
+		(metadata.gitHead !== approved.commit &&
+			!(allowAbsentGitHead && metadata.gitHead === undefined && listed.gitHead === undefined)) ||
+		(listed.gitHead !== undefined && listed.gitHead !== approved.commit) ||
 		JSON.stringify(metadata.dist) !== JSON.stringify(listed.dist) ||
 		tags.latest !== approved.latest ||
 		tags.rc !== approved.rc ||
@@ -173,15 +175,27 @@ async function attest(
 	}
 }
 
-async function check(read: ReadOnlyTransport, proof: AuditProof, approved: ApprovedVersion): Promise<string> {
+async function check(
+	read: ReadOnlyTransport,
+	proof: AuditProof,
+	approved: ApprovedVersion,
+	expectedBytes?: Uint8Array,
+): Promise<string> {
 	signerPolicy(approved);
 	if (!/^(@[a-z0-9-]+\/)?[a-z0-9-]+$/.test(approved.name) || !/^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(approved.version))
 		throw new Error("invalid package identity");
-	const first = await snapshot(read, approved);
+	const first = await snapshot(read, approved, expectedBytes !== undefined);
 	const tar = await get(read, first.dist.tarball as string, true);
 	if (tar.status !== 200 || !(tar.bytes instanceof Uint8Array) || !tar.bytes.length || tar.bytes.length > 20_000_000)
 		throw new Error("tarball unavailable");
 	const sha512 = createHash("sha512").update(tar.bytes).digest("hex");
+	if (
+		expectedBytes &&
+		(!expectedBytes.length ||
+			expectedBytes.length > 20_000_000 ||
+			createHash("sha512").update(expectedBytes).digest("hex") !== sha512)
+	)
+		throw new Error("prepacked bytes conflict");
 	if (
 		first.dist.integrity !== `sha512-${Buffer.from(sha512, "hex").toString("base64")}` ||
 		typeof first.dist.shasum !== "string" ||
@@ -189,9 +203,27 @@ async function check(read: ReadOnlyTransport, proof: AuditProof, approved: Appro
 	)
 		throw new Error("wrong tarball bytes");
 	await attest(read, proof, approved, first.attestation, sha512);
-	const last = await snapshot(read, approved);
+	const last = await snapshot(read, approved, expectedBytes !== undefined);
 	if (JSON.stringify(first) !== JSON.stringify(last)) throw new Error("changed registry");
 	return sha512;
+}
+
+/** Disabled #383 contract: absent gitHead ONLY with independent signed run AND exact prepacked bytes. */
+export async function verifyPrepackedSignedVersion(
+	read: ReadOnlyTransport,
+	proof: AuditProof,
+	approved: ApprovedVersion,
+	expectedBytes: Uint8Array,
+): Promise<ExistingVerdict> {
+	try {
+		return {
+			status: "VERIFIED_EXISTING",
+			reason: "signed prepacked bytes and run",
+			sha512: await check(read, proof, approved, expectedBytes),
+		};
+	} catch {
+		return { status: "UNVERIFIABLE", reason: "signed prepacked version not established" };
+	}
 }
 
 /** No call site in the release workflow; NEVER use this result to authorize an absent future version. */

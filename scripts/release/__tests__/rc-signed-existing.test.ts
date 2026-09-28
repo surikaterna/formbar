@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { ReadOnlyTransport } from "../rc-live-reads";
-import { type ApprovedVersion, type AuditProof, verifyExistingSignedVersion } from "../rc-signed-existing";
+import {
+	type ApprovedVersion,
+	type AuditProof,
+	verifyExistingSignedVersion,
+	verifyPrepackedSignedVersion,
+} from "../rc-signed-existing";
 
 const host = "https://registry.npmjs.org";
 const slsa = "https://slsa.dev/provenance/v1";
@@ -122,6 +127,28 @@ function setup() {
 }
 
 describe("#374 disabled existing-version verifier (synthetic transport; live proof uses pinned Sigstore)", () => {
+	it("#383 permits absent gitHead only on the separately signed and byte-bound contract", async () => {
+		const f = setup();
+		(f.metadata as Partial<typeof f.metadata>).gitHead = undefined;
+		expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
+		expect(await verifyPrepackedSignedVersion(f.read, f.proof, approved, bytes)).toMatchObject({
+			status: "VERIFIED_EXISTING",
+			sha512,
+		});
+		expect(f.verifies).toBe(1);
+		expect((await verifyPrepackedSignedVersion(f.read, f.proof, approved, new Uint8Array([1]))).status).toBe(
+			"UNVERIFIABLE",
+		);
+		f.proof.verify = async () => {
+			throw new Error("invalid signature");
+		};
+		expect((await verifyPrepackedSignedVersion(f.read, f.proof, approved, bytes)).status).toBe("UNVERIFIABLE");
+	});
+	it("#383 denies mismatched gitHead even if the signed bytes and run match", async () => {
+		const f = setup();
+		f.metadata.gitHead = "f".repeat(40);
+		expect((await verifyPrepackedSignedVersion(f.read, f.proof, approved, bytes)).status).toBe("UNVERIFIABLE");
+	});
 	it("requires all fields even with a cooperating injected trust verifier", async () => {
 		const f = setup();
 		expect(await verifyExistingSignedVersion(f.read, f.proof, approved)).toEqual({

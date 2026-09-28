@@ -1,26 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { type RcRead, type Reply, type SourceWitness, inspectExchange, inspectRcRegistry } from "../rc-registry-proof";
+import { initialVersions, rcEdges, rcPackages } from "../rc-reviewed-plan";
 import { consumed } from "../rc-source-check";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"];
+const names = rcPackages;
 const hash = "a".repeat(40);
 const tree = "b".repeat(40);
 const integrity = `sha512-${"A".repeat(86)}==`;
 const tag = "0.23.0-rc.0";
-const edges: Record<string, string[]> = {
-	arbiter: ["core"],
-	core: [],
-	declarative: ["core"],
-	"from-schema": ["core", "declarative"],
-	react: ["core"],
-	"react-schema": ["core", "declarative", "from-schema", "react"],
-};
 function fixture() {
 	const source: SourceWitness = {
 		commit: hash,
 		tree,
-		pre: { mode: "pre", tag: "rc", changesets: consumed, initialVersions: { "@formbar/expressions": "0.14.3" } },
-		manifests: { expressions: { name: "@formbar/expressions", version: "0.14.3" } },
+		pre: { mode: "pre", tag: "rc", changesets: consumed, initialVersions },
+		manifests: {},
 		changelogs: {},
 		artifacts: {},
 		initialLatest: {},
@@ -32,10 +25,10 @@ function fixture() {
 		source.manifests[name] = {
 			name: pkg,
 			version: tag,
-			dependencies: Object.fromEntries(edges[name].map((edge) => [`@formbar/${edge}`, `^${tag}`])),
+			dependencies: Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${tag}`])),
 		};
-		source.changelogs[name] = `## ${tag}\n\nNotes for ${name}`;
-		source.initialLatest[name] = "0.22.0";
+		source.changelogs[name] = `# @formbar/${name}\n\n## ${tag}\n\nNotes for ${name}`;
+		source.initialLatest[name] = initialVersions[pkg];
 		const tarball = `https://registry.npmjs.org/${encodeURIComponent(pkg)}/-/${name}-${tag}.tgz`;
 		const provenance = {
 			subjectIntegrity: integrity,
@@ -56,7 +49,7 @@ function fixture() {
 		replies.set(`https://registry.npmjs.org/${encoded}/${tag}`, { status: 404 });
 		replies.set(`https://registry.npmjs.org/-/package/${encoded}/dist-tags`, {
 			status: 200,
-			body: { latest: "0.22.0" },
+			body: { latest: initialVersions[pkg] },
 		});
 		replies.set(`/repos/surikaterna/formbar/git/ref/tags/${encodeURIComponent(`${pkg}@${tag}`)}`, { status: 404 });
 		replies.set(`/repos/surikaterna/formbar/releases/tags/${encodeURIComponent(`${pkg}@${tag}`)}`, { status: 404 });
@@ -83,7 +76,7 @@ function fixture() {
 		});
 		replies.set(`https://registry.npmjs.org/-/package/${encodeURIComponent(pkg)}/dist-tags`, {
 			status: 200,
-			body: { latest: "0.22.0", rc: tag },
+			body: { latest: initialVersions[pkg], rc: tag },
 		});
 	}
 	return { source, replies, read, reads, published };
@@ -134,7 +127,7 @@ describe("#366 read-only rc reconciliation", () => {
 		const plan = await inspectRcRegistry(f.read, f.source);
 		expect(plan.blocked).toContain("artifact/attestation arbiter UNVERIFIABLE");
 	});
-	it("ignores forged caller flags even when all six packages appear identical", async () => {
+	it("ignores forged caller flags even when all seven packages appear identical", async () => {
 		const f = fixture();
 		for (const name of names) {
 			f.published(name);
@@ -143,10 +136,10 @@ describe("#366 read-only rc reconciliation", () => {
 		Object.assign(f.source, { authenticatedNpmRead: true });
 		const plan = await inspectRcRegistry(f.read, f.source);
 		expect(plan.state).toBe("identical");
-		expect(plan.blocked).toHaveLength(6);
+		expect(plan.blocked).toHaveLength(7);
 		expect(plan.blocked).toContain("artifact/attestation react-schema UNVERIFIABLE");
 	});
-	it("ignores forged publisher booleans even when all six versions are absent", async () => {
+	it("ignores forged publisher booleans even when all seven versions are absent", async () => {
 		const f = fixture();
 		Object.assign(f.source, {
 			authenticatedNpmRead: true,
@@ -164,14 +157,14 @@ describe("#366 read-only rc reconciliation", () => {
 		});
 		const plan = await inspectRcRegistry(f.read, f.source);
 		expect(plan.state).toBe("absent");
-		expect(plan.blocked).toHaveLength(6);
+		expect(plan.blocked).toHaveLength(7);
 		expect(plan.blocked).toContain("publisher core UNVERIFIABLE");
 	});
 	it("denies range, latest, rc and unknown publisher", async () => {
 		const f = fixture();
 		const react = f.source.manifests.react as { dependencies: Record<string, string> };
 		react.dependencies["@formbar/core"] = "^0.23.0";
-		await expect(inspectRcRegistry(f.read, f.source)).rejects.toThrow("edge");
+		await expect(inspectRcRegistry(f.read, f.source)).rejects.toThrow("dependency graph");
 		react.dependencies["@formbar/core"] = `^${tag}`;
 		f.replies.set(`https://registry.npmjs.org/-/package/${encodeURIComponent("@formbar/arbiter")}/dist-tags`, {
 			status: 200,

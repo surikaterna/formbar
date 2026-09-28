@@ -1,19 +1,11 @@
 /** #366: offline, read-only reconciliation; never a publish authorization or write entrypoint. */
-import { consumed } from "./rc-source-check";
+import { checkManifest, checkPre, initialVersions, rcPackages, rcVersion } from "./rc-reviewed-plan";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"] as const;
+const names = rcPackages;
 const sha = /^[a-f0-9]{40}$/;
 const integrity = /^sha512-[A-Za-z0-9+/]+={0,2}$/;
 const repo = "/repos/surikaterna/formbar";
-const version = "0.23.0-rc.0";
-const edges: Record<string, string[]> = {
-	arbiter: ["core"],
-	core: [],
-	declarative: ["core"],
-	"from-schema": ["core", "declarative"],
-	react: ["core"],
-	"react-schema": ["core", "declarative", "from-schema", "react"],
-};
+const version = rcVersion;
 
 export type Reply = { status: number; body?: unknown };
 export interface RcRead {
@@ -59,28 +51,19 @@ function response(reply: Reply, absent = false): Record<string, unknown> | undef
 }
 export function sourceCheck(source: SourceWitness): void {
 	requireProof(sha.test(source.commit) && sha.test(source.tree), "invalid audited commit/tree");
-	const pre = object(source.pre);
-	requireProof(pre.mode === "pre" && pre.tag === "rc", "not rc pre mode");
-	requireProof(JSON.stringify(pre.changesets) === JSON.stringify(consumed), "Changesets pre state drift");
-	requireProof(object(pre.initialVersions)["@formbar/expressions"] === "0.14.3", "expressions pre state drift");
-	for (const name of [...names, "expressions"]) {
-		const pkg = object(source.manifests[name]);
+	checkPre(source.pre);
+	for (const entries of [source.manifests, source.changelogs, source.artifacts, source.initialLatest])
 		requireProof(
-			pkg.name === `@formbar/${name}` && pkg.version === (name === "expressions" ? "0.14.3" : version),
-			`manifest ${name} drift`,
+			JSON.stringify(Object.keys(entries).sort()) === JSON.stringify([...names].sort()),
+			"unexpected RC package set",
 		);
-		const deps = object(pkg.dependencies ?? {});
-		for (const edge of edges[name] ?? [])
-			requireProof(deps[`@formbar/${edge}`] === `^${version}`, `missing internal edge ${name} -> ${edge}`);
-		for (const [dependency, range] of Object.entries(deps)) {
-			if (dependency.startsWith("@formbar/"))
-				requireProof(
-					range === (dependency === "@formbar/expressions" ? "^0.14.3" : `^${version}`),
-					`dependency ${name} -> ${dependency} drift`,
-				);
-		}
-		if (name !== "expressions")
-			requireProof(source.changelogs[name]?.includes(`## ${version}`), `changelog ${name} drift`);
+	for (const name of names) {
+		checkManifest(name, source.manifests[name]);
+		requireProof(source.initialLatest[name] === initialVersions[`@formbar/${name}`], `stable latest ${name} drift`);
+		requireProof(
+			source.changelogs[name]?.startsWith(`# @formbar/${name}\n\n## ${version}\n`),
+			`changelog ${name} drift`,
+		);
 	}
 }
 
