@@ -57,7 +57,7 @@ function response(reply: Reply, absent = false): Record<string, unknown> | undef
 	requireProof(reply.status === 200, `read-only GET failed (${reply.status})`);
 	return object(reply.body);
 }
-function sourceCheck(source: SourceWitness): void {
+export function sourceCheck(source: SourceWitness): void {
 	requireProof(sha.test(source.commit) && sha.test(source.tree), "invalid audited commit/tree");
 	const pre = object(source.pre);
 	requireProof(pre.mode === "pre" && pre.tag === "rc", "not rc pre mode");
