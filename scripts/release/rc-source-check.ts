@@ -75,6 +75,7 @@ export interface ReviewContract {
 	dispatcher: string;
 	reviewer: string;
 	goSigner: string;
+	runAttempt: number;
 }
 
 function requireReviewedSource(source: ReviewedSource): void {
@@ -125,7 +126,7 @@ function requireGo(go: GoEvidence, source: ReviewedSource, context: DispatchCont
 
 function requireReview(review: ReviewContract, go: GoEvidence): void {
 	if (
-		review.environment !== "release" ||
+		review.environment !== "formbar-rc" ||
 		!review.protectedMain ||
 		!review.noBypass ||
 		!review.protectedBranchesOnly ||
@@ -133,10 +134,11 @@ function requireReview(review: ReviewContract, go: GoEvidence): void {
 		!Number.isSafeInteger(review.runId) ||
 		review.runId <= 0 ||
 		review.approvedRunId !== review.runId ||
-		!review.dispatcher ||
-		!review.reviewer ||
+		review.runAttempt !== 1 ||
+		review.dispatcher !== "eaglez" ||
+		review.reviewer !== "spralle" ||
 		review.reviewer === review.dispatcher ||
-		review.reviewer === go.signer ||
+		go.signer !== "spralle" ||
 		review.goSigner !== go.signer
 	)
 		throw new Error("Missing protected, independent per-run environment approval");
