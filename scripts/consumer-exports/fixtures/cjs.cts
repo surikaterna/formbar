@@ -11,6 +11,8 @@ import { prepareScopedSyncHost as publicPrepare } from "@formbar/declarative";
 import * as declarative from "@formbar/declarative";
 import { prepareScopedSyncHost } from "@formbar/declarative/internal/scoped-sync";
 import * as expressions from "@formbar/expressions";
+const parsedRef: expressions.StateRef = expressions.parseRef({ namespace: "data", segments: ["0", 0], scope: "row" });
+const unscopedRef: expressions.StateRef = expressions.parseRef({ namespace: "data", segments: ["0", 0] });
 import * as fromSchema from "@formbar/from-schema";
 import * as react from "@formbar/react";
 import * as reactSchema from "@formbar/react-schema";
@@ -50,6 +52,8 @@ const publicHookOptions: HookOptions = {
 	submission: { hiddenValues: "omit-inactive" },
 };
 export {
+	parsedRef,
+	unscopedRef,
 	publicOmission,
 	omittedForm,
 	publicHookOptions,

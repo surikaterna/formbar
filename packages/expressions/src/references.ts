@@ -6,7 +6,12 @@ import { exactKeys, isJsonArray, jsonRecord } from "./shape.js";
 const isSegment = (value: JsonValue): value is Segment =>
 	typeof value === "number" ? Number.isSafeInteger(value) && value >= 0 : safeName(value);
 
-export function parseRef(input: JsonValue): StateRef {
+/** Parse an untrusted reference without resolving its scope. */
+export function parseRef(input: unknown): StateRef {
+	return parseCopiedRef(copyJson(input));
+}
+
+export function parseCopiedRef(input: JsonValue): StateRef {
 	const ref = jsonRecord(input);
 	exactKeys(ref, ["namespace", "segments", "scope"]);
 	if (!safeName(ref.namespace) || (Object.hasOwn(ref, "scope") && !safeName(ref.scope)))
@@ -27,13 +32,13 @@ export function parseScopes(input: unknown): Scopes {
 	const scopes: Record<string, StateRef> = Object.create(null);
 	for (const [name, value] of Object.entries(record)) {
 		if (!safeName(name)) throw new ExpressionError("invalid-input");
-		scopes[name] = parseRef(value);
+		scopes[name] = parseCopiedRef(value);
 	}
 	return Object.freeze(scopes);
 }
 
 export function validateRef(ref: StateRef): void {
-	parseRef(copyJson(ref));
+	parseCopiedRef(copyJson(ref));
 }
 
 export function resolveRef(ref: StateRef, scopes: Scopes = {}, seen = new Set<string>()): StateRef {
@@ -43,7 +48,7 @@ export function resolveRef(ref: StateRef, scopes: Scopes = {}, seen = new Set<st
 	seen.add(ref.scope);
 	const descriptor = Object.getOwnPropertyDescriptor(scopes, ref.scope);
 	if (!descriptor || !("value" in descriptor)) throw new ExpressionError("invalid-input");
-	const scope = parseRef(copyJson(descriptor.value));
+	const scope = parseCopiedRef(copyJson(descriptor.value));
 	if (scope.namespace !== ref.namespace) throw new ExpressionError("invalid-input");
 	const parent = resolveRef(scope, scopes, seen);
 	return resolveRef({ namespace: ref.namespace, segments: [...parent.segments, ...ref.segments] });
