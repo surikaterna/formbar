@@ -377,7 +377,7 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/385-strategy-row-enumeration");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/180-row-write-contract");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -386,7 +386,7 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/385-strategy-row-enumeration");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/180-row-write-contract");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
@@ -559,7 +559,7 @@ try {
 					formbarHeadAfter: run("git", ["rev-parse", "HEAD"], source),
 					sourceBefore: digest(before),
 					sourceAfter: digest(after),
-					changeset: hash(join(source, ".changeset/private-row-enumeration.md")),
+					changeset: hash(join(source, ".changeset/private-row-write-contract.md")),
 				}),
 			);
 			assert.deepEqual(after, before, "worktree source or Changeset changed");
