@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createPinnedAudit } from "../rc-signed-audit";
-import { verifyExistingSignedVersion } from "../rc-signed-existing";
+import { verifyExistingSignedVersion, verifyPrepackedSignedVersion } from "../rc-signed-existing";
 import { signerPolicy } from "../rc-signed-identity";
 import { createSignedRegistryReader } from "../rc-signed-reader";
 
@@ -71,6 +71,12 @@ it.skipIf(!node || !npmRoot || !install)(
 			sha512:
 				"47b46a5a86a4b32c8a5db2970536d3e1111dcb6db21fcd667052bab16b6a49a9f15026d48bd51ffba6aac59b43428b88a8f75e9b65b9e827715e0b3176aec52d",
 		});
+		const registry = createSignedRegistryReader();
+		const exact = await registry.get("https://registry.npmjs.org/%40changesets%2Fcli/2.29.7");
+		const tarball = (exact.body as { dist: { tarball: string } }).dist.tarball;
+		const bytes = (await registry.get(tarball, true)).bytes;
+		if (!bytes) throw new Error("missing real public tarball");
+		expect((await verifyPrepackedSignedVersion(registry, proof, approved, bytes)).status).toBe("VERIFIED_EXISTING");
 		for (const wrong of [
 			{ runId: "17583250855" },
 			{ attempt: "2" },

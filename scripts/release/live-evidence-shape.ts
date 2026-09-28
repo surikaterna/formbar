@@ -5,7 +5,7 @@ export interface GitHubRead {
 
 export const repo = "repos/surikaterna/formbar";
 export const sha = /^[0-9a-f]{40}$/;
-export const rcNames = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"];
+export { rcPackages as rcNames } from "./rc-reviewed-plan";
 
 export function object(value: unknown): Record<string, unknown> {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Missing GitHub object");
