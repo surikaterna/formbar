@@ -40,10 +40,6 @@ export interface RegistrySnapshot {
 export interface PublishMethod {
 	// All reads must be fresh, bounded packument reads. Never return cached npm info.
 	read(name: string): Promise<RegistrySnapshot>;
-	// Must verify actual tarball bytes, npm audit signatures and signed same-run provenance.
-	verify(name: string, version: string, sha: string, latest: string, rc: string | undefined): Promise<boolean>;
-	// Injected process runner; the helper never spawns npm itself.
-	run(program: "npm", args: string[]): Promise<{ code: number }>;
 }
 export interface PublishContext {
 	commit: string;
@@ -102,65 +98,39 @@ export async function loadRcManifests(root: string): Promise<RcManifest[]> {
 		manifests.push(manifest);
 	}
 	for (const [index, manifest] of manifests.entries()) {
-		for (const edge of edges[rcPackages[index]] ?? []) {
-			if (manifest.dependencies?.[`@formbar/${edge}`] !== "^0.23.0-rc.0")
-				throw new Error(`missing RC dependency ${manifest.name} -> ${edge}`);
-		}
+		const required = new Set((edges[rcPackages[index]] ?? []).map((edge) => `@formbar/${edge}`));
+		const requiresExpressions = rcPackages[index] !== "react-schema";
+		const actual = Object.keys(manifest.dependencies ?? {}).filter((name) => expected.has(name));
+		if (actual.length !== required.size || actual.some((name) => !required.has(name)))
+			throw new Error(`invalid RC dependency graph: ${manifest.name}`);
+		if (manifest.dependencies?.["@formbar/expressions"] !== (requiresExpressions ? "^0.14.3" : undefined))
+			throw new Error(`invalid stable prerequisite ${manifest.name} -> @formbar/expressions`);
 		for (const [name, range] of Object.entries({ ...manifest.dependencies, ...manifest.peerDependencies })) {
-			if (expected.has(name) && range !== "^0.23.0-rc.0")
+			if (expected.has(name) && (!required.has(name) || range !== "^0.23.0-rc.0"))
 				throw new Error(`invalid RC dependency ${manifest.name} -> ${name}`);
+			if (expected.has(name) && !actual.includes(name))
+				throw new Error(`invalid peer-only RC dependency ${manifest.name} -> ${name}`);
 			if (name === "@formbar/expressions" && range !== "^0.14.3")
 				throw new Error(`invalid stable prerequisite ${manifest.name} -> ${name}`);
 		}
+		for (const name of required)
+			if (manifest.dependencies?.[name] !== "^0.23.0-rc.0")
+				throw new Error(`missing RC dependency ${manifest.name} -> ${name}`);
 	}
 	return manifests;
 }
 
-/** Standalone proof only: no GO recovery or registry writes are reachable from release.yml. */
+/** Standalone preflight only: signed verification and publish wiring belong to #363. */
 export async function provePublishMethod(root: string, context: PublishContext, method: PublishMethod): Promise<void> {
 	assertContext(context);
 	const manifests = await loadRcManifests(root);
-	const states = new Map<string, RegistrySnapshot>();
-	// Finish all prewrite checks before the first process invocation.
 	for (const manifest of manifests) {
 		const snapshot = await method.read(manifest.name);
 		const exists = assertSnapshot(snapshot, manifest);
-		if (
-			exists &&
-			(snapshot.versions[manifest.version]?.gitHead !== context.commit ||
-				!(await method.verify(manifest.name, manifest.version, context.commit, snapshot.latest, snapshot.rc)))
-		)
-			throw new Error(`foreign or unsigned existing ${manifest.name}`);
-		states.set(manifest.name, snapshot);
+		if (exists && snapshot.rc !== manifest.version) throw new Error(`missing or wrong rc dist-tag: ${manifest.name}`);
+		if (exists && snapshot.versions[manifest.version]?.gitHead !== context.commit)
+			throw new Error(`foreign existing ${manifest.name}`);
 	}
-	for (const [index, manifest] of manifests.entries()) {
-		const before = states.get(manifest.name);
-		if (!before) throw new Error("missing prewrite snapshot");
-		// Check all six again before each write: a changed latest never authorizes the next write.
-		for (const earlier of manifests) {
-			const current = await method.read(earlier.name);
-			if (JSON.stringify(current) !== JSON.stringify(states.get(earlier.name)))
-				throw new Error("registry changed before write");
-		}
-		if (Object.hasOwn(before.versions, manifest.version)) continue;
-		const result = await method.run("npm", [
-			"publish",
-			`./packages/${rcPackages[index]}`,
-			"--tag",
-			"rc",
-			"--access",
-			"public",
-			"--provenance",
-		]);
-		if (result.code !== 0) throw new Error(`publish failed: ${manifest.name}`);
-		const after = await method.read(manifest.name);
-		if (
-			after.latest !== before.latest ||
-			after.rc !== manifest.version ||
-			after.versions[manifest.version]?.gitHead !== context.commit ||
-			!(await method.verify(manifest.name, manifest.version, context.commit, before.latest, manifest.version))
-		)
-			throw new Error(`unverified publish: ${manifest.name}`);
-		states.set(manifest.name, after);
-	}
+	// No caller-supplied boolean can establish signed bytes, provenance or run identity.
+	throw new Error("SIGNED_VERIFICATION_UNAVAILABLE");
 }

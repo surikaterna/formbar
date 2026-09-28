@@ -65,7 +65,10 @@ async function fixture(): Promise<string> {
 			JSON.stringify({
 				name: name(directory),
 				version,
-				dependencies: Object.fromEntries((edges[directory] ?? []).map((edge) => [name(edge), `^${version}`])),
+				dependencies: {
+					...Object.fromEntries((edges[directory] ?? []).map((edge) => [name(edge), `^${version}`])),
+					...(directory === "react-schema" ? {} : { [name("expressions")]: "^0.14.3" }),
+				},
 			}),
 		);
 	}
@@ -79,6 +82,7 @@ function fake(existing: string[] = []) {
 			{
 				name: name(dir),
 				latest: "0.22.0",
+				...(existing.includes(dir) ? { rc: version } : {}),
 				versions: {
 					"0.22.0": { gitHead: "b".repeat(40) },
 					...(existing.includes(dir) ? { [version]: { gitHead: commit } } : {}),
@@ -88,7 +92,6 @@ function fake(existing: string[] = []) {
 	);
 	const calls: string[][] = [];
 	const reads: string[] = [];
-	const verified: string[] = [];
 	const method: PublishMethod = {
 		async read(pkg) {
 			reads.push(pkg);
@@ -96,46 +99,35 @@ function fake(existing: string[] = []) {
 			if (!snapshot) throw new Error("missing fixture snapshot");
 			return structuredClone(snapshot);
 		},
-		async verify(pkg) {
-			verified.push(pkg);
-			return true;
-		},
-		async run(program, args) {
-			calls.push([program, ...args]);
-			const pkg = name(args[1]?.split("/")[2] ?? "");
-			const before = snapshots.get(pkg);
-			if (!before) return { code: 1 };
-			snapshots.set(pkg, { ...before, rc: version, versions: { ...before.versions, [version]: { gitHead: commit } } });
-			return { code: 0 };
-		},
 	};
-	return { snapshots, calls, reads, verified, method };
+	return { snapshots, calls, reads, method };
 }
 
-test("six dependency-ordered exact npm calls with postwrite signed evidence", async () => {
-	const root = await fixture();
-	const { calls, verified, method } = fake();
-	await provePublishMethod(root, context, method);
-	expect(calls).toEqual(
-		rcPackages.map((dir) => [
-			"npm",
-			"publish",
-			`./packages/${dir}`,
-			"--tag",
-			"rc",
-			"--access",
-			"public",
-			"--provenance",
-		]),
-	);
-	expect(verified).toEqual(rcPackages.map(name));
-});
+test.each([[[]], [[...rcPackages]], [["core", "react"]]])(
+	"fresh, existing and mixed registries cannot turn caller claims into signed verification: %j",
+	async (existing) => {
+		const { calls, reads, method } = fake(existing);
+		// A forged verify property cannot authorize a skip, even with the right SHA and rc tag.
+		Object.assign(method, {
+			verify: async () => true,
+			run: async () => {
+				throw new Error("unsafe write");
+			},
+		});
+		await expect(provePublishMethod(await fixture(), context, method)).rejects.toThrow(
+			"SIGNED_VERIFICATION_UNAVAILABLE",
+		);
+		expect(reads).toEqual(rcPackages.map(name));
+		expect(calls).toEqual([]);
+	},
+);
 
-test("already published exact same SHA requires signed proof and never republishes", async () => {
-	const { calls, verified, method } = fake([...rcPackages]);
-	await provePublishMethod(await fixture(), context, method);
-	expect(calls).toEqual([]);
-	expect(verified).toEqual(rcPackages.map(name));
+test.each([undefined, "0.22.0-rc.1"])("same SHA but rc dist-tag %s stops before skip", async (tag) => {
+	const { snapshots, method } = fake(["core"]);
+	const core = snapshots.get(name("core"));
+	if (!core) throw new Error("missing fixture core");
+	Object.assign(core, { rc: tag });
+	await expect(provePublishMethod(await fixture(), context, method)).rejects.toThrow("missing or wrong rc dist-tag");
 });
 
 test.each([
@@ -146,13 +138,10 @@ test.each([
 	"wrong pre",
 	"wrong range",
 	"foreign SHA",
-	"missing signature",
 	"failed read",
 ])("prewrite stop: %s", async (scenario) => {
 	const root = await fixture();
-	const { calls, snapshots, method } = fake(
-		scenario === "foreign SHA" || scenario === "missing signature" ? ["core"] : [],
-	);
+	const { calls, snapshots, method } = fake(scenario === "foreign SHA" ? ["core"] : []);
 	const modified = structuredClone(context);
 	if (scenario === "missing OIDC") modified.oidc = false;
 	if (scenario === "bearer") modified.credentials.token = "forbidden";
@@ -165,7 +154,6 @@ test.each([
 		if (!published) throw new Error("missing fixture version");
 		published.gitHead = "c".repeat(40);
 	}
-	if (scenario === "missing signature") method.verify = async () => false;
 	if (scenario === "failed read")
 		method.read = async () => {
 			throw new Error("read unavailable");
@@ -181,28 +169,23 @@ test.each([
 	expect(calls).toEqual([]);
 });
 
-test.each(["403", "E_STAGE_REQUIRED", "changed latest", "wrong tag", "wrong bytes", "partial"])(
-	"no next write on %s",
-	async (scenario) => {
-		const { calls, snapshots, method } = fake(scenario === "partial" ? ["core"] : []);
-		const run = method.run.bind(method);
-		method.run = async (program, args) => {
-			if (["403", "E_STAGE_REQUIRED"].includes(scenario)) {
-				calls.push([program, ...args]);
-				return { code: 1 };
-			}
-			const result = await run(program, args);
-			const current = snapshots.get(name(scenario === "partial" ? "declarative" : "core"));
-			if (!current) throw new Error("missing fixture snapshot");
-			if (scenario === "changed latest" || scenario === "partial") current.latest = "0.24.0";
-			if (scenario === "wrong tag") current.rc = "0.21.0-rc.1";
-			return result;
-		};
-		if (scenario === "wrong bytes") method.verify = async () => false;
-		await expect(provePublishMethod(await fixture(), context, method)).rejects.toThrow();
-		expect(calls).toHaveLength(1);
-	},
-);
+test("reverse core to react edge is forbidden even at the correct range", async () => {
+	const root = await fixture();
+	const path = join(root, "packages/core/package.json");
+	const manifest = JSON.parse(await readFile(path, "utf8"));
+	manifest.dependencies[name("react")] = `^${version}`;
+	await writeFile(path, JSON.stringify(manifest));
+	await expect(loadRcManifests(root)).rejects.toThrow("invalid RC dependency graph");
+});
+
+test("missing stable expressions edge is rejected", async () => {
+	const root = await fixture();
+	const path = join(root, "packages/core/package.json");
+	const manifest = JSON.parse(await readFile(path, "utf8"));
+	delete manifest.dependencies[name("expressions")];
+	await writeFile(path, JSON.stringify(manifest));
+	await expect(loadRcManifests(root)).rejects.toThrow("invalid stable prerequisite");
+});
 
 test("manifest validation rejects absent pre state and unsupported publish config", async () => {
 	const root = await fixture();
