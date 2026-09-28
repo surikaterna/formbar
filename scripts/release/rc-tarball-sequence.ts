@@ -40,10 +40,7 @@ function inspect(snapshot: ReadSnapshot, approved: ApprovedVersion): boolean {
 	return Boolean(existing);
 }
 
-function validateCandidates(
-	candidates: readonly Candidate[],
-	identities: readonly ApprovedVersion[],
-): void {
+function validateCandidates(candidates: readonly Candidate[], identities: readonly ApprovedVersion[]): void {
 	if (
 		candidates.length !== rcPackages.length ||
 		identities.length !== rcPackages.length ||
