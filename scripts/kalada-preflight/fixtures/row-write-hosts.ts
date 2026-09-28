@@ -12,6 +12,7 @@ export type Node = {
 	token: object;
 	revision: object;
 	value: string;
+	quantity: string;
 	children: string[];
 	denied: boolean;
 	readOnly: boolean;
@@ -21,6 +22,7 @@ export const node = (id: string, value: string): Node => ({
 	token: {},
 	revision: {},
 	value,
+	quantity: `${value}-quantity`,
 	children: [],
 	denied: false,
 	readOnly: false,
@@ -32,6 +34,7 @@ export type RegistryVersion = { revision: object; roots: string[]; nodes: Map<st
 export type RegistryState = { version: RegistryVersion; notify: () => void };
 export const receipt = () => ({ artifact: KALADA_RUNTIME_ARTIFACT, policyGeneration: "g1", policyFingerprint: "host" });
 export const referencePath = ["rows", { row: "outer" }, "nested", { row: "inner" }, "value"];
+export const quantityPath = ["rows", { row: "outer" }, "nested", { row: "inner" }, "quantity"];
 export const nonrowPath = ["profile", "name"];
 export const formField = (): FormField => ({ value: "original", missing: false, denied: false, readOnly: false });
 
@@ -47,6 +50,26 @@ function isNonrowRead(reference: { namespace: string; path: readonly unknown[] }
 		JSON.stringify(reference.path) === JSON.stringify(nonrowPath) &&
 		scope.rows.length === 0
 	);
+}
+
+function rowField(reference: { namespace: string; path: readonly unknown[] }, scope: ReadScope) {
+	if (reference.namespace !== "data" || scope.rows.length !== 2) return undefined;
+	if (scope.rows[0]?.name !== "outer" || scope.rows[1]?.name !== "inner") return undefined;
+	if (scope.rows[0].token === scope.rows[1].token) return undefined;
+	const path = reference.path;
+	if (!Array.isArray(path) || path.length !== 5 || path[0] !== "rows" || path[2] !== "nested") return undefined;
+	for (const [position, name] of [
+		[1, "outer"],
+		[3, "inner"],
+	] as const) {
+		const segment = path[position];
+		if (!segment || typeof segment !== "object" || Array.isArray(segment)) return undefined;
+		if (Object.keys(segment).length !== 1 || !Object.hasOwn(segment, "row")) return undefined;
+		if ((segment as { row: unknown }).row !== name) return undefined;
+	}
+	if (path[4] === "value") return "value" as const;
+	if (path[4] === "quantity") return "quantity" as const;
+	return undefined;
 }
 
 export function validNonrow(request: DirectWriteRequest, context: DataContext, revision: object, field: FormField) {
@@ -65,12 +88,7 @@ export function validNonrow(request: DirectWriteRequest, context: DataContext, r
 export function validTarget(request: DirectWriteRequest, context: DataContext) {
 	if (request.expectedInstance !== context.instance || request.contract !== "formbar-direct-write-v1") return "stale";
 	if (request.targetKind !== "row" || !request.scope.rows.length) return "invalid-target";
-	if (request.scope.rows.map((row) => row.name).join("/") !== "outer/inner") return "invalid-target";
-	if (
-		request.reference.namespace !== "data" ||
-		JSON.stringify(request.reference.path) !== JSON.stringify(referencePath)
-	)
-		return "invalid-target";
+	if (!rowField(request.reference, request.scope)) return "invalid-target";
 	return undefined;
 }
 
@@ -122,8 +140,10 @@ export function serialHost() {
 				read(reference, scope) {
 					if (current.revision !== token) return { status: "stale" };
 					if (isNonrowRead(reference, scope)) return readField(current.field);
+					const field = rowField(reference, scope);
+					if (!field) return { status: "missing" };
 					const found = resolve(current, scope);
-					return found ? { status: "found", value: found.value } : { status: "missing" };
+					return found ? { status: "found", value: found[field] } : { status: "missing" };
 				},
 				enumerateRows(parent, _binding, name) {
 					if (current.revision !== token) return { status: "stale" };
@@ -163,6 +183,8 @@ export function serialHost() {
 			}
 			const invalid = validTarget(request, context);
 			if (invalid) return { status: invalid };
+			const field = rowField(request.reference, request.scope);
+			if (!field) return { status: "invalid-target" };
 			if (request.expectedRevision !== current.revision) return { status: "stale" };
 			const parent = resolve(current, { rows: request.scope.rows.slice(0, 1) });
 			const child = resolve(current, request.scope);
@@ -171,7 +193,7 @@ export function serialHost() {
 			if (child.revision !== request.expectedRowRevision) return { status: "conflict" };
 			if (typeof request.value !== "string") return { status: "invalid-target" };
 			// Serial critical section: validation and mutation are synchronous with no callback until commit.
-			child.value = request.value;
+			child[field] = request.value;
 			child.revision = {};
 			bump(current);
 			return { status: "applied" };
@@ -229,8 +251,10 @@ export function versionedHost() {
 				read(reference, scope) {
 					if (owner.version !== version) return { status: "stale" };
 					if (isNonrowRead(reference, scope)) return readField(version.field);
+					const field = rowField(reference, scope);
+					if (!field) return { status: "missing" };
 					const found = resolve(version, scope);
-					return found ? { status: "found", value: found.value } : { status: "missing" };
+					return found ? { status: "found", value: found[field] } : { status: "missing" };
 				},
 				enumerateRows(parent, _binding, name) {
 					if (owner.version !== version) return { status: "stale" };
@@ -274,6 +298,8 @@ export function versionedHost() {
 			}
 			const invalid = validTarget(request, context);
 			if (invalid) return { status: invalid };
+			const field = rowField(request.reference, request.scope);
+			if (!field) return { status: "invalid-target" };
 			if (request.expectedRevision !== version.revision) return { status: "stale" };
 			const parent = resolve(version, { rows: request.scope.rows.slice(0, 1) });
 			const child = resolve(version, request.scope);
@@ -283,7 +309,7 @@ export function versionedHost() {
 			if (typeof request.value !== "string") return { status: "invalid-target" };
 			// No old node or version is modified before the single owner pointer swap.
 			const nodes = new Map(version.nodes);
-			nodes.set(child.id, { ...child, value: request.value, revision: {} });
+			nodes.set(child.id, { ...child, [field]: request.value, revision: {} });
 			owner.version = { revision: {}, roots: version.roots, nodes, field: version.field };
 			owner.notify();
 			return { status: "applied" };

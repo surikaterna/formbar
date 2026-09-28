@@ -10,9 +10,9 @@ import type {
 } from "./kalada-data-strategy.js";
 import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
-import { type TrustedDirectLocations, checkPrivateDirectLocation } from "./kalada-direct-location.js";
+import type { TrustedDirectLocations } from "./kalada-direct-location.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
-import { directWrite } from "./kalada-private-write.js";
+import { privateWritePorts } from "./kalada-private-write.js";
 import { type KaladaReference, ProgramAdmissionError } from "./kalada-program.js";
 import { resolveStaticReference } from "./static-references.js";
 
@@ -139,6 +139,7 @@ function checkedRows(
 	raw: readonly EnumeratedRow[],
 	parent: ReadScope,
 	name: string,
+	formRevision: object,
 ): readonly EnumeratedRow[] | undefined {
 	const seen = new Set<object>();
 	const rows: EnumeratedRow[] = [];
@@ -165,6 +166,7 @@ function checkedRows(
 			Object.freeze({
 				token: row.token,
 				order,
+				formRevision,
 				...(typeof row.writeRevision === "object" && row.writeRevision !== null
 					? { writeRevision: row.writeRevision }
 					: {}),
@@ -203,7 +205,7 @@ function enumerateFrame(args: {
 			return failure("INVALID_ROWS");
 		}
 		if (!Array.isArray(result.rows) || result.rows.length > capacity) return failure("ROW_CAPACITY");
-		const rows = checkedRows(result.rows, parent, name);
+		const rows = checkedRows(result.rows, parent, name, frame.token);
 		if (!fresh()) return failure("STALE_CAPTURE");
 		return rows ? { ok: true, rows } : failure("INVALID_ROWS");
 	} catch {
@@ -318,29 +320,9 @@ function install(options: RuntimeOptions) {
 	return { context, strategy, admitted, slots, matches, directLocations: options.directLocations };
 }
 
-function writer(installed: ReturnType<typeof install>, valid: () => boolean, revision: () => number) {
-	const { admitted, strategy, context } = installed;
-	return (path: string, row: EnumeratedRow | undefined, value: unknown) =>
-		directWrite({
-			path,
-			row,
-			value,
-			admitted,
-			strategy,
-			context,
-			valid,
-			revision,
-			validScope: (scope, enclosing) => validScope(scope, enclosing, admitted),
-		});
-}
-
-function checkedWriter(installed: ReturnType<typeof install>, valid: () => boolean, revision: () => number) {
-	return (path: string, source: string, value: unknown) => {
-		if (!valid()) return { status: "stale" as const };
-		const checked = checkPrivateDirectLocation(path, source, installed.admitted, installed.directLocations);
-		if (!checked?.ok) return { status: "invalid-target" as const };
-		return writer(installed, valid, revision)(path, undefined, value);
-	};
+function captureRuntime(installed: ReturnType<typeof install>, valid: () => boolean, disposed: () => boolean) {
+	const { context, strategy, admitted, slots } = installed;
+	return capturedSession({ context, strategy, admitted, slots, valid, disposed });
 }
 
 /** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
@@ -353,24 +335,25 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 		revision++;
 	});
 	const live = () => !disposed && matches();
-	const write = writer(installed, live, () => revision);
-	function capture() {
-		const start = revision;
-		return capturedSession({
-			context,
-			strategy,
-			admitted,
-			slots,
-			valid: () => !disposed && revision === start && matches(),
-			disposed: () => disposed,
-		});
-	}
+	const writes = privateWritePorts({
+		admitted,
+		strategy,
+		context,
+		valid: live,
+		revision: () => revision,
+		locations: installed.directLocations,
+		validScope: (scope, enclosing) => validScope(scope, enclosing, admitted),
+	});
 	return {
-		capture,
-		writeChecked: checkedWriter(installed, live, () => revision),
-		checkDirectLocation: (path: string, source: string) =>
-			checkPrivateDirectLocation(path, source, admitted, installed.directLocations),
-		writeDirect: write,
+		capture() {
+			const start = revision;
+			return captureRuntime(
+				installed,
+				() => !disposed && revision === start && matches(),
+				() => disposed,
+			);
+		},
+		...writes,
 		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
 			const start = revision;
 			return standaloneRead({
