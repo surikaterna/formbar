@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { constants, closeSync, fstatSync, fsyncSync, lstatSync, openSync, realpathSync, writeSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
-export function claimAttempt(runId: number, sha: string, tree: string, digest: string): void {
+function trustedTemp(runId: number, sha: string, tree: string, digest: string): string {
 	const temp = process.env.RUNNER_TEMP;
 	const workspace = process.env.GITHUB_WORKSPACE;
 	if (
@@ -36,11 +36,10 @@ export function claimAttempt(runId: number, sha: string, tree: string, digest: s
 		realpathSync(temp) !== temp
 	)
 		throw new Error("untrusted runner temp directory");
-	// Filename intentionally excludes plan/checkout: changed evidence must not open a second lane for this run.
-	const path = join(temp, `formbar-rc-${runId}-attempt-1.claim`);
-	const record = `${JSON.stringify({ runId, attempt: 1, job: "protected-rc", sha, tree, digest })}\n`;
-	const bytes = Buffer.from(record);
-	if (bytes.length > 512) throw new Error("oversized attempt claim");
+	return temp;
+}
+
+function persistClaim(temp: string, path: string, bytes: Buffer): void {
 	const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
 	let file: number | undefined;
 	try {
@@ -62,6 +61,16 @@ export function claimAttempt(runId: number, sha: string, tree: string, digest: s
 	} finally {
 		closeSync(directory);
 	}
+}
+
+export function claimAttempt(runId: number, sha: string, tree: string, digest: string): void {
+	const temp = trustedTemp(runId, sha, tree, digest);
+	// Filename intentionally excludes plan/checkout: changed evidence must not open a second lane for this run.
+	const path = join(temp, `formbar-rc-${runId}-attempt-1.claim`);
+	const record = `${JSON.stringify({ runId, attempt: 1, job: "protected-rc", sha, tree, digest })}\n`;
+	const bytes = Buffer.from(record);
+	if (bytes.length > 512) throw new Error("oversized attempt claim");
+	persistClaim(temp, path, bytes);
 	// No unlink on any error or successful exit. Preexisting claims are never read or resumed.
 }
 
