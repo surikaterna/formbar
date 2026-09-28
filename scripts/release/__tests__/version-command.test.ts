@@ -180,12 +180,13 @@ describe("version:packages", () => {
 				cwd: root,
 				env: commandEnvironment,
 			});
-			const fixtureBin = join(root, "bin");
-			await mkdir(fixtureBin);
+			const fixtureBin = join(root, "node_modules", ".bin");
+			await mkdir(fixtureBin, { recursive: true });
 			const fakeBiome = join(fixtureBin, "biome");
+			const invocations = join(root, "biome-invocations");
 			await writeFile(
 				fakeBiome,
-				`#!/bin/sh\nif [ "$3" = ".changeset/pre.json" ]; then exit 42; fi\nexec "${join(binaryDirectory, "biome")}" "$@"\n`,
+				`#!/bin/sh\nprintf '<%s>' "$@" >> "${invocations}"\nprintf '\\n' >> "${invocations}"\nif [ "$#" -eq 3 ] && [ "$1" = format ] && [ "$2" = --write ] && [ "$3" = .changeset/pre.json ]; then exit 42; fi\nexec "${join(binaryDirectory, "biome")}" "$@"\n`,
 			);
 			await chmod(fakeBiome, 0o755);
 			await expect(
@@ -193,10 +194,12 @@ describe("version:packages", () => {
 					cwd: root,
 					env: { ...commandEnvironment, PATH: `${fixtureBin}:${commandEnvironment.PATH}` },
 				}),
-			).rejects.toThrow();
+			).rejects.toMatchObject({ code: 42 });
+			expect(await readFile(invocations, "utf8")).toContain("<format><--write><.changeset/pre.json>\n");
 			expect(JSON.parse(await readPre(root)).changesets).toEqual(["fixture"]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
+			await expect(access(root)).rejects.toThrow();
 		}
 	}, 15_000);
 });
