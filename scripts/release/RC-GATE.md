@@ -6,17 +6,22 @@ environment (22904271021, required reviewer `spralle` 806157, dispatcher
 `reject-dispatch` job remains unconditional: no environment-gated publish job,
 OIDC permission, npm write, tag or release creation has been enabled.
 
-The read-only source inspector now models the owner-approved role split and
-rejects reruns (`runAttempt !== 1`). GitHub's workflow-run approvals API
+The read-only source inspector models the owner-approved role split, requires
+supplied GO evidence to name the exact run ID and attempt 1, and requires the
+comment to be created after the run. This does NOT authenticate that evidence.
+GitHub's workflow-run approvals API
 returns reviewer, state and environment but does not document a review time or
 attempt number; an approval on the same run cannot by itself prove approval
 of a rerun attempt. Any implementation must reject reruns and use a new
 dispatch, a new owner GO bound uniquely to that run, and a new environment
 review for recovery. A pre-dispatch GO cannot include the run ID not yet
-assigned by GitHub; a reusable SHA/tree-only GO is replayable. This binding
-requires a separately agreed, testable protocol before connecting a publish
-step. Until then, leave dispatch disabled rather than attaching a protected
-environment to a job that could write without independently verifying it.
+assigned by GitHub; a reusable SHA/tree-only GO is replayable. The #363
+Architect proposed a NEW post-dispatch comment before the environment review,
+but the approvals REST response has no review timestamp. Without an
+authenticated GO-before-approval ordering witness or an explicit owner decision
+accepting that unprovable ordering, the workflow cannot enforce that sequence.
+Until then, leave dispatch disabled rather than attaching an environment to a
+job that could write without independently verifying its authority.
 
 #362 source preparation: `rc-source-check.ts` is an offline, read-only evidence
 inspector, not an authority provider or executable publish entrypoint. Its inputs
