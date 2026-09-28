@@ -11,6 +11,7 @@ import type {
 import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
+import { directWrite } from "./kalada-private-write.js";
 import { type KaladaReference, ProgramAdmissionError } from "./kalada-program.js";
 import { resolveStaticReference } from "./static-references.js";
 
@@ -161,6 +162,9 @@ function checkedRows(
 			Object.freeze({
 				token: row.token,
 				order,
+				...(typeof row.writeRevision === "object" && row.writeRevision !== null
+					? { writeRevision: row.writeRevision }
+					: {}),
 				scope: Object.freeze({
 					rows: Object.freeze(row.scope.rows.map(({ name, token }) => Object.freeze({ name, token }))),
 				}),
@@ -297,8 +301,7 @@ function standaloneRead(args: {
 	return evaluateFrame({ frame, slot, path, scope, admitted, strategy, context, valid });
 }
 
-/** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
-export function createPrivateKaladaRuntime(options: RuntimeOptions) {
+function install(options: RuntimeOptions) {
 	const { strategy, policy, identity } = options;
 	const context: DataContext = Object.freeze({
 		instance: Object.freeze({}),
@@ -309,6 +312,29 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 	if (!matches()) throw new ProgramAdmissionError("root", "STALE_INSTALLATION");
 	const admitted = admitKaladaDefinitionWithPolicy(options.definition, policy, identity);
 	const slots = prepare(admitted);
+	return { context, strategy, admitted, slots, matches };
+}
+
+function writer(installed: ReturnType<typeof install>, valid: () => boolean, revision: () => number) {
+	const { admitted, strategy, context } = installed;
+	return (path: string, row: EnumeratedRow, value: unknown) =>
+		directWrite({
+			path,
+			row,
+			value,
+			admitted,
+			strategy,
+			context,
+			valid,
+			revision,
+			validScope: (scope, enclosing) => validScope(scope, enclosing, admitted),
+		});
+}
+
+/** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
+export function createPrivateKaladaRuntime(options: RuntimeOptions) {
+	const installed = install(options);
+	const { context, strategy, admitted, slots, matches } = installed;
 	let disposed = false;
 	let revision = 0;
 	const unsubscribe = strategy.subscribe(context, () => {
@@ -327,6 +353,12 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 	}
 	return {
 		capture,
+		/** Test-harness-only entry point; not exported through any public Formbar write dispatch. */
+		writeDirect: writer(
+			installed,
+			() => !disposed && matches(),
+			() => revision,
+		),
 		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
 			const start = revision;
 			return standaloneRead({

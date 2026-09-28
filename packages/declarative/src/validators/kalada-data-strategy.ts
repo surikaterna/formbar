@@ -21,6 +21,8 @@ export interface EnumeratedRow {
 	readonly token: object;
 	readonly order: number;
 	readonly scope: ReadScope;
+	/** Optional on read-only hosts; required for a direct write. Host-issued, not an authority grant. */
+	readonly writeRevision?: object;
 }
 
 export type RowEnumeration =
@@ -38,11 +40,18 @@ export interface DataFrame {
 }
 
 export interface DirectWriteRequest {
+	readonly contract: "formbar-direct-write-v1";
 	readonly reference: StaticReference;
 	readonly scope: ReadScope;
-	readonly expectedToken: object;
+	readonly expectedInstance: object;
+	readonly expectedRevision: object;
+	readonly expectedRowRevision: object;
 	readonly value: JsonValue;
 }
+
+export type DirectWriteResult = {
+	readonly status: "applied" | "denied" | "missing" | "stale" | "conflict" | "invalid-target" | "unsupported";
+};
 
 export interface FormbarDataStrategyV1 {
 	readonly contract: "formbar-data-strategy-v1";
@@ -54,6 +63,8 @@ export interface FormbarDataStrategyV1 {
 	capture(context: DataContext): DataFrame;
 	current(context: DataContext): object;
 	subscribe(context: DataContext, invalidate: () => void): () => void;
-	/** Reserved for #291/#195; #304 never calls this optional port. Atomic authority + target + mutation required. */
-	writeDirect?(context: DataContext, request: DirectWriteRequest): { readonly status: "written" | "denied" | "stale" };
+	/** Private only. Resolve every lexical row by identity, permissions, type, readOnly and both revisions
+	 * in the SAME serialized transaction as mutation. Missing/duplicate ids fail closed; removal retires ids.
+	 * Never resolve to cached numeric positions. A token is not an authorization grant. */
+	writeDirect?(context: DataContext, request: DirectWriteRequest): DirectWriteResult;
 }
