@@ -165,6 +165,20 @@ function fixture(existing: readonly string[] = []) {
 
 afterEach(() => vi.unstubAllEnvs());
 
+function assertEffectiveNpmConfigs(
+	probes: Record<string, { stdout: string; stderr: string }> | undefined,
+	cwd: string,
+): void {
+	expect(probes).toBeDefined(); // exec rejects on nonzero exit; no result means preflight failed.
+	expect(probes?.list.stdout).toContain(`userconfig = "${join(cwd, ".npm-userrc")}"`);
+	expect(probes?.user.stdout.trim()).toBe(join(cwd, ".npm-userrc"));
+	expect(probes?.global.stdout.trim()).toBe(join(cwd, ".npm-globalrc"));
+	for (const output of Object.values(probes ?? {})) {
+		expect(output.stderr).toBe("");
+		expect(output.stdout).not.toMatch(/_authToken|NPM_TOKEN|double-loading/i);
+	}
+}
+
 describe("#389 disabled synthetic seven-package sequence; no genuine OIDC/signature or release authority", () => {
 	it("traces seven topo writes with a fresh read and independent signed proof before each next PUT", async () => {
 		const f = fixture();
@@ -183,32 +197,47 @@ describe("#389 disabled synthetic seven-package sequence; no genuine OIDC/signat
 		expect(mocks.pinned).toHaveBeenCalledWith("/pinned/node", "/pinned/npm");
 	});
 	it.skipIf(!process.env.RC_SIGNED_NODE || !process.env.RC_SIGNED_NPM_ROOT)(
-		"preflights pinned npm config list with isolated publish argv; no real publish or OIDC",
+		"preflights pinned npm effective isolated configs before an intentionally failed writer",
 		async () => {
 			const node = process.env.RC_SIGNED_NODE;
 			const npmRoot = process.env.RC_SIGNED_NPM_ROOT;
 			if (!node || !npmRoot) throw new Error("pinned npm required");
 			const f = fixture();
+			let probes: Record<string, { stdout: string; stderr: string }> | undefined;
 			f.writer.publish.mockImplementationOnce(async (_name, _path, args, cwd) => {
-				const { stdout, stderr } = await exec(
-					node,
-					[join(npmRoot, "bin/npm-cli.js"), "config", "list", ...args.slice(8)],
-					{
+				const configArgs = args.slice(8);
+				const probe = (...subcommand: string[]) =>
+					exec(node, [join(npmRoot, "bin/npm-cli.js"), "config", ...subcommand, ...configArgs], {
 						cwd,
 						env: { PATH: process.env.PATH ?? "", HOME: cwd, TMPDIR: cwd },
 						timeout: 10_000,
-					},
-				);
-				expect(stderr).toBe("");
-				expect(stdout).toContain(`userconfig = "${join(cwd, ".npm-userrc")}"`);
-				expect(stdout).toContain(`globalconfig = "${join(cwd, ".npm-globalrc")}"`);
-				expect(stdout).not.toMatch(/_authToken|NPM_TOKEN|double-loading/i);
-				throw new Error("preflight only; no PUT");
+					});
+				const [list, user, global] = await Promise.all([
+					probe("list"),
+					probe("get", "userconfig"),
+					probe("get", "globalconfig"),
+				]);
+				probes = { list, user, global };
+				throw new Error("intentional preflight-only writer failure; no PUT");
 			});
 			const result = await traceDisabledRc(run, f.candidates, f.settings);
-			expect(result).toMatchObject({ status: "STOPPED", uncertain: "@formbar/expressions" });
 			expect(f.writer.publish).toHaveBeenCalledTimes(1);
+			const [name, path, args, cwd] = f.writer.publish.mock.calls[0];
+			expect(name).toBe("@formbar/expressions");
+			expect(args.slice(8)).toEqual([
+				`--userconfig=${join(cwd, ".npm-userrc")}`,
+				`--globalconfig=${join(cwd, ".npm-globalrc")}`,
+			]);
+			assertEffectiveNpmConfigs(probes, cwd);
+			expect(result).toMatchObject({
+				status: "STOPPED",
+				completed: [],
+				uncertain: "@formbar/expressions",
+				reason: "SIGNED_UNVERIFIABLE",
+			});
 			expect(f.actions).not.toContain("PUT:@formbar/expressions");
+			for (const file of [path, join(cwd, ".npm-userrc"), join(cwd, ".npm-globalrc")])
+				await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
 		},
 	);
 	it("denies an unexpected project npmrc or ambient NPM_TOKEN before exchange", async () => {
