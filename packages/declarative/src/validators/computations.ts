@@ -3,6 +3,7 @@ import type { JsonValue, StateRef } from "@formbar/expressions";
 import type { StoredComputation } from "../computations.js";
 import type { DiagnosticPathSegment } from "../diagnostics.js";
 import { binding } from "./bindings.js";
+import { cyclicVertices } from "./computation-cycles.js";
 import { type ValidationContext, diagnostic } from "./context.js";
 import { expression } from "./expressions.js";
 import { array, exactKeys, identifier, record } from "./shape.js";
@@ -93,32 +94,4 @@ function checkGraph(
 	);
 	for (const index of [...cyclic].sort((left, right) => left - right))
 		diagnostic(context, "computation-cycle", [...path, index, "expression"], "Computation dependency cycle detected.");
-}
-
-function cyclicVertices(
-	vertices: readonly number[],
-	edges: ReadonlyMap<number, readonly number[]>,
-): ReadonlySet<number> {
-	const visited = new Set<number>();
-	const active = new Set<number>();
-	const stack: number[] = [];
-	const cyclic = new Set<number>();
-	const visit = (vertex: number): void => {
-		if (visited.has(vertex)) return;
-		visited.add(vertex);
-		active.add(vertex);
-		stack.push(vertex);
-		for (const next of edges.get(vertex) ?? []) {
-			if (!visited.has(next)) visit(next);
-			else if (active.has(next)) markCycle(stack, next, cyclic);
-		}
-		stack.pop();
-		active.delete(vertex);
-	};
-	for (const vertex of vertices) visit(vertex);
-	return cyclic;
-}
-
-function markCycle(stack: readonly number[], start: number, cyclic: Set<number>): void {
-	for (const member of stack.slice(stack.indexOf(start))) cyclic.add(member);
 }

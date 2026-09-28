@@ -68,4 +68,36 @@ describe("stored computation graph", () => {
 		expect(result).toMatchObject({ ok: false });
 		if (!result.ok) expect(result.diagnostics.map(({ code }) => code)).toContain(expected);
 	});
+
+	it("reports every cycle member but not disconnected acyclic computations", () => {
+		const result = validateFormDefinition(
+			definition([
+				{ id: "unused", target: binding(["unused"]), expression: literal(1) },
+				{ id: "a", target: binding(["a"]), expression: ref(["b"]) },
+				{ id: "b", target: binding(["b"]), expression: ref(["a"]) },
+				{ id: "independent", target: binding(["independent"]), expression: ref(["unused"]) },
+			]),
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.diagnostics.filter(({ code }) => code === "computation-cycle")).toMatchObject([
+				{ path: ["computations", 1, "expression"] },
+				{ path: ["computations", 2, "expression"] },
+			]);
+	});
+
+	it("keeps self-dependency separate from graph cycles and reports duplicate targets", () => {
+		const result = validateFormDefinition(
+			definition([
+				{ id: "first", target: binding(["a"]), expression: ref(["a"]) },
+				{ id: "second", target: binding(["a"]), expression: literal(1) },
+			]),
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual([
+				{ code: "self-dependency", path: ["computations", 0, "expression"] },
+				{ code: "duplicate-computation-target", path: ["computations", 1, "target"] },
+			]);
+	});
 });
