@@ -27,8 +27,6 @@ export interface ArtifactWitness {
 	shasum: string;
 	tarball: string;
 	provenance: { subjectIntegrity: string; repository: string; commit: string; workflow: string };
-	// Independently verified registry attestation and downloaded tarball bytes, not metadata alone.
-	verifiedRegistryBytesAndAttestation: boolean;
 }
 export interface SourceWitness {
 	commit: string;
@@ -37,18 +35,13 @@ export interface SourceWitness {
 	manifests: Record<string, unknown>;
 	changelogs: Record<string, string>;
 	artifacts: Record<string, ArtifactWitness | undefined>;
-	// A separate authenticated npm read is required; undefined is NOT proof of binding.
-	publisher?: Record<
-		string,
-		{ repository: string; workflow: string; environment: string; authenticatedNpmRead: boolean } | undefined
-	>;
 	initialLatest: Record<string, string>;
 }
 export type RcState = "absent" | "identical" | "partial-same-sha" | "conflict";
 export interface RcPlan {
 	state: RcState;
 	remaining: string[];
-	// A state plan is not a GO. No caller may use it as write authorization.
+	// Always blocked: metadata/fixtures cannot authorize a write without live private verification (#363).
 	blocked: string[];
 }
 
@@ -103,7 +96,6 @@ function checkArtifact(name: string, published: Record<string, unknown>, source:
 		`registry identity ${name} conflict`,
 	);
 	requireProof(integrity.test(witness.integrity) && sha.test(witness.shasum), `invalid pack digest ${name}`);
-	requireProof(witness.verifiedRegistryBytesAndAttestation === true, `artifact/attestation ${name} UNVERIFIABLE`);
 	requireProof(
 		dist.integrity === witness.integrity && dist.shasum === witness.shasum && dist.tarball === witness.tarball,
 		`artifact ${name} conflict`,
@@ -116,7 +108,7 @@ function checkArtifact(name: string, published: Record<string, unknown>, source:
 			proof.workflow === "release.yml",
 		`provenance ${name} conflict`,
 	);
-	// The witness must be independently checked against registry attestation/tarball bytes.
+	// Metadata consistency is not verification of tarball bytes or registry attestation.
 	const attestation = object(dist.provenance);
 	requireProof(
 		JSON.stringify(attestation) === JSON.stringify(proof),
@@ -124,12 +116,13 @@ function checkArtifact(name: string, published: Record<string, unknown>, source:
 	);
 }
 
-function checkTag(tag: Record<string, unknown> | undefined, commit: string): void {
+function checkTag(tag: Record<string, unknown> | undefined, commit: string, tagName: string): void {
 	if (!tag) return;
 	requireProof(tag.ref && object(tag.object).type === "tag", "lightweight tag");
 	const annotated = object(tag.annotated);
 	requireProof(
-		tag.ref === `refs/tags/${annotated.tag}` &&
+		tag.ref === `refs/tags/${tagName}` &&
+			annotated.tag === tagName &&
 			object(annotated.object).type === "commit" &&
 			object(annotated.object).sha === commit,
 		"foreign annotated tag",
@@ -158,7 +151,7 @@ async function inspectGithubArtifacts(read: RcRead, source: SourceWitness, name:
 	if (ref) {
 		requireProof(object(ref.object).type === "tag", "lightweight tag");
 		const tagObject = response(await read.get(`${repo}/git/tags/${object(ref.object).sha}`));
-		checkTag({ ...ref, annotated: tagObject }, source.commit);
+		checkTag({ ...ref, annotated: tagObject }, source.commit, tagName);
 	}
 	const release = response(await read.get(`${repo}/releases/tags/${encodeURIComponent(tagName)}`), true);
 	const notes = source.changelogs[name]?.split(`## ${version}`)[1]?.split("\n## ")[0]?.trim();
@@ -194,19 +187,10 @@ async function inspectPackage(
 	if (published) {
 		checkArtifact(name, published, source);
 		requireProof(tags.rc === version, `published ${name} lacks rc tag`);
-		return { published: true };
+		return { published: true, blocked: `artifact/attestation ${name} UNVERIFIABLE` };
 	}
 	requireProof(!reserved && tags.rc === undefined, `absent ${name} has reserved tag/release/dist-tag`);
-	const publisher = source.publisher?.[name];
-	if (
-		!publisher ||
-		publisher.repository !== "surikaterna/formbar" ||
-		publisher.workflow !== "release.yml" ||
-		publisher.environment !== "formbar-rc" ||
-		publisher.authenticatedNpmRead !== true
-	)
-		return { published: false, blocked: `publisher ${name} UNVERIFIABLE` };
-	return { published: false };
+	return { published: false, blocked: `publisher ${name} UNVERIFIABLE` };
 }
 
 export async function inspectRcRegistry(read: RcRead, source: SourceWitness): Promise<RcPlan> {

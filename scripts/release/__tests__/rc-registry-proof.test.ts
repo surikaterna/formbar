@@ -24,7 +24,6 @@ function fixture() {
 		changelogs: {},
 		artifacts: {},
 		initialLatest: {},
-		publisher: {},
 	};
 	const replies = new Map<string, Reply>();
 	replies.set(`/repos/surikaterna/formbar/commits/${hash}`, { status: 200, body: { commit: { tree: { sha: tree } } } });
@@ -37,13 +36,6 @@ function fixture() {
 		};
 		source.changelogs[name] = `## ${tag}\n\nNotes for ${name}`;
 		source.initialLatest[name] = "0.22.0";
-		if (source.publisher)
-			source.publisher[name] = {
-				repository: "surikaterna/formbar",
-				workflow: "release.yml",
-				environment: "formbar-rc",
-				authenticatedNpmRead: true,
-			};
 		const tarball = `https://registry.npmjs.org/${encodeURIComponent(pkg)}/-/${name}-${tag}.tgz`;
 		const provenance = {
 			subjectIntegrity: integrity,
@@ -59,7 +51,6 @@ function fixture() {
 			shasum: hash,
 			tarball,
 			provenance,
-			verifiedRegistryBytesAndAttestation: true,
 		};
 		const encoded = encodeURIComponent(pkg);
 		replies.set(`https://registry.npmjs.org/${encoded}/${tag}`, { status: 404 });
@@ -102,13 +93,20 @@ const versionPath = (name: string) => `https://registry.npmjs.org/${encodeURICom
 describe("#366 read-only rc reconciliation", () => {
 	it("reports absent, same-SHA partial recovery, and identical without writes", async () => {
 		const f = fixture();
-		expect((await inspectRcRegistry(f.read, f.source)).state).toBe("absent");
+		expect(await inspectRcRegistry(f.read, f.source)).toMatchObject({
+			state: "absent",
+			blocked: expect.arrayContaining(["publisher arbiter UNVERIFIABLE"]),
+		});
 		f.published("core");
 		const partial = await inspectRcRegistry(f.read, f.source);
 		expect(partial.state).toBe("partial-same-sha");
 		expect(partial.blocked.join()).toContain("fresh #250 FINAL GO");
 		for (const name of names) f.published(name);
-		expect(await inspectRcRegistry(f.read, f.source)).toMatchObject({ state: "identical", remaining: [], blocked: [] });
+		expect(await inspectRcRegistry(f.read, f.source)).toMatchObject({
+			state: "identical",
+			remaining: [],
+			blocked: expect.arrayContaining(["artifact/attestation arbiter UNVERIFIABLE"]),
+		});
 		expect(f.reads.every((path) => !/POST|PUT|PATCH|DELETE/.test(path))).toBe(true);
 	});
 	it.each([401, 403, 500])("denies registry error %i rather than treating it as 404", async (status) => {
@@ -133,10 +131,41 @@ describe("#366 read-only rc reconciliation", () => {
 	it("rejects matching metadata when tarball bytes or attestation cannot be independently verified", async () => {
 		const f = fixture();
 		f.published("arbiter");
-		const artifact = f.source.artifacts.arbiter;
-		if (!artifact) throw new Error("fixture artifact missing");
-		artifact.verifiedRegistryBytesAndAttestation = false;
-		await expect(inspectRcRegistry(f.read, f.source)).rejects.toThrow("UNVERIFIABLE");
+		const plan = await inspectRcRegistry(f.read, f.source);
+		expect(plan.blocked).toContain("artifact/attestation arbiter UNVERIFIABLE");
+	});
+	it("ignores forged caller flags even when all six packages appear identical", async () => {
+		const f = fixture();
+		for (const name of names) {
+			f.published(name);
+			Object.assign(f.source.artifacts[name] ?? {}, { verifiedRegistryBytesAndAttestation: true });
+		}
+		Object.assign(f.source, { authenticatedNpmRead: true });
+		const plan = await inspectRcRegistry(f.read, f.source);
+		expect(plan.state).toBe("identical");
+		expect(plan.blocked).toHaveLength(6);
+		expect(plan.blocked).toContain("artifact/attestation react-schema UNVERIFIABLE");
+	});
+	it("ignores forged publisher booleans even when all six versions are absent", async () => {
+		const f = fixture();
+		Object.assign(f.source, {
+			authenticatedNpmRead: true,
+			publisher: Object.fromEntries(
+				names.map((name) => [
+					name,
+					{
+						repository: "surikaterna/formbar",
+						workflow: "release.yml",
+						environment: "formbar-rc",
+						authenticatedNpmRead: true,
+					},
+				]),
+			),
+		});
+		const plan = await inspectRcRegistry(f.read, f.source);
+		expect(plan.state).toBe("absent");
+		expect(plan.blocked).toHaveLength(6);
+		expect(plan.blocked).toContain("publisher core UNVERIFIABLE");
 	});
 	it("denies range, latest, rc and unknown publisher", async () => {
 		const f = fixture();
@@ -158,7 +187,6 @@ describe("#366 read-only rc reconciliation", () => {
 			status: 200,
 			body: { latest: "0.22.0" },
 		});
-		if (f.source.publisher) f.source.publisher.arbiter = undefined;
 		expect((await inspectRcRegistry(f.read, f.source)).blocked).toContain("publisher arbiter UNVERIFIABLE");
 	});
 	it("denies lightweight tag, draft release and wrong tree", async () => {
@@ -199,6 +227,15 @@ describe("#366 read-only rc reconciliation", () => {
 			},
 		});
 		expect((await inspectRcRegistry(f.read, f.source)).state).toBe("partial-same-sha");
+		const foreign = "@formbar/core@0.23.0-rc.0";
+		f.replies.set(refPath, { status: 200, body: { ref: `refs/tags/${foreign}`, object: { type: "tag", sha: tree } } });
+		f.replies.set(objectPath, {
+			status: 200,
+			body: { sha: tree, tag: foreign, object: { type: "commit", sha: hash } },
+		});
+		await expect(inspectRcRegistry(f.read, f.source)).rejects.toThrow("foreign annotated tag");
+		f.replies.set(refPath, { status: 200, body: { ref: `refs/tags/${tagName}`, object: { type: "tag", sha: tree } } });
+		await expect(inspectRcRegistry(f.read, f.source)).rejects.toThrow("foreign annotated tag");
 		f.replies.set(objectPath, {
 			status: 200,
 			body: { sha: tree, tag: tagName, object: { type: "commit", sha: tree } },
