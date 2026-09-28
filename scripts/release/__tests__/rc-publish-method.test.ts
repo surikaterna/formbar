@@ -11,6 +11,7 @@ import {
 	provePublishMethod,
 	rcPackages,
 } from "../rc-publish-method";
+import { consumed } from "../rc-source-check";
 
 const roots: string[] = [];
 const commit = "a".repeat(40);
@@ -38,7 +39,7 @@ async function fixture(): Promise<string> {
 		JSON.stringify({
 			mode: "pre",
 			tag: "rc",
-			changesets: [],
+			changesets: consumed,
 			initialVersions: {
 				"@formbar/arbiter": "0.22.0",
 				"@formbar/core": "0.22.3",
@@ -176,6 +177,18 @@ test("reverse core to react edge is forbidden even at the correct range", async 
 	manifest.dependencies[name("react")] = `^${version}`;
 	await writeFile(path, JSON.stringify(manifest));
 	await expect(loadRcManifests(root)).rejects.toThrow("invalid RC dependency graph");
+});
+
+test("unversioned pre state is not the consumed versioned publish input", async () => {
+	const root = await fixture();
+	const path = join(root, ".changeset/pre.json");
+	const pre = JSON.parse(await readFile(path, "utf8"));
+	pre.changesets = [];
+	await writeFile(path, JSON.stringify(pre));
+	await expect(loadRcManifests(root)).rejects.toThrow("invalid consumed pre mode");
+	pre.changesets = [...consumed].reverse();
+	await writeFile(path, JSON.stringify(pre));
+	await expect(loadRcManifests(root)).rejects.toThrow("invalid consumed pre mode");
 });
 
 test("missing stable expressions edge is rejected", async () => {

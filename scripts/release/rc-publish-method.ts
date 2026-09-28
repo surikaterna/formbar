@@ -1,6 +1,7 @@
 /** #378: inert publish-method proof. No workflow or executable entrypoint imports this module. */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { consumed } from "./rc-source-check";
 
 export const rcPackages = ["core", "declarative", "from-schema", "react", "arbiter", "react-schema"] as const;
 const expected = new Set(rcPackages.map((name) => `@formbar/${name}`));
@@ -71,7 +72,14 @@ function assertSnapshot(snapshot: RegistrySnapshot, manifest: RcManifest): boole
 
 export async function loadRcManifests(root: string): Promise<RcManifest[]> {
 	const pre = JSON.parse(await readFile(join(root, ".changeset/pre.json"), "utf8"));
-	if (pre.mode !== "pre" || pre.tag !== "rc" || !Array.isArray(pre.changesets) || pre.changesets.length !== 0)
+	// This loader accepts the versioned #298 source, not the unversioned main proposal.
+	// An empty pre.changesets is a future candidate plan and cannot identify published input.
+	if (
+		pre.mode !== "pre" ||
+		pre.tag !== "rc" ||
+		!Array.isArray(pre.changesets) ||
+		JSON.stringify(pre.changesets) !== JSON.stringify(consumed)
+	)
 		throw new Error("invalid consumed pre mode");
 	if (
 		JSON.stringify(Object.entries(pre.initialVersions ?? {}).sort()) !==
