@@ -272,7 +272,7 @@ export async function inspectLiveRc(
 	return { decision: "UNVERIFIABLE", packages, ...(classification ? { classification } : {}) };
 }
 
-async function boundedTarball(response: Response): Promise<Uint8Array> {
+export async function boundedTarball(response: Response): Promise<Uint8Array> {
 	const declared = response.headers.get("content-length");
 	if (declared !== null && (!/^(0|[1-9]\d*)$/.test(declared) || Number(declared) > tarballLimit)) {
 		await response.body?.cancel().catch(() => {});
