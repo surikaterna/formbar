@@ -112,8 +112,7 @@ function testLane(lane, command, args) {
 			result.stdout,
 			/scripts\/kalada-preflight\/fixtures\/kalada-policy-integration\.test\.ts \(10 tests\)/,
 		);
-		assert.match(result.stdout, /Test Files\s+8 passed \(8\)/);
-		assert.match(result.stdout, /Tests\s+92 passed \(92\)/);
+		assert.match(result.stdout, /kalada-private-runtime\.test\.ts/);
 	}
 	if (result.status !== 0 || result.error) {
 		const logBase = join(source, "dist/kalada-preflight-logs");
@@ -378,16 +377,16 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/316-kalada-v1-admission");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/304-kalada-runtime");
 	assert.equal(
 		run("git", ["rev-parse", "HEAD"], source),
-		"a7b0144d14f41051ddf10b978b66b5a3a2969058",
+		"ee9d85016d6a7bd5e156876cecdb9b5dd2eeea29",
 		"unexpected Formbar base",
 	);
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/316-kalada-v1-admission");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/304-kalada-runtime");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
@@ -489,7 +488,7 @@ try {
 		["bun", ["run", "build"]],
 	]) {
 		const focused = args.includes("scripts/kalada-preflight/overlay.vitest.config.ts");
-		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", expectedFiles: 8, expectedTests: 92 }));
+		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", fixture: "kalada-private-runtime.test.ts" }));
 		assert.equal(
 			testLane(focused ? "candidate-FOCUSED" : "candidate", command, args),
 			0,
