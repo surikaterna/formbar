@@ -1,6 +1,6 @@
 #363 release gate: disabled pending positive implementation
 
-#365 adds `fetchRcEvidence`, an injected **GET-only** REST evidence reader.
+#365 adds `fetchRcEvidence`, an injected authenticated **GET-only** REST evidence reader.
 It requires a GitHub-generated sender ID, runtime checkout SHA/tree, exact
 run/attempt and fresh main tree, effective main rules, environment reviewer,
 exact-SHA successful `ci` check, a NEW #250 owner FINAL GO and same-run
@@ -15,8 +15,8 @@ equality does **not** prove immutability: same-second edits/reversions and
 fetch races remain an owner-accepted risk. The approvals endpoint does not
 provide review timestamp/attempt; the owner accepted operational GO-before-
 approval ordering without claiming it is API-proven. Attempt >1 denies.
-No REST client with credentials, workflow step or publish capability is
-supplied by this adapter; a synthetic positive fixture does not authorize a
+The client takes an injected read token, not an ambient credential; no
+workflow step or publish capability is supplied by this adapter. A synthetic positive fixture does not authorize a
 release. #366 owns registry/OIDC/artifact verification; #363 owns final
 gated enablement and re-fetching before each write. #298/#250 remain held.
 
