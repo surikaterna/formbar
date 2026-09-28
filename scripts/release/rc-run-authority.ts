@@ -9,6 +9,7 @@ declare const brand: unique symbol;
 export type VerifiedRun = { readonly [brand]: true };
 type Binding = { root: string; token: string; runId: number; sha: string; tree: string };
 const bindings = new WeakMap<object, Binding>();
+const claimedRuns = new Set<string>();
 const sha = /^[0-9a-f]{40}$/;
 
 function git(root: string, ...args: string[]): string {
@@ -90,4 +91,13 @@ export async function refreshVerifiedRun(
 	if (run.expectedSha !== bound.sha || run.checkoutTree !== bound.tree || run.runId !== bound.runId)
 		throw new Error("protected run changed; new GO required");
 	return { root: bound.root, sha: bound.sha, tree: bound.tree, runId: bound.runId };
+}
+
+/** An attempted sequence consumes this exact run even if no PUT was acknowledged. */
+export async function claimVerifiedRun(value: unknown): ReturnType<typeof refreshVerifiedRun> {
+	const source = await refreshVerifiedRun(value);
+	const key = `${source.runId}/${source.sha}`;
+	if (claimedRuns.has(key)) throw new Error("run already attempted; new protected run and FINAL GO required");
+	claimedRuns.add(key);
+	return source;
 }

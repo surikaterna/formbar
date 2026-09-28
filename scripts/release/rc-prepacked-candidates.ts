@@ -1,6 +1,9 @@
 /** Disabled #389: native npm11.20 twice-packed bytes bound to a private protected-run capability. */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type PackageAudit, auditPackages } from "../package-artifacts/audit";
 import { loadRcSource } from "./rc-pack-evidence";
 import { rcPackages, rcVersion } from "./rc-reviewed-plan";
@@ -60,14 +63,26 @@ function compare(first: PackageAudit[], second: PackageAudit[]): Map<string, Buf
 	return output;
 }
 
+function packTwice(root: string): Map<string, Buffer> {
+	const directory = mkdtempSync(join(tmpdir(), "formbar-rc-pack-config-"));
+	const previous = { ...process.env };
+	try {
+		const config = join(directory, ".npm-globalrc");
+		writeFileSync(config, "");
+		process.env.npm_config_globalconfig = config;
+		return compare(auditPackages(root), auditPackages(root));
+	} finally {
+		process.env = previous;
+		rmSync(directory, { recursive: true, force: true });
+	}
+}
+
 /** No injected packer can mint a candidate: native audited pack bytes are copied and kept private. */
 export async function prepackProtectedRun(run: VerifiedRun): Promise<readonly PrepackedCandidate[]> {
 	const source = await refreshVerifiedRun(run);
 	toolchain();
 	loadRcSource(source.root, source.sha, source.tree);
-	const first = auditPackages(source.root);
-	const second = auditPackages(source.root);
-	const bytes = compare(first, second);
+	const bytes = packTwice(source.root);
 	await refreshVerifiedRun(run);
 	const candidates = rcPackages.map((name) => {
 		const packageName = `@formbar/${name}`;
