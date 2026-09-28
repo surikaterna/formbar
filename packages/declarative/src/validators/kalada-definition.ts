@@ -38,6 +38,7 @@ export interface AdmittedDefinition {
 	readonly fields: ReadonlyMap<string, AdmittedNode>;
 	readonly aliases: ReadonlyMap<string, string>;
 	readonly scopes: Readonly<Record<string, ScopeDeclaration>>;
+	readonly repeaters: ReadonlyMap<string, string>;
 	readonly targets: ReadonlyMap<string, StaticReference>;
 	readonly computations: readonly AdmittedComputation[];
 }
@@ -54,6 +55,7 @@ interface MutableResult {
 	readonly aliases: Map<string, string>;
 	readonly ids: Map<string, { readonly role: "node" | "alias"; readonly path: string }>;
 	readonly scopes: Record<string, ScopeDeclaration>;
+	readonly repeaters: Map<string, string>;
 	readonly targets: Map<string, StaticReference>;
 	readonly computations: AdmittedComputation[];
 }
@@ -139,6 +141,7 @@ function repeater(source: RecordValue, path: string, frame: Frame): void {
 		directReference(source.binding, `${path}.binding`, frame.scopes, frame.enclosing),
 	);
 	frame.result.scopes[scope] = declaration;
+	frame.result.repeaters.set(path, scope);
 	children(source.children, `${path}.children`, {
 		...frame,
 		enclosing: scope,
@@ -280,6 +283,7 @@ export function admitKaladaDefinition(input: unknown): AdmittedDefinition {
 		aliases: new Map(),
 		ids: new Map(),
 		scopes: Object.create(null),
+		repeaters: new Map(),
 		targets: new Map(),
 		computations: [],
 	};
@@ -296,5 +300,6 @@ export function admitKaladaDefinition(input: unknown): AdmittedDefinition {
 		targets: result.targets,
 		computations: Object.freeze(result.computations),
 		scopes: Object.freeze(result.scopes),
+		repeaters: result.repeaters,
 	});
 }

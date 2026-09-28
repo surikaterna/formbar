@@ -1,7 +1,13 @@
 import { type JsonValue, copyJson } from "@formbar/expressions";
 import { compileKaladaV1Program, isDuration, isInstant, isOption, isResult } from "@kalada/core";
 import type { CompiledKaladaV1Program, KaladaValue } from "@kalada/core";
-import type { DataContext, FormbarDataStrategyV1, ReadScope } from "./kalada-data-strategy.js";
+import type {
+	DataContext,
+	DataFrame,
+	EnumeratedRow,
+	FormbarDataStrategyV1,
+	ReadScope,
+} from "./kalada-data-strategy.js";
 import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
@@ -28,6 +34,10 @@ interface RuntimeOptions {
 	readonly identity: PolicyIdentity;
 	readonly strategy: FormbarDataStrategyV1;
 }
+
+export type PrivateRows =
+	| { readonly ok: true; readonly rows: readonly EnumeratedRow[] }
+	| { readonly ok: false; readonly path: string; readonly code: string };
 
 function gate(path: string): Gate {
 	return /\.(condition|visible|disabled|readOnly|required)$/.test(path) ? "boolean" : "json";
@@ -95,10 +105,10 @@ function evaluateFrame(args: {
 	readonly strategy: FormbarDataStrategyV1;
 	readonly context: DataContext;
 	readonly valid: () => boolean;
+	readonly frame: DataFrame;
 }): PrivateEvaluation {
-	const { slot, path, scope, admitted, strategy, context, valid } = args;
+	const { slot, path, scope, admitted, strategy, context, valid, frame } = args;
 	try {
-		const frame = strategy.capture(context);
 		if (frame.token !== strategy.current(context) || !valid()) return { ok: false, path, code: "STALE_CAPTURE" };
 		let stale = false;
 		const outcome = slot.compiled.evaluate((reference) => {
@@ -121,6 +131,83 @@ function evaluateFrame(args: {
 	}
 }
 
+function checkedRows(
+	raw: readonly EnumeratedRow[],
+	parent: ReadScope,
+	name: string,
+): readonly EnumeratedRow[] | undefined {
+	const seen = new Set<object>();
+	const rows: EnumeratedRow[] = [];
+	for (const [order, row] of raw.entries()) {
+		if (
+			!row ||
+			typeof row.token !== "object" ||
+			row.token === null ||
+			seen.has(row.token) ||
+			row.order !== order ||
+			!row.scope ||
+			!Array.isArray(row.scope.rows) ||
+			row.scope.rows.length !== parent.rows.length + 1 ||
+			parent.rows.some(
+				(ancestor, index) =>
+					row.scope.rows[index]?.name !== ancestor.name || row.scope.rows[index]?.token !== ancestor.token,
+			) ||
+			row.scope.rows[parent.rows.length]?.name !== name ||
+			row.scope.rows[parent.rows.length]?.token !== row.token
+		)
+			return undefined;
+		seen.add(row.token);
+		rows.push(
+			Object.freeze({
+				token: row.token,
+				order,
+				scope: Object.freeze({
+					rows: Object.freeze(row.scope.rows.map(({ name, token }) => Object.freeze({ name, token }))),
+				}),
+			}),
+		);
+	}
+	return Object.freeze(rows);
+}
+
+function enumerateFrame(args: {
+	readonly path: string;
+	readonly parent: ReadScope;
+	readonly capacity: number;
+	readonly admitted: AdmittedDefinition;
+	readonly frame: DataFrame;
+	readonly fresh: () => boolean;
+}): PrivateRows {
+	const { path, parent, capacity, admitted, frame, fresh } = args;
+	const failure = (code: string): PrivateRows => ({ ok: false, path: `${path}.binding`, code });
+	try {
+		if (!fresh()) return failure("STALE_CAPTURE");
+		const name = admitted.repeaters.get(path);
+		const binding = admitted.targets.get(`${path}.binding`);
+		if (!name || !binding) return failure("UNKNOWN_REPEATER");
+		if (!validScope(parent, admitted.scopes[name]?.parent, admitted)) return failure("INVALID_SCOPE");
+		if (!Number.isSafeInteger(capacity) || capacity < 0 || capacity > 1024) return failure("INVALID_CAPACITY");
+		if (!frame.enumerateRows) return failure("ROW_ENUMERATION_UNAVAILABLE");
+		const result = frame.enumerateRows(parent, binding, name, capacity);
+		if (!fresh() || result.status === "stale") return failure("STALE_CAPTURE");
+		if (result.status !== "found") {
+			if (["missing", "denied", "capacity"].includes(result.status))
+				return failure(`ROW_${result.status.toUpperCase()}`);
+			return failure("INVALID_ROWS");
+		}
+		if (!Array.isArray(result.rows) || result.rows.length > capacity) return failure("ROW_CAPACITY");
+		const rows = checkedRows(result.rows, parent, name);
+		if (!fresh()) return failure("STALE_CAPTURE");
+		return rows ? { ok: true, rows } : failure("INVALID_ROWS");
+	} catch {
+		try {
+			return failure(fresh() ? "STRATEGY_ERROR" : "STALE_CAPTURE");
+		} catch {
+			return failure("STRATEGY_ERROR");
+		}
+	}
+}
+
 function installationMatches(
 	strategy: FormbarDataStrategyV1,
 	context: DataContext,
@@ -136,6 +223,78 @@ function installationMatches(
 		installed.policyFingerprint === policy.fingerprint &&
 		installed.policyFingerprint === identity.fingerprint
 	);
+}
+
+function capturedSession(args: {
+	readonly context: DataContext;
+	readonly strategy: FormbarDataStrategyV1;
+	readonly admitted: AdmittedDefinition;
+	readonly slots: ReadonlyMap<string, PreparedSlot>;
+	readonly valid: () => boolean;
+	readonly disposed: () => boolean;
+}) {
+	const { context, strategy, admitted, slots, valid, disposed } = args;
+	let frame: DataFrame | undefined;
+	try {
+		if (valid()) frame = strategy.capture(context);
+	} catch {
+		// Failure is surfaced at the requested declaration path, not during capture.
+	}
+	const fresh = () => valid() && !!frame && frame.token === strategy.current(context);
+	return {
+		enumerateRows(path: string, parent: ReadScope = { rows: [] }, capacity = 1024): PrivateRows {
+			const bindingPath = `${path}.binding`;
+			try {
+				if (!valid())
+					return { ok: false, path: bindingPath, code: disposed() ? "STALE_INSTALLATION" : "STALE_CAPTURE" };
+				if (!frame) return { ok: false, path: bindingPath, code: "STRATEGY_ERROR" };
+				if (frame.instance !== context.instance) return { ok: false, path: bindingPath, code: "STALE_CAPTURE" };
+				return enumerateFrame({ path, parent, capacity, admitted, frame, fresh });
+			} catch {
+				return { ok: false, path: bindingPath, code: "STRATEGY_ERROR" };
+			}
+		},
+		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
+			const slot = slots.get(path);
+			try {
+				if (!valid()) return { ok: false, path, code: disposed() ? "STALE_INSTALLATION" : "STALE_CAPTURE" };
+				if (!slot) return { ok: false, path, code: "UNKNOWN_SLOT" };
+				if (!validScope(scope, slot.enclosingScope, admitted)) return { ok: false, path, code: "INVALID_SCOPE" };
+				if (!frame) return { ok: false, path, code: "STRATEGY_ERROR" };
+				if (frame.instance !== context.instance) return { ok: false, path, code: "STALE_CAPTURE" };
+				return evaluateFrame({ slot, path, scope, admitted, strategy, context, valid, frame });
+			} catch {
+				return { ok: false, path, code: "STRATEGY_ERROR" };
+			}
+		},
+	};
+}
+
+function standaloneRead(args: {
+	readonly path: string;
+	readonly scope: ReadScope;
+	readonly slots: ReadonlyMap<string, PreparedSlot>;
+	readonly admitted: AdmittedDefinition;
+	readonly strategy: FormbarDataStrategyV1;
+	readonly context: DataContext;
+	readonly valid: () => boolean;
+}): PrivateEvaluation {
+	const { path, scope, slots, admitted, strategy, context, valid } = args;
+	const slot = slots.get(path);
+	try {
+		if (!valid()) return { ok: false, path, code: "STALE_INSTALLATION" };
+	} catch {
+		return { ok: false, path, code: "STALE_INSTALLATION" };
+	}
+	if (!slot) return { ok: false, path, code: "UNKNOWN_SLOT" };
+	if (!validScope(scope, slot.enclosingScope, admitted)) return { ok: false, path, code: "INVALID_SCOPE" };
+	let frame: DataFrame;
+	try {
+		frame = strategy.capture(context);
+	} catch {
+		return { ok: false, path, code: "STRATEGY_ERROR" };
+	}
+	return evaluateFrame({ frame, slot, path, scope, admitted, strategy, context, valid });
 }
 
 /** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
@@ -155,21 +314,25 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 	const unsubscribe = strategy.subscribe(context, () => {
 		revision++;
 	});
+	function capture() {
+		const start = revision;
+		return capturedSession({
+			context,
+			strategy,
+			admitted,
+			slots,
+			valid: () => !disposed && revision === start && matches(),
+			disposed: () => disposed,
+		});
+	}
 	return {
+		capture,
 		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
-			const slot = slots.get(path);
-			try {
-				if (disposed || !matches()) return { ok: false, path, code: "STALE_INSTALLATION" };
-			} catch {
-				return { ok: false, path, code: "STALE_INSTALLATION" };
-			}
-			if (!slot) return { ok: false, path, code: "UNKNOWN_SLOT" };
-			if (!validScope(scope, slot.enclosingScope, admitted)) return { ok: false, path, code: "INVALID_SCOPE" };
 			const start = revision;
-			return evaluateFrame({
-				slot,
+			return standaloneRead({
 				path,
 				scope,
+				slots,
 				admitted,
 				strategy,
 				context,
