@@ -84,7 +84,9 @@ function requireReviewedSource(source: ReviewedSource): void {
 function requireGo(go: GoEvidence, source: ReviewedSource, context: DispatchContext): void {
 	const created = Date.parse(go.createdAt);
 	const expires = Date.parse(go.expiresAt);
-	const now = Date.parse(go.checkedAt);
+	// checkedAt is untrusted evidence; only the local clock determines validity.
+	const now = Date.now();
+	const checked = Date.parse(go.checkedAt);
 	const runCreated = Date.parse(go.runCreatedAt);
 	if (
 		go.repository !== "surikaterna/formbar" ||
@@ -99,8 +101,9 @@ function requireGo(go: GoEvidence, source: ReviewedSource, context: DispatchCont
 		go.createdAt !== go.updatedAt ||
 		!Number.isFinite(created) ||
 		!Number.isFinite(expires) ||
-		!Number.isFinite(now) ||
+		!Number.isFinite(checked) ||
 		!Number.isFinite(runCreated) ||
+		Math.abs(now - checked) > 300_000 ||
 		created <= runCreated ||
 		created > now ||
 		now >= expires ||
@@ -207,7 +210,10 @@ async function checkMerge(read: ReadOnlyTransport, source: ReviewedSource, go: G
 		parents[0]?.sha !== source.base ||
 		parents[1]?.sha !== source.head ||
 		(merge.commit as Json)?.tree === undefined ||
-		((merge.commit as Json).tree as Json).sha !== source.mainTree
+		((merge.commit as Json).tree as Json).sha !== source.mainTree ||
+		// Version-only merges cannot introduce resolution edits, even when the
+		// caller claims that the resulting tree was separately reviewed.
+		source.mainTree !== source.versionTree
 	)
 		throw new Error("unreviewed merge ancestry or tree");
 	const main = await github(read, "/commits/main");

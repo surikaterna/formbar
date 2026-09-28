@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DispatchContext } from "../guard";
 import type { ReadOnlyTransport } from "../rc-live-reads";
 import { initialVersions, rcEdges, rcPackages } from "../rc-reviewed-plan";
@@ -189,9 +189,12 @@ const invalidEvidence: ReadonlyArray<readonly [EvidenceChange, string]> = [
 
 describe("disabled RC source inspection", () => {
 	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-09-27T11:00:00Z"));
 		vi.clearAllMocks();
 		files.mockReset();
 	});
+	afterEach(() => vi.useRealTimers());
 	it.each(invalidEvidence)("rejects bad evidence %# without writes", async (change, message) => {
 		const selected = { ...source, ...change.source };
 		await expect(
@@ -269,6 +272,81 @@ describe("disabled RC source inspection", () => {
 		await expect(
 			inspectRcSource("/mock", context, plan, reader, source, { ...go, mergeCommit: head }, review, live),
 		).rejects.toThrow("GO");
+	});
+
+	it("denies an authenticated merge with the right parents but unreviewed resolution edits", async () => {
+		const otherTree = "f".repeat(40);
+		const altered: ReadOnlyTransport = {
+			get: async (path) => {
+				if (path === `${api}/commits/${sha}`)
+					return {
+						status: 200,
+						body: { parents: [{ sha: base }, { sha: head }], commit: { tree: { sha: otherTree } } },
+					};
+				if (path === `${api}/commits/main`) return { status: 200, body: { sha, commit: { tree: { sha: otherTree } } } };
+				return live.get(path);
+			},
+		};
+		await expect(
+			inspectRcSource(
+				"/mock",
+				context,
+				plan,
+				reader,
+				{ ...source, mainTree: otherTree, reviewedMainTree: otherTree },
+				{ ...go, tree: otherTree },
+				review,
+				altered,
+			),
+		).rejects.toThrow("unreviewed merge ancestry or tree");
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, altered)).rejects.toThrow(
+			"unreviewed merge ancestry or tree",
+		);
+		// Spoofing the reviewed tree cannot replace the live PR HEAD tree.
+		expect(files).not.toHaveBeenCalled();
+	});
+
+	it("uses the trusted current clock, not replayed or edited checkedAt", async () => {
+		vi.setSystemTime(new Date("2026-09-28T11:00:00Z"));
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, live)).rejects.toThrow("GO");
+		await expect(
+			inspectRcSource(
+				"/mock",
+				context,
+				plan,
+				reader,
+				source,
+				{ ...go, checkedAt: "2026-09-28T11:00:00Z" },
+				review,
+				live,
+			),
+		).rejects.toThrow("GO");
+		vi.setSystemTime(new Date("2026-09-27T11:00:00Z"));
+		await expect(
+			inspectRcSource(
+				"/mock",
+				context,
+				plan,
+				reader,
+				source,
+				{ ...go, checkedAt: "2026-09-27T11:06:00Z" },
+				review,
+				live,
+			),
+		).rejects.toThrow("GO");
+		await expect(
+			inspectRcSource(
+				"/mock",
+				context,
+				plan,
+				reader,
+				source,
+				{ ...go, checkedAt: "2026-09-27T10:54:00Z" },
+				review,
+				live,
+			),
+		).rejects.toThrow("GO");
+		expect(files).not.toHaveBeenCalled();
 	});
 
 	it("rejects registry collisions and all tag/release conflicts before any write", async () => {

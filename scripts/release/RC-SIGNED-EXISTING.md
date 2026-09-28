@@ -7,14 +7,17 @@ independently protected approved run, not npm metadata, `gitHead`, a URL, or
 the public attestation itself. #250/#298 remain held.
 
 #383 adds a **separate disabled** `verifyPrepackedSignedVersion` contract for
-the empirically missing npm11 tarball-input `gitHead`. A present `gitHead`
-must still equal the independently approved protected main commit. An absent
+the empirically missing npm11 tarball-input `gitHead`. The original
+`verifyExistingSignedVersion` also permits absent `gitHead` only after its
+full authenticated signed provenance and downloaded-byte verification; the
+prepacked contract additionally binds the expected local tarball bytes. A
+present `gitHead` must still equal the independently approved protected main
+commit. An absent
 one is accepted only if the downloaded registry tarball SHA512 also matches
 the supplied exact prepacked bytes and the authenticated signed SLSA subject,
 certificate identity and signed repo/ref/commit/workflow/run/attempt all match
 the approved run. Missing/changed prepack bytes, unsigned proof, unknown run
-or mismatched present `gitHead` denies. The original existing-version API
-remains strict about missing `gitHead`; neither API is wired to a skip or a
+or mismatched present `gitHead` denies. Neither API is wired to a skip or a
 publish. Only `createPinnedAudit` is the trusted verifier implementation;
 injected test proofs simulate orchestration, never cryptographic authority.
 The prepacked bytes must be independently produced from the exact reviewed
