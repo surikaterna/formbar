@@ -1,7 +1,7 @@
 import { canonicalizeExpression } from "kuery/expression";
 import type { Expression, Scopes, StateRef } from "./contracts.js";
 import { copyJson } from "./json.js";
-import { parseRef, resolveRef } from "./references.js";
+import { parseCopiedRef, resolveRef } from "./references.js";
 import { ExpressionError } from "./result.js";
 
 export function validateExpression(input: unknown, scopes: Scopes = {}): Expression {
@@ -27,13 +27,13 @@ export function stateReferenceCodec(scopes: Scopes = {}) {
 	return {
 		validate(input: unknown): input is StateRef {
 			try {
-				parseRef(input as never);
+				parseCopiedRef(input as never);
 				return true;
 			} catch {
 				return false;
 			}
 		},
-		canonicalize: (ref: StateRef): StateRef => resolveRef(parseRef(ref), scopes),
+		canonicalize: (ref: StateRef): StateRef => resolveRef(parseCopiedRef(ref), scopes),
 	};
 }
 
