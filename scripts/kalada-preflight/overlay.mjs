@@ -113,6 +113,7 @@ function testLane(lane, command, args) {
 			/scripts\/kalada-preflight\/fixtures\/kalada-policy-integration\.test\.ts \(10 tests\)/,
 		);
 		assert.match(result.stdout, /kalada-private-runtime\.test\.ts/);
+		assert.match(result.stdout, /repeater-write-proof\.test\.ts \(18 tests\)/);
 	}
 	if (result.status !== 0 || result.error) {
 		const logBase = join(source, "dist/kalada-preflight-logs");
@@ -377,7 +378,7 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/195-direct-write-proof");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/185-repeater-write-proof");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -386,7 +387,7 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/195-direct-write-proof");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/185-repeater-write-proof");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
@@ -488,7 +489,7 @@ try {
 		["bun", ["run", "build"]],
 	]) {
 		const focused = args.includes("scripts/kalada-preflight/overlay.vitest.config.ts");
-		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", fixture: "kalada-private-runtime.test.ts" }));
+		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", fixture: "repeater-write-proof.test.ts" }));
 		assert.equal(
 			testLane(focused ? "candidate-FOCUSED" : "candidate", command, args),
 			0,
@@ -503,7 +504,7 @@ try {
 	);
 	console.log(
 		JSON.stringify({
-			issue: 316,
+			issue: 185,
 			candidate: commit,
 			sourceSha256: createHash("sha256").update(JSON.stringify(before)).digest("hex"),
 			candidateInstalled: "passed",
@@ -559,7 +560,7 @@ try {
 					formbarHeadAfter: run("git", ["rev-parse", "HEAD"], source),
 					sourceBefore: digest(before),
 					sourceAfter: digest(after),
-					changeset: hash(join(source, ".changeset/private-nonrepeater-write.md")),
+					changeset: hash(join(source, ".changeset/private-repeater-write-proof.md")),
 				}),
 			);
 			assert.deepEqual(after, before, "worktree source or Changeset changed");

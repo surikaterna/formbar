@@ -23,6 +23,8 @@ export interface EnumeratedRow {
 	readonly scope: ReadScope;
 	/** Optional on read-only hosts; required for a direct write. Host-issued, not an authority grant. */
 	readonly writeRevision?: object;
+	/** Filled by the private runtime from the frame that enumerated this row. */
+	readonly formRevision?: object;
 }
 
 export type RowEnumeration =

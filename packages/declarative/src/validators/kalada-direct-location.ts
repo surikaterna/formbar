@@ -14,8 +14,9 @@ export function checkPrivateDirectLocation(
 ): KaladaDirectLocationOutcome | undefined {
 	const field = [...admitted.fields.values()].find((node) => `${node.path}.binding` === path);
 	const reference = admitted.targets.get(path);
-	if (!field || field.enclosingScope !== undefined || !reference || reference.namespace !== "data") return;
-	if (!reference.path.length || reference.path.some((part) => typeof part !== "string")) return;
+	if (!field || !reference || reference.namespace !== "data") return;
+	if (!reference.path.length || typeof reference.path.at(-1) !== "string") return;
+	if (reference.path.some((part) => typeof part === "number")) return;
 	if (admitted.computations.some(({ target }) => staticDependencyKey(target) === staticDependencyKey(reference)))
 		return;
 	const bindings = locations?.[path];
@@ -23,7 +24,7 @@ export function checkPrivateDirectLocation(
 	const outcome = checkKaladaV1DirectLocation(source, { bindings });
 	if (!outcome.ok) return outcome;
 	try {
-		const checked = resolveStaticReference(outcome.location.target, admitted.scopes);
+		const checked = resolveStaticReference(outcome.location.target, admitted.scopes, field.enclosingScope);
 		if (staticDependencyKey(checked) !== staticDependencyKey(reference)) return;
 		return outcome;
 	} catch {
