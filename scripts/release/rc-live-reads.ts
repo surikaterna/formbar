@@ -108,49 +108,60 @@ async function inspectPackage(
 		reason: "incomplete reads",
 		gets: [],
 	};
-	const get = async (url: string, binary = false) => {
-		const reply = await read.get(url, binary);
-		evidence.gets.push({ url, status: reply.status });
-		if (reply.location || (reply.status >= 300 && reply.status < 400)) throw new Error("redirect denied");
-		return reply;
-	};
 	try {
-		const a = await pack.pack(name, 1);
-		const b = await pack.pack(name, 2);
-		const local = digest(a);
-		if (!equal(local.integrity, digest(b).integrity)) throw new Error("nondeterministic pack bytes");
-		evidence.local = local;
-		const encoded = encodeURIComponent(evidence.name);
-		const versionReply = await get(`${registry}/${encoded}/${version}`);
-		const packumentReply = await get(`${registry}/${encoded}`);
-		if (packumentReply.status !== 200) throw new Error(`packument HTTP ${packumentReply.status}`);
-		const packument = record(packumentReply.body);
-		if (packument.name !== evidence.name) throw new Error("packument identity mismatch");
-		const versions = record(packument.versions);
-		const tags = record(packument["dist-tags"]);
-		if (tags.latest !== source.initialLatest[name] || tags.latest === version) throw new Error("latest tag drift");
-		if (tags.rc !== undefined && tags.rc !== version) throw new Error("rc tag drift");
-		if (versionReply.status === 404) {
-			if (Object.hasOwn(versions, version) || tags.rc === version) throw new Error("404 disagrees with packument");
-			evidence.observation = "UNVERIFIABLE";
-			evidence.reason = "404 and packument absence; npm package authorization not independently established";
-			return evidence;
-		}
-		if (versionReply.status !== 200) throw new Error(`version HTTP ${versionReply.status}`);
-		const metadata = record(versionReply.body);
-		const tarball = publishedDist(metadata, versions[version], tags, source, name, local);
-		const tar = await get(tarball, true);
-		if (tar.status !== 200 || !tar.bytes) throw new Error(`tarball HTTP ${tar.status}`);
-		const remote = digest(tar.bytes);
-		if (remote.integrity !== local.integrity || remote.shasum !== local.shasum)
-			throw new Error("tarball bytes conflict");
-		evidence.observation = "EXISTING";
-		evidence.reason = "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
+		await inspectPackageReads(read, pack, source, name, evidence);
 	} catch (error) {
 		evidence.reason = safeReason(error);
 		evidence.observation = conflict.test(evidence.reason) ? "CONFLICT" : "UNVERIFIABLE";
 	}
 	return evidence;
+}
+
+function recordedGet(read: ReadOnlyTransport, evidence: PackageEvidence) {
+	return async (url: string, binary = false) => {
+		const reply = await read.get(url, binary);
+		evidence.gets.push({ url, status: reply.status });
+		if (reply.location || (reply.status >= 300 && reply.status < 400)) throw new Error("redirect denied");
+		return reply;
+	};
+}
+
+async function inspectPackageReads(
+	read: ReadOnlyTransport,
+	pack: PackSource,
+	source: SourceWitness,
+	name: string,
+	evidence: PackageEvidence,
+): Promise<void> {
+	const local = digest(await pack.pack(name, 1));
+	if (!equal(local.integrity, digest(await pack.pack(name, 2)).integrity))
+		throw new Error("nondeterministic pack bytes");
+	evidence.local = local;
+	const get = recordedGet(read, evidence);
+	const encoded = encodeURIComponent(evidence.name);
+	const versionReply = await get(`${registry}/${encoded}/${version}`);
+	const packumentReply = await get(`${registry}/${encoded}`);
+	if (packumentReply.status !== 200) throw new Error(`packument HTTP ${packumentReply.status}`);
+	const packument = record(packumentReply.body);
+	if (packument.name !== evidence.name) throw new Error("packument identity mismatch");
+	const versions = record(packument.versions);
+	const tags = record(packument["dist-tags"]);
+	if (tags.latest !== source.initialLatest[name] || tags.latest === version) throw new Error("latest tag drift");
+	if (tags.rc !== undefined && tags.rc !== version) throw new Error("rc tag drift");
+	if (versionReply.status === 404) {
+		if (Object.hasOwn(versions, version) || tags.rc === version) throw new Error("404 disagrees with packument");
+		evidence.reason = "404 and packument absence; npm package authorization not independently established";
+		return;
+	}
+	if (versionReply.status !== 200) throw new Error(`version HTTP ${versionReply.status}`);
+	const metadata = record(versionReply.body);
+	const tarball = publishedDist(metadata, versions[version], tags, source, name, local);
+	const tar = await get(tarball, true);
+	if (tar.status !== 200 || !tar.bytes) throw new Error(`tarball HTTP ${tar.status}`);
+	const remote = digest(tar.bytes);
+	if (remote.integrity !== local.integrity || remote.shasum !== local.shasum) throw new Error("tarball bytes conflict");
+	evidence.observation = "EXISTING";
+	evidence.reason = "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
 }
 
 async function inspectGithub(read: ReadOnlyTransport, source: SourceWitness): Promise<void> {
