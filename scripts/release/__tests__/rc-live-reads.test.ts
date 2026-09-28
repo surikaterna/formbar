@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { type ReadReply, createRegistryGitHubReader, inspectLiveRc } from "../rc-live-reads";
 import type { SourceWitness } from "../rc-registry-proof";
+import { initialVersions, rcEdges, rcPackages } from "../rc-reviewed-plan";
 import { consumed } from "../rc-source-check";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"];
+const names = rcPackages;
 const version = "0.23.0-rc.0";
 const commit = "a".repeat(40);
 const tree = "b".repeat(40);
@@ -13,21 +14,13 @@ const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}
 const shasum = createHash("sha1").update(bytes).digest("hex");
 const root = "https://registry.npmjs.org";
 const gh = "https://api.github.com/repos/surikaterna/formbar";
-const edges: Record<string, string[]> = {
-	arbiter: ["core"],
-	core: [],
-	declarative: ["core"],
-	"from-schema": ["core", "declarative"],
-	react: ["core"],
-	"react-schema": ["core", "declarative", "from-schema", "react"],
-};
 
 function fixture() {
 	const source: SourceWitness = {
 		commit,
 		tree,
-		pre: { mode: "pre", tag: "rc", changesets: consumed, initialVersions: { "@formbar/expressions": "0.14.3" } },
-		manifests: { expressions: { name: "@formbar/expressions", version: "0.14.3" } },
+		pre: { mode: "pre", tag: "rc", changesets: consumed, initialVersions },
+		manifests: {},
 		changelogs: {},
 		artifacts: {},
 		initialLatest: {},
@@ -41,14 +34,15 @@ function fixture() {
 		source.manifests[name] = {
 			name: pkg,
 			version,
-			dependencies: Object.fromEntries(edges[name].map((edge) => [`@formbar/${edge}`, `^${version}`])),
+			dependencies: Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${version}`])),
 		};
-		source.changelogs[name] = `## ${version}\n\nNotes for ${name}`;
-		source.initialLatest[name] = "0.22.0";
+		source.changelogs[name] = `# @formbar/${name}\n\n## ${version}\n\nNotes for ${name}`;
+		source.initialLatest[name] = initialVersions[pkg];
+		source.artifacts[name] = undefined;
 		replies.set(`${root}/${encoded}/${version}`, { status: 404 });
 		replies.set(`${root}/${encoded}`, {
 			status: 200,
-			body: { name: pkg, versions: {}, "dist-tags": { latest: "0.22.0" } },
+			body: { name: pkg, versions: {}, "dist-tags": { latest: initialVersions[pkg] } },
 		});
 		const tag = encodeURIComponent(`${pkg}@${version}`);
 		replies.set(`${gh}/git/ref/tags/${tag}`, { status: 404 });
@@ -62,7 +56,11 @@ function fixture() {
 		replies.set(`${root}/${encoded}/${version}`, { status: 200, body: metadata });
 		replies.set(`${root}/${encoded}`, {
 			status: 200,
-			body: { name: pkg, versions: { [version]: metadata }, "dist-tags": { latest: "0.22.0", rc: version } },
+			body: {
+				name: pkg,
+				versions: { [version]: metadata },
+				"dist-tags": { latest: initialVersions[pkg], rc: version },
+			},
 		});
 		replies.set(tarball, { status: 200, bytes });
 		return { metadata, tarball };
@@ -81,15 +79,15 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 	it("never upgrades corroborated 404, all existing or mixed reads to release authority", async () => {
 		const f = fixture();
 		const absent = await inspectLiveRc(f.read, f.pack, f.source);
-		expect(absent.packages).toHaveLength(6);
+		expect(absent.packages).toHaveLength(7);
 		expect(
 			absent.packages.every((p) => p.observation === "PUBLIC_ABSENT_OBSERVED" && p.reason.includes("authorization")),
 		).toBe(true);
 		expect(absent.decision).toBe("UNVERIFIABLE");
 		expect(absent.packages[0]?.gets).toEqual(
 			expect.arrayContaining([
-				{ url: `${root}/${encodeURIComponent("@formbar/arbiter")}/${version}`, status: 404 },
-				{ url: `${gh}/releases/tags/${encodeURIComponent(`@formbar/arbiter@${version}`)}`, status: 404 },
+				{ url: `${root}/${encodeURIComponent("@formbar/expressions")}/${version}`, status: 404 },
+				{ url: `${gh}/releases/tags/${encodeURIComponent(`@formbar/expressions@${version}`)}`, status: 404 },
 			]),
 		);
 		for (const name of names) f.published(name);
@@ -147,7 +145,7 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 					body: {
 						name: "@formbar/core",
 						versions: { [version]: altered },
-						"dist-tags": { latest: "0.22.0", rc: version },
+						"dist-tags": { latest: initialVersions["@formbar/core"], rc: version },
 					},
 				});
 			}
@@ -156,6 +154,27 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 			);
 		},
 	);
+	it("classifies missing gitHead as NEEDS_SIGNED_PROOF, never as a trusted skip", async () => {
+		const f = fixture();
+		const { metadata } = f.published("core");
+		const { gitHead: _ignored, ...unsigned } = structuredClone(metadata);
+		const encoded = encodeURIComponent("@formbar/core");
+		f.replies.set(`${root}/${encoded}/${version}`, { status: 200, body: unsigned });
+		f.replies.set(`${root}/${encoded}`, {
+			status: 200,
+			body: {
+				name: "@formbar/core",
+				versions: { [version]: unsigned },
+				"dist-tags": { latest: initialVersions["@formbar/core"], rc: version },
+			},
+		});
+		const result = await inspectLiveRc(f.read, f.pack, f.source);
+		expect(result.decision).toBe("UNVERIFIABLE");
+		expect(result.packages[1]).toMatchObject({
+			observation: "UNVERIFIABLE",
+			reason: expect.stringContaining("NEEDS_SIGNED_PROOF"),
+		});
+	});
 	it("denies changing pack, foreign annotated tag and draft release globally", async () => {
 		const f = fixture();
 		f.pack.pack = async (_name, attempt) => (attempt === 1 ? bytes : new Uint8Array([0]));
@@ -341,13 +360,13 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 		});
 		expect(pulled).toBe(false);
 	});
-	it("redacts injected transport failures from the complete six-state report", async () => {
+	it("redacts injected transport failures from the complete seven-state report", async () => {
 		const f = fixture();
 		f.read.get = async () => {
 			throw new Error("npm-secret private response body");
 		};
 		const plan = await inspectLiveRc(f.read, f.pack, f.source);
-		expect(plan.packages).toHaveLength(6);
+		expect(plan.packages).toHaveLength(7);
 		expect(JSON.stringify(plan)).not.toContain("npm-secret");
 		expect(plan.packages.every((p) => p.observation === "UNVERIFIABLE" && p.reason === "GitHub: read failed")).toBe(
 			true,

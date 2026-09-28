@@ -1,3 +1,4 @@
+import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 import type { ReleasePlan, ReleaseReader } from "./types";
 
 export interface DispatchContext {
@@ -11,10 +12,6 @@ export interface DispatchContext {
 	liveMainSha: string;
 	expectedSha: string;
 }
-
-const expectedNames = new Set(
-	["core", "arbiter", "declarative", "from-schema", "react", "react-schema"].map((name) => `@formbar/${name}`),
-);
 
 export async function checkRcCandidate(
 	context: DispatchContext,
@@ -40,17 +37,16 @@ export async function checkRcCandidate(
 	if (
 		plan.repository !== context.repository ||
 		plan.releaseCommit !== context.expectedSha ||
-		plan.candidates.length !== 6
+		plan.candidates.length !== rcPackages.length
 	) {
-		throw new Error("Release plan does not match the six-package reviewed commit");
+		throw new Error("Release plan does not match the seven-package reviewed commit");
 	}
-	const names = new Set(plan.candidates.map(({ name }) => name));
-	if (names.size !== 6 || [...names].some((name) => !expectedNames.has(name))) {
+	if (plan.candidates.some((candidate, index) => candidate.name !== `@formbar/${rcPackages[index]}`)) {
 		throw new Error("Unexpected release package set");
 	}
 	for (const candidate of plan.candidates) {
 		if (
-			candidate.version !== "0.23.0-rc.0" ||
+			candidate.version !== rcVersion ||
 			!candidate.prerelease ||
 			candidate.releaseCommit !== context.expectedSha ||
 			candidate.tag !== `${candidate.name}@${candidate.version}`

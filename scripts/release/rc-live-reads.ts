@@ -1,9 +1,10 @@
 /** #371: GET-only observations. Neither these reads nor #366 authorize a release. */
 import { createHash } from "node:crypto";
 import { type RcPlan, type RcRead, type SourceWitness, inspectRcRegistry, sourceCheck } from "./rc-registry-proof";
+import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 
-const names = ["arbiter", "core", "declarative", "from-schema", "react", "react-schema"] as const;
-const version = "0.23.0-rc.0";
+const names = rcPackages;
+const version = rcVersion;
 const registry = "https://registry.npmjs.org";
 const repo = "https://api.github.com/repos/surikaterna/formbar";
 const conflict = /mismatch|conflict|disagrees|drift|nondeterministic/;
@@ -87,7 +88,7 @@ function publishedDist(
 	if (
 		metadata.name !== `@formbar/${name}` ||
 		metadata.version !== version ||
-		metadata.gitHead !== source.commit ||
+		(metadata.gitHead !== undefined && metadata.gitHead !== source.commit) ||
 		tags.rc !== version
 	)
 		throw new Error("published identity, gitHead or rc mismatch");
@@ -173,8 +174,11 @@ async function inspectPackageReads(
 	if (tar.status !== 200 || !tar.bytes) throw new Error(`tarball HTTP ${tar.status}`);
 	const remote = digest(tar.bytes);
 	if (remote.integrity !== local.integrity || remote.shasum !== local.shasum) throw new Error("tarball bytes conflict");
-	evidence.observation = "PUBLIC_EXISTING_OBSERVED";
-	evidence.reason = "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
+	evidence.observation = metadata.gitHead === undefined ? "UNVERIFIABLE" : "PUBLIC_EXISTING_OBSERVED";
+	evidence.reason =
+		metadata.gitHead === undefined
+			? "NEEDS_SIGNED_PROOF: downloaded bytes match; independent signed provenance required"
+			: "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
 }
 
 async function inspectGithub(
@@ -321,7 +325,12 @@ export function createRegistryGitHubReader(
 				!["registry.npmjs.org", "api.github.com"].includes(parsed.host) ||
 				parsed.username ||
 				parsed.password ||
-				parsed.search ||
+				(parsed.search &&
+					!(
+						parsed.host === "api.github.com" &&
+						parsed.pathname === "/repos/surikaterna/formbar/pulls/298/files" &&
+						parsed.search === "?per_page=100"
+					)) ||
 				parsed.hash
 			)
 				throw new Error("untrusted GET host");
