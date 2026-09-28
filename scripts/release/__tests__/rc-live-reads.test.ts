@@ -154,6 +154,27 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 			);
 		},
 	);
+	it("classifies missing gitHead as NEEDS_SIGNED_PROOF, never as a trusted skip", async () => {
+		const f = fixture();
+		const { metadata } = f.published("core");
+		const { gitHead: _ignored, ...unsigned } = structuredClone(metadata);
+		const encoded = encodeURIComponent("@formbar/core");
+		f.replies.set(`${root}/${encoded}/${version}`, { status: 200, body: unsigned });
+		f.replies.set(`${root}/${encoded}`, {
+			status: 200,
+			body: {
+				name: "@formbar/core",
+				versions: { [version]: unsigned },
+				"dist-tags": { latest: initialVersions["@formbar/core"], rc: version },
+			},
+		});
+		const result = await inspectLiveRc(f.read, f.pack, f.source);
+		expect(result.decision).toBe("UNVERIFIABLE");
+		expect(result.packages[1]).toMatchObject({
+			observation: "UNVERIFIABLE",
+			reason: expect.stringContaining("NEEDS_SIGNED_PROOF"),
+		});
+	});
 	it("denies changing pack, foreign annotated tag and draft release globally", async () => {
 		const f = fixture();
 		f.pack.pack = async (_name, attempt) => (attempt === 1 ? bytes : new Uint8Array([0]));

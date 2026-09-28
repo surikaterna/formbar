@@ -118,6 +118,14 @@ test.each([undefined, "0.22.0-rc.1"])("same SHA but rc dist-tag %s stops before 
 	await expect(provePublishMethod(await fixture(), context, method)).rejects.toThrow("missing or wrong rc dist-tag");
 });
 
+test("missing gitHead waits for independent signed proof, not metadata classification", async () => {
+	const { snapshots, method } = fake(["core"]);
+	const snapshot = snapshots.get(name("core"));
+	if (!snapshot?.versions[version]) throw new Error("missing fixture version");
+	snapshot.versions[version] = {};
+	await expect(provePublishMethod(await fixture(), context, method)).rejects.toThrow("SIGNED_VERIFICATION_UNAVAILABLE");
+});
+
 test.each([
 	"missing OIDC",
 	"bearer",

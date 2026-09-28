@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DispatchContext } from "../guard";
-import { initialVersions, rcEdges, rcPackages, reviewedBase, reviewedHead, reviewedTree } from "../rc-reviewed-plan";
+import type { ReadOnlyTransport } from "../rc-live-reads";
+import { initialVersions, rcEdges, rcPackages } from "../rc-reviewed-plan";
 import {
 	type GoEvidence,
 	type ReviewContract,
@@ -14,9 +15,9 @@ import type { GithubReleaseState, ReleasePlan, ReleaseReader, TagState } from ".
 vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
 vi.mock("../rc-reviewed-plan", async (original) => ({ ...(await original()), checkChangelog: vi.fn() }));
 const sha = "a".repeat(40);
-const tree = reviewedTree;
-const head = reviewedHead;
-const base = reviewedBase;
+const tree = "b".repeat(40);
+const head = "c".repeat(40);
+const base = "d".repeat(40);
 const names = rcPackages;
 const context: DispatchContext = {
 	event: "workflow_dispatch",
@@ -38,6 +39,9 @@ const source: ReviewedSource = {
 	observedVersionTree: tree,
 	mainTree: tree,
 	reviewedMainTree: tree,
+	mergeCommit: sha,
+	changedFiles: [{ filename: ".changeset/pre.json", sha: "e".repeat(40), status: "modified" }],
+	consentCommentId: 1234,
 };
 const go: GoEvidence = {
 	repository: context.repository,
@@ -56,8 +60,15 @@ const go: GoEvidence = {
 	tree,
 	base,
 	head,
+	mergeCommit: sha,
 	acknowledgesLegacyIssueMigration: true,
 	versions: names.map((name) => `@formbar/${name}@0.23.0-rc.0`),
+	ranges: Object.fromEntries(
+		names.map((name) => [
+			`@formbar/${name}`,
+			Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, "^0.23.0-rc.0"])),
+		]),
+	),
 	distTag: "rc",
 	provenance: true,
 };
@@ -96,6 +107,50 @@ const reader: ReleaseReader = {
 	release: vi.fn(async (): Promise<GithubReleaseState> => ({ kind: "absent" })),
 };
 const files = readFile as ReturnType<typeof vi.fn>;
+const api = "https://api.github.com/repos/surikaterna/formbar";
+const live: ReadOnlyTransport = {
+	async get(url) {
+		const data: Record<string, unknown> = {
+			[`${api}/pulls/298`]: {
+				head: { sha: head },
+				base: { sha: base },
+				merged: true,
+				state: "closed",
+				merge_commit_sha: sha,
+				merged_at: "2026-09-27T09:00:00Z",
+				changed_files: 1,
+			},
+			[`${api}/git/commits/${head}`]: { tree: { sha: tree } },
+			[`${api}/pulls/298/files?per_page=100`]: source.changedFiles,
+			[`${api}/issues/comments/1234`]: {
+				id: 1234,
+				user: { login: "spralle", id: 806157 },
+				issue_url: `${api}/issues/298`,
+				created_at: "2026-09-27T08:00:00Z",
+				updated_at: "2026-09-27T08:00:00Z",
+				body: JSON.stringify({ base, head, tree, files: source.changedFiles }),
+			},
+			[`${api}/commits/${sha}`]: { parents: [{ sha: base }, { sha: head }], commit: { tree: { sha: tree } } },
+			[`${api}/commits/main`]: { sha, commit: { tree: { sha: tree } } },
+			[`${api}/issues/comments/123`]: {
+				id: 123,
+				issue_url: `${api}/issues/250`,
+				user: { login: "spralle", id: 806157 },
+				created_at: go.createdAt,
+				updated_at: go.updatedAt,
+				body: `FINAL GO\n${JSON.stringify(go)}`,
+			},
+			[`${api}/actions/runs/42/attempts/1`]: {
+				id: 42,
+				run_attempt: 1,
+				created_at: go.runCreatedAt,
+				head_sha: sha,
+				head_branch: "main",
+			},
+		};
+		return { status: url in data ? 200 : 404, body: data[url] };
+	},
+};
 
 type EvidenceChange = {
 	context?: Partial<DispatchContext>;
@@ -107,7 +162,7 @@ type EvidenceChange = {
 const invalidEvidence: ReadonlyArray<readonly [EvidenceChange, string]> = [
 	[{ context: { event: "push" } }, "dispatch"],
 	[{ source: { observedHead: sha } }, "#298"],
-	[{ source: { base: sha, observedBase: sha } }, "#298"],
+	[{ source: { base: sha, observedBase: sha } }, "GO"],
 	[{ source: { reviewedMainTree: sha } }, "tree"],
 	[{ go: { issue: 362 } }, "GO"],
 	[{ go: { runId: 41 } }, "approval"],
@@ -121,6 +176,7 @@ const invalidEvidence: ReadonlyArray<readonly [EvidenceChange, string]> = [
 	[{ go: { tree: sha } }, "GO"],
 	[{ go: { acknowledgesLegacyIssueMigration: false } }, "GO"],
 	[{ go: { distTag: "latest" } }, "GO"],
+	[{ go: { ranges: { ...go.ranges, "@formbar/core": { "@formbar/expressions": "^0.14.3" } } } }, "GO"],
 	[{ review: { reviewer: "eaglez" } }, "approval"],
 	[{ review: { reviewer: "stranger" } }, "approval"],
 	[{ review: { dispatcher: "spralle" } }, "approval"],
@@ -147,6 +203,7 @@ describe("disabled RC source inspection", () => {
 				selected,
 				{ ...go, ...change.go },
 				{ ...review, ...change.review },
+				live,
 			),
 		).rejects.toThrow(message);
 		expect(files).not.toHaveBeenCalled();
@@ -154,8 +211,64 @@ describe("disabled RC source inspection", () => {
 
 	it("rejects edited pre.json and source drift without writes", async () => {
 		files.mockResolvedValue(JSON.stringify({ mode: "exit", tag: "rc", changesets: [] }));
-		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review)).rejects.toThrow("prerelease");
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, live)).rejects.toThrow(
+			"prerelease",
+		);
 		expect(reader.tag).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			"refresh without exact-head owner consent",
+			`${api}/issues/comments/1234`,
+			{ user: { login: "stranger" } },
+			"consent",
+		],
+		[
+			"owner comment edited after merge",
+			`${api}/issues/comments/1234`,
+			{ id: 1234, user: { login: "spralle", id: 806157 }, updated_at: "2026-09-27T10:00:00Z" },
+			"consent",
+		],
+		[
+			"unrelated file changed with same count and IDs",
+			`${api}/pulls/298/files?per_page=100`,
+			[{ filename: "packages/other/package.json", sha: "e".repeat(40), status: "modified" }],
+			"diff",
+		],
+		[
+			"unreviewed merge parent",
+			`${api}/commits/${sha}`,
+			{ parents: [{ sha: base }, { sha: base }], commit: { tree: { sha: tree } } },
+			"ancestry",
+		],
+		["protected main advanced", `${api}/commits/main`, { sha: head, commit: { tree: { sha: tree } } }, "main"],
+		["GO not posted to #250", `${api}/issues/comments/123`, { id: 123, body: `FINAL GO\n${JSON.stringify(go)}` }, "GO"],
+		[
+			"GO run is not on merge SHA",
+			`${api}/actions/runs/42/attempts/1`,
+			{ id: 42, run_attempt: 1, created_at: go.runCreatedAt, head_sha: head, head_branch: "main" },
+			"GO",
+		],
+	])("denies %s", async (_label, url, body, message) => {
+		const altered: ReadOnlyTransport = { get: async (path) => (path === url ? { status: 200, body } : live.get(path)) };
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, altered)).rejects.toThrow(message);
+		expect(files).not.toHaveBeenCalled();
+	});
+
+	it("denies stale PR and stale GO after a bot refresh", async () => {
+		const refreshed: ReadOnlyTransport = {
+			get: async (path) =>
+				path === `${api}/pulls/298`
+					? { status: 200, body: { head: { sha: "f".repeat(40) }, base: { sha: base }, merged: true } }
+					: live.get(path),
+		};
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, refreshed)).rejects.toThrow(
+			"identity drift",
+		);
+		await expect(
+			inspectRcSource("/mock", context, plan, reader, source, { ...go, mergeCommit: head }, review, live),
+		).rejects.toThrow("GO");
 	});
 
 	it("rejects registry collisions and all tag/release conflicts before any write", async () => {
@@ -189,6 +302,7 @@ describe("disabled RC source inspection", () => {
 				source,
 				go,
 				review,
+				live,
 			),
 		).rejects.toThrow("missing registry gitHead");
 		await expect(
@@ -203,6 +317,7 @@ describe("disabled RC source inspection", () => {
 				source,
 				go,
 				review,
+				live,
 			),
 		).rejects.toThrow("lightweight");
 		await expect(
@@ -214,9 +329,10 @@ describe("disabled RC source inspection", () => {
 				source,
 				go,
 				review,
+				live,
 			),
 		).rejects.toThrow("draft");
-		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review)).resolves.toBeUndefined();
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, live)).resolves.toBeUndefined();
 		await expect(
 			inspectRcSource(
 				"/mock",
@@ -226,12 +342,15 @@ describe("disabled RC source inspection", () => {
 				source,
 				go,
 				review,
+				live,
 			),
 		).resolves.toBeUndefined();
 		files.mockImplementation(async (path: string) => {
 			if (path.endsWith("pre.json")) return JSON.stringify({ mode: "pre", tag: "rc", changesets: [] });
 			return "";
 		});
-		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review)).rejects.toThrow("consumed IDs");
+		await expect(inspectRcSource("/mock", context, plan, reader, source, go, review, live)).rejects.toThrow(
+			"consumed IDs",
+		);
 	});
 });

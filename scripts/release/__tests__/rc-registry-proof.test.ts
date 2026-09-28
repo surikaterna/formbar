@@ -115,7 +115,7 @@ describe("#366 read-only rc reconciliation", () => {
 			const reply = f.replies.get(versionPath("arbiter"));
 			if (!reply) throw new Error("fixture version missing");
 			const body = reply.body as { gitHead: string | undefined; dist: Record<string, unknown> };
-			if (field === "gitHead") body.gitHead = undefined;
+			if (field === "gitHead") body.gitHead = "f".repeat(40);
 			else if (field === "provenance") body.dist.provenance = undefined;
 			else body.dist[field] = "wrong";
 			await expect(inspectRcRegistry(f.read, f.source)).rejects.toThrow();
@@ -126,6 +126,15 @@ describe("#366 read-only rc reconciliation", () => {
 		f.published("arbiter");
 		const plan = await inspectRcRegistry(f.read, f.source);
 		expect(plan.blocked).toContain("artifact/attestation arbiter UNVERIFIABLE");
+	});
+	it("marks absent gitHead NEEDS_SIGNED_PROOF rather than authorizing an offline skip", async () => {
+		const f = fixture();
+		f.published("arbiter");
+		const reply = f.replies.get(versionPath("arbiter"));
+		if (!reply) throw new Error("fixture version missing");
+		(reply.body as { gitHead: string | undefined }).gitHead = undefined;
+		const plan = await inspectRcRegistry(f.read, f.source);
+		expect(plan.blocked).toContain("NEEDS_SIGNED_PROOF arbiter UNVERIFIABLE");
 	});
 	it("ignores forged caller flags even when all seven packages appear identical", async () => {
 		const f = fixture();

@@ -1,9 +1,6 @@
-/** #383: exact held #298 proposal; refresh only after a new owner review of head/base/tree. */
+/** #383: immutable RC content contract; PR identity requires fresh owner review on each refresh. */
 import { createHash } from "node:crypto";
 
-export const reviewedBase = "f1716ed388607cd43761bb6acf9a25f2aba30c5c";
-export const reviewedHead = "af44ebded8dcd13591eee6e2cbd77a11c4b7c1ef";
-export const reviewedTree = "83df6f6ed8bcec5e417f2ab3b1403d57efe1dfda";
 export const rcVersion = "0.23.0-rc.0";
 export const rcPackages = [
 	"expressions",

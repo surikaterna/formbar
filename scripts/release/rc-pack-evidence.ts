@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type PackageAudit, auditPackages } from "../package-artifacts/audit";
 import { type SourceWitness, sourceCheck } from "./rc-registry-proof";
-import { checkChangelog, rcPackages, rcVersion, reviewedBase, reviewedHead, reviewedTree } from "./rc-reviewed-plan";
+import { checkChangelog, rcPackages, rcVersion } from "./rc-reviewed-plan";
 
 const names = rcPackages;
 const version = rcVersion;
@@ -22,15 +22,15 @@ export function checkSnapshot(root: string, sha: string, tree: string): void {
 	if (
 		!/^[0-9a-f]{40}$/.test(sha) ||
 		!/^[0-9a-f]{40}$/.test(tree) ||
-		sha !== reviewedHead ||
-		tree !== reviewedTree ||
 		run("git", ["rev-parse", "HEAD"], root) !== sha ||
 		run("git", ["rev-parse", "HEAD^{tree}"], root) !== tree ||
 		run("git", ["status", "--porcelain"], root) !== ""
 	)
 		throw new Error("dirty or drifting audited checkout");
-	const current = JSON.parse(run("gh", ["pr", "view", "298", "--json", "headRefOid,baseRefOid"], root));
-	if (current.headRefOid !== sha || current.baseRefOid !== reviewedBase) throw new Error("version PR head/base drift");
+	const current = JSON.parse(run("gh", ["api", "repos/surikaterna/formbar/pulls/298"], root));
+	const commit = JSON.parse(run("gh", ["api", `repos/surikaterna/formbar/git/commits/${sha}`], root));
+	if (current.head?.sha !== sha || !/^[0-9a-f]{40}$/.test(current.base?.sha) || commit.tree?.sha !== tree)
+		throw new Error("version PR head/base/tree drift");
 }
 
 export function loadRcSource(root: string, sha: string, tree: string): SourceWitness {

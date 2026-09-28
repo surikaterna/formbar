@@ -88,7 +88,11 @@ export async function provePublishMethod(root: string, context: PublishContext, 
 		const snapshot = await method.read(manifest.name);
 		const exists = assertSnapshot(snapshot, manifest);
 		if (exists && snapshot.rc !== manifest.version) throw new Error(`missing or wrong rc dist-tag: ${manifest.name}`);
-		if (exists && snapshot.versions[manifest.version]?.gitHead !== context.commit)
+		if (
+			exists &&
+			snapshot.versions[manifest.version]?.gitHead !== undefined &&
+			snapshot.versions[manifest.version]?.gitHead !== context.commit
+		)
 			throw new Error(`foreign existing ${manifest.name}`);
 	}
 	// No caller-supplied boolean can establish signed bytes, provenance or run identity.

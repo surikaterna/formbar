@@ -75,7 +75,9 @@ function checkArtifact(name: string, published: Record<string, unknown>, source:
 	);
 	const dist = object(published.dist);
 	requireProof(
-		published.name === witness.name && published.version === version && published.gitHead === source.commit,
+		published.name === witness.name &&
+			published.version === version &&
+			(published.gitHead === undefined || published.gitHead === source.commit),
 		`registry identity ${name} conflict`,
 	);
 	requireProof(integrity.test(witness.integrity) && sha.test(witness.shasum), `invalid pack digest ${name}`);
@@ -170,7 +172,13 @@ async function inspectPackage(
 	if (published) {
 		checkArtifact(name, published, source);
 		requireProof(tags.rc === version, `published ${name} lacks rc tag`);
-		return { published: true, blocked: `artifact/attestation ${name} UNVERIFIABLE` };
+		return {
+			published: true,
+			blocked:
+				published.gitHead === undefined
+					? `NEEDS_SIGNED_PROOF ${name} UNVERIFIABLE`
+					: `artifact/attestation ${name} UNVERIFIABLE`,
+		};
 	}
 	requireProof(!reserved && tags.rc === undefined, `absent ${name} has reserved tag/release/dist-tag`);
 	return { published: false, blocked: `publisher ${name} UNVERIFIABLE` };

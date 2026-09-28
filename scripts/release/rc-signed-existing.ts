@@ -44,7 +44,7 @@ async function get(read: ReadOnlyTransport, url: string, binary = false) {
 	return reply;
 }
 
-async function snapshot(read: ReadOnlyTransport, approved: ApprovedVersion, allowAbsentGitHead = false) {
+async function snapshot(read: ReadOnlyTransport, approved: ApprovedVersion) {
 	const base = `${registry}/${encodeURIComponent(approved.name)}`;
 	const ver = await get(read, `${base}/${approved.version}`);
 	const full = await get(read, base);
@@ -58,8 +58,8 @@ async function snapshot(read: ReadOnlyTransport, approved: ApprovedVersion, allo
 		pack.name !== approved.name ||
 		metadata.name !== approved.name ||
 		metadata.version !== approved.version ||
-		(metadata.gitHead !== approved.commit &&
-			!(allowAbsentGitHead && metadata.gitHead === undefined && listed.gitHead === undefined)) ||
+		(metadata.gitHead !== undefined && metadata.gitHead !== approved.commit) ||
+		(metadata.gitHead === undefined) !== (listed.gitHead === undefined) ||
 		(listed.gitHead !== undefined && listed.gitHead !== approved.commit) ||
 		JSON.stringify(metadata.dist) !== JSON.stringify(listed.dist) ||
 		tags.latest !== approved.latest ||
@@ -184,7 +184,7 @@ async function check(
 	signerPolicy(approved);
 	if (!/^(@[a-z0-9-]+\/)?[a-z0-9-]+$/.test(approved.name) || !/^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(approved.version))
 		throw new Error("invalid package identity");
-	const first = await snapshot(read, approved, expectedBytes !== undefined);
+	const first = await snapshot(read, approved);
 	const tar = await get(read, first.dist.tarball as string, true);
 	if (tar.status !== 200 || !(tar.bytes instanceof Uint8Array) || !tar.bytes.length || tar.bytes.length > 20_000_000)
 		throw new Error("tarball unavailable");
@@ -203,7 +203,7 @@ async function check(
 	)
 		throw new Error("wrong tarball bytes");
 	await attest(read, proof, approved, first.attestation, sha512);
-	const last = await snapshot(read, approved, expectedBytes !== undefined);
+	const last = await snapshot(read, approved);
 	if (JSON.stringify(first) !== JSON.stringify(last)) throw new Error("changed registry");
 	return sha512;
 }

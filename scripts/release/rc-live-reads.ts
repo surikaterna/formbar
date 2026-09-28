@@ -88,7 +88,7 @@ function publishedDist(
 	if (
 		metadata.name !== `@formbar/${name}` ||
 		metadata.version !== version ||
-		metadata.gitHead !== source.commit ||
+		(metadata.gitHead !== undefined && metadata.gitHead !== source.commit) ||
 		tags.rc !== version
 	)
 		throw new Error("published identity, gitHead or rc mismatch");
@@ -174,8 +174,11 @@ async function inspectPackageReads(
 	if (tar.status !== 200 || !tar.bytes) throw new Error(`tarball HTTP ${tar.status}`);
 	const remote = digest(tar.bytes);
 	if (remote.integrity !== local.integrity || remote.shasum !== local.shasum) throw new Error("tarball bytes conflict");
-	evidence.observation = "PUBLIC_EXISTING_OBSERVED";
-	evidence.reason = "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
+	evidence.observation = metadata.gitHead === undefined ? "UNVERIFIABLE" : "PUBLIC_EXISTING_OBSERVED";
+	evidence.reason =
+		metadata.gitHead === undefined
+			? "NEEDS_SIGNED_PROOF: downloaded bytes match; independent signed provenance required"
+			: "matching metadata and downloaded bytes; signed provenance and publisher remain unverified";
 }
 
 async function inspectGithub(
@@ -322,7 +325,12 @@ export function createRegistryGitHubReader(
 				!["registry.npmjs.org", "api.github.com"].includes(parsed.host) ||
 				parsed.username ||
 				parsed.password ||
-				parsed.search ||
+				(parsed.search &&
+					!(
+						parsed.host === "api.github.com" &&
+						parsed.pathname === "/repos/surikaterna/formbar/pulls/298/files" &&
+						parsed.search === "?per_page=100"
+					)) ||
 				parsed.hash
 			)
 				throw new Error("untrusted GET host");

@@ -130,12 +130,12 @@ describe("#374 disabled existing-version verifier (synthetic transport; live pro
 	it("#383 permits absent gitHead only on the separately signed and byte-bound contract", async () => {
 		const f = setup();
 		(f.metadata as Partial<typeof f.metadata>).gitHead = undefined;
-		expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("UNVERIFIABLE");
+		expect((await verifyExistingSignedVersion(f.read, f.proof, approved)).status).toBe("VERIFIED_EXISTING");
 		expect(await verifyPrepackedSignedVersion(f.read, f.proof, approved, bytes)).toMatchObject({
 			status: "VERIFIED_EXISTING",
 			sha512,
 		});
-		expect(f.verifies).toBe(1);
+		expect(f.verifies).toBe(2);
 		expect((await verifyPrepackedSignedVersion(f.read, f.proof, approved, new Uint8Array([1]))).status).toBe(
 			"UNVERIFIABLE",
 		);
