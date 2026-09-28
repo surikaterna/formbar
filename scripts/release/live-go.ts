@@ -1,13 +1,5 @@
 import { type GitHubRead, object, pages, rcNames, repo, requireThat, sha } from "./live-evidence-shape";
-
-const dependencies: Record<string, string[]> = {
-	arbiter: ["core", "expressions"],
-	core: ["expressions"],
-	declarative: ["core", "expressions"],
-	"from-schema": ["core", "declarative", "expressions"],
-	react: ["core", "expressions"],
-	"react-schema": ["core", "declarative", "from-schema", "react"],
-};
+import { rcEdges, rcVersion } from "./rc-reviewed-plan";
 
 export function verifyGoBody(body: unknown, runId: number, commit: string, tree: string): void {
 	requireThat(typeof body === "string" && body.startsWith("FINAL GO\n"), "missing FINAL GO");
@@ -44,23 +36,20 @@ export function verifyGoBody(body: unknown, runId: number, commit: string, tree:
 	for (const name of rcNames) {
 		const version = object(versions[`@formbar/${name}`]);
 		requireThat(
-			Object.keys(version).sort().join(",") === "dependencies,version" && version.version === "0.23.0-rc.0",
+			Object.keys(version).sort().join(",") === "dependencies,version" && version.version === rcVersion,
 			"GO rc version differs",
 		);
 		const ranges = object(version.dependencies);
 		requireThat(
 			Object.keys(ranges).sort().join(",") ===
-				dependencies[name]
+				rcEdges[name]
 					.map((dep) => `@formbar/${dep}`)
 					.sort()
 					.join(","),
 			"GO dependency set differs",
 		);
-		for (const dep of dependencies[name])
-			requireThat(
-				ranges[`@formbar/${dep}`] === (dep === "expressions" ? "^0.14.3" : "^0.23.0-rc.0"),
-				"GO internal range differs",
-			);
+		for (const dep of rcEdges[name])
+			requireThat(ranges[`@formbar/${dep}`] === `^${rcVersion}`, "GO internal range differs");
 	}
 }
 

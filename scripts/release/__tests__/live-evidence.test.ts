@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { type RunWitness, fetchRcEvidence } from "../live-evidence";
 import { type GitHubRead, rcNames, repo } from "../live-evidence-shape";
+import { rcEdges, rcVersion } from "../rc-reviewed-plan";
 
 const commit = "a".repeat(40);
 const tree = "b".repeat(40);
@@ -21,22 +22,12 @@ const witness: RunWitness = {
 	checkoutTree: tree,
 	expectedSha: commit,
 };
-const deps: Record<string, string[]> = {
-	arbiter: ["core", "expressions"],
-	core: ["expressions"],
-	declarative: ["core", "expressions"],
-	"from-schema": ["core", "declarative", "expressions"],
-	react: ["core", "expressions"],
-	"react-schema": ["core", "declarative", "from-schema", "react"],
-};
 const versions = Object.fromEntries(
 	rcNames.map((name) => [
 		`@formbar/${name}`,
 		{
-			version: "0.23.0-rc.0",
-			dependencies: Object.fromEntries(
-				deps[name].map((dep) => [`@formbar/${dep}`, dep === "expressions" ? "^0.14.3" : "^0.23.0-rc.0"]),
-			),
+			version: rcVersion,
+			dependencies: Object.fromEntries(rcEdges[name].map((dep) => [`@formbar/${dep}`, `^${rcVersion}`])),
 		},
 	]),
 );
@@ -218,7 +209,8 @@ describe("#365 read-only exact-run REST evidence", () => {
 	it("denies duplicate JSON keys, wrong package ranges and ambiguous GO body", async () => {
 		for (const changed of [
 			body.replace('"attempt":1', '"attempt":1,"attempt":1'),
-			body.replace("^0.14.3", "^0.14.2"),
+			body.replace(`^${rcVersion}`, "^0.14.2"),
+			body.replace('"@formbar/expressions":{', '"@formbar/legacy":{'),
 			"FINAL GO\nnot-json",
 		]) {
 			const { values, api } = fixture();
