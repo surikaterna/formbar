@@ -56,18 +56,23 @@ describe("#350 fail-closed release", () => {
 		);
 	});
 
-	it("dispatch runs only a rejecting shell step without any publish permission", async () => {
+	it("protected dispatch checks live read-only evidence but still refuses all writes", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
 		const rejected = workflow.jobs["reject-dispatch"];
 		expect(workflow.permissions).toEqual({ contents: "read" });
 		expect(rejected.permissions).toEqual({ contents: "read" });
-		expect(rejected.environment).toBeUndefined();
-		const result = spawnSync("bash", ["-e", "-c", rejected.steps[0].run], {
+		expect(rejected.environment).toBe("formbar-rc");
+		expect(rejected.if).toBe("github.event_name == 'workflow_dispatch'");
+		expect(rejected.steps.map((step: { run?: string }) => step.run)).toContain(
+			"bun scripts/release/rc-dispatch-gate.ts",
+		);
+		const result = spawnSync("bash", ["-e", "-c", rejected.steps.at(-1).run], {
 			encoding: "utf8",
 			env: { ...process.env, EXPECTED_MAIN_SHA: sha },
 		});
 		expect(result.status).toBe(1);
 		expect(result.stdout).toContain("release dispatch disabled");
+		expect(JSON.stringify(rejected)).not.toMatch(/id-token|"contents":"write"|NODE_AUTH_TOKEN|NPM_TOKEN/);
 	});
 
 	it.each([

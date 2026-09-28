@@ -45,10 +45,26 @@ jobs:
   reject-dispatch:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    environment: formbar-rc
     permissions:
       contents: read
     steps:
-      - name: Refuse release until independent approval is enforceable
+      - name: Checkout exact main commit
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Check run-bound release source and live policy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+        run: bun scripts/release/rc-dispatch-gate.ts
+      - name: Refuse release until publish and reconciliation are independently verified
         run: |
-          printf '::error::#350 release dispatch disabled: no independently verified protected release environment, non-self approval, main protection, or #250 final GO. SHA is not authorization.\n'
+          printf '::error::#363 release dispatch disabled: publish and postpublish reconciliation are not enabled.\n'
           exit 1

@@ -37,7 +37,7 @@ export async function fetchRcEvidence(api: GitHubRead, witness: RunWitness, now:
 	return { commentId };
 }
 
-function verifyWitness(witness: RunWitness): void {
+export function verifyWitness(witness: RunWitness): void {
 	requireThat(
 		Number.isSafeInteger(witness.runId) &&
 			witness.runId > 0 &&
