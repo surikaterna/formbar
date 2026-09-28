@@ -215,6 +215,132 @@ describe("#371 GET-only evidence (sanitized fixtures)", () => {
 		expect(requests).toEqual([expect.objectContaining({ method: "GET", redirect: "manual" })]);
 		expect(requests[0]?.headers).toBeUndefined();
 	});
+	it("bounds actual bytes without a length header and cancels before reading remaining chunks", async () => {
+		let reads = 0;
+		let canceled = 0;
+		const stream = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				reads++;
+				controller.enqueue(new Uint8Array(1_000_000));
+			},
+			cancel() {
+				canceled++;
+			},
+		});
+		const reader = createRegistryGitHubReader("", "", async () => new Response(stream));
+		await expect(reader.get(`${root}/@formbar/core/-/core-${version}.tgz`, true)).rejects.toThrow(
+			"tarball exceeds read bound",
+		);
+		expect(reads).toBeLessThan(25);
+		expect(canceled).toBe(1);
+	});
+	it("reports overflow as code-only UNVERIFIABLE without promoting the published package", async () => {
+		const f = fixture();
+		const { tarball } = f.published("core");
+		const get = f.read.get;
+		const remote = createRegistryGitHubReader("", "", async () => new Response(new Uint8Array(20_000_001)));
+		f.read.get = async (url) => (url === tarball ? remote.get(url, true) : get(url));
+		const plan = await inspectLiveRc(f.read, f.pack, f.source);
+		expect(plan.decision).toBe("UNVERIFIABLE");
+		expect(plan.packages[1]).toMatchObject({
+			observation: "UNVERIFIABLE",
+			reason: "tarball exceeds read bound",
+		});
+	});
+	it.each([
+		{ length: "1", size: 2 },
+		{ length: "20000001", size: 1 },
+		{ length: "not-a-number", size: 1 },
+		{ length: "20000000", size: 19_999_999 },
+		{ length: "20000000", size: 20_000_001 },
+	])("rejects misleading or invalid declared tarball length $length / $size", async ({ length, size }) => {
+		let canceled = false;
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new Uint8Array(size));
+				controller.close();
+			},
+			cancel() {
+				canceled = true;
+			},
+		});
+		const reader = createRegistryGitHubReader(
+			"",
+			"",
+			async () => new Response(stream, { headers: { "content-length": length } }),
+		);
+		await expect(reader.get(`${root}/@formbar/core/-/core-${version}.tgz`, true)).rejects.toThrow(
+			"tarball exceeds read bound",
+		);
+		if (Number(length) > 20_000_000) expect(canceled).toBe(true);
+	});
+	it("accepts exactly 20MB with matching length and preserves the completed bytes for both digests", async () => {
+		const chunk = new Uint8Array(1_000_000).fill(7);
+		const reader = createRegistryGitHubReader(
+			"",
+			"",
+			async () =>
+				new Response(
+					new ReadableStream({
+						start(controller) {
+							for (let i = 0; i < 20; i++) controller.enqueue(chunk);
+							controller.close();
+						},
+					}),
+					{ headers: { "content-length": "20000000" } },
+				),
+		);
+		const reply = await reader.get(`${root}/@formbar/core/-/core-${version}.tgz`, true);
+		if (!reply.bytes) throw new Error("missing completed tarball");
+		const expected = new Uint8Array(20_000_000).fill(7);
+		expect(reply.bytes?.byteLength).toBe(20_000_000);
+		expect(reply.bytes?.[0]).toBe(7);
+		expect(reply.bytes?.[19_999_999]).toBe(7);
+		expect(createHash("sha512").update(reply.bytes).digest("base64")).toBe(
+			createHash("sha512").update(expected).digest("base64"),
+		);
+		expect(createHash("sha1").update(reply.bytes).digest("hex")).toBe(
+			createHash("sha1").update(expected).digest("hex"),
+		);
+	});
+	it("rejects unknown body and reader errors with a code-only failure", async () => {
+		const url = `${root}/@formbar/core/-/core-${version}.tgz`;
+		await expect(createRegistryGitHubReader("", "", async () => new Response(null)).get(url, true)).rejects.toThrow(
+			"tarball exceeds read bound",
+		);
+		const stream = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				controller.error(new Error("secret body"));
+			},
+		});
+		await expect(createRegistryGitHubReader("", "", async () => new Response(stream)).get(url, true)).rejects.toThrow(
+			"tarball exceeds read bound",
+		);
+	});
+	it("does not read a foreign redirect body", async () => {
+		let pulled = false;
+		const reader = createRegistryGitHubReader(
+			"",
+			"",
+			async () =>
+				new Response(
+					new ReadableStream(
+						{
+							pull() {
+								pulled = true;
+							},
+						},
+						{ highWaterMark: 0 },
+					),
+					{ status: 302, headers: { location: "https://evil.example/t.tgz" } },
+				),
+		);
+		await expect(reader.get(`${root}/@formbar/core/-/core-${version}.tgz`, true)).resolves.toMatchObject({
+			status: 302,
+			location: "redirect",
+		});
+		expect(pulled).toBe(false);
+	});
 	it("redacts injected transport failures from the complete six-state report", async () => {
 		const f = fixture();
 		f.read.get = async () => {

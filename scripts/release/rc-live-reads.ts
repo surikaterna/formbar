@@ -7,6 +7,7 @@ const version = "0.23.0-rc.0";
 const registry = "https://registry.npmjs.org";
 const repo = "https://api.github.com/repos/surikaterna/formbar";
 const conflict = /mismatch|conflict|disagrees|drift|nondeterministic/;
+const tarballLimit = 20_000_000;
 function safeReason(error: unknown): string {
 	if (!(error instanceof Error)) return "read failed";
 	return /^(invalid JSON object|empty\/invalid pack bytes|nondeterministic pack bytes|redirect denied|registry reads drift|packument identity mismatch|latest tag drift|rc tag drift|404 disagrees with packument|version\/packument disagreement|published identity, gitHead or rc mismatch|metadata digest or tarball conflict|tarball bytes conflict|foreign\/lightweight tag|foreign annotated tag|release conflict|commit tree drift|tarball exceeds read bound)$/.test(
@@ -271,6 +272,41 @@ export async function inspectLiveRc(
 	return { decision: "UNVERIFIABLE", packages, ...(classification ? { classification } : {}) };
 }
 
+async function boundedTarball(response: Response): Promise<Uint8Array> {
+	const declared = response.headers.get("content-length");
+	if (declared !== null && (!/^(0|[1-9]\d*)$/.test(declared) || Number(declared) > tarballLimit)) {
+		await response.body?.cancel().catch(() => {});
+		throw new Error("tarball exceeds read bound");
+	}
+	if (!response.body) throw new Error("tarball exceeds read bound");
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!(value instanceof Uint8Array) || value.byteLength > tarballLimit - size)
+				throw new Error("tarball exceeds read bound");
+			size += value.byteLength;
+			chunks.push(value.slice());
+		}
+		if (declared !== null && size !== Number(declared)) throw new Error("tarball exceeds read bound");
+		const bytes = new Uint8Array(size);
+		let offset = 0;
+		for (const chunk of chunks) {
+			bytes.set(chunk, offset);
+			offset += chunk.byteLength;
+		}
+		return bytes;
+	} catch {
+		await reader.cancel().catch(() => {});
+		throw new Error("tarball exceeds read bound");
+	} finally {
+		reader.releaseLock();
+	}
+}
+
 /** Explicit injected credential, no ambient token or redirect following. Never log response bodies/headers. */
 export function createRegistryGitHubReader(
 	npmToken: string,
@@ -297,14 +333,12 @@ export function createRegistryGitHubReader(
 				signal: AbortSignal.timeout(10_000),
 				...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
 			});
-			if (binary && Number(response.headers.get("content-length")) > 20_000_000)
-				throw new Error("tarball exceeds read bound");
 			return {
 				status: response.status,
 				...(response.headers.get("location") ? { location: "redirect" } : {}),
 				...(response.status === 200
 					? binary
-						? { bytes: new Uint8Array(await response.arrayBuffer()) }
+						? { bytes: await boundedTarball(response) }
 						: { body: await response.json() }
 					: {}),
 			};
