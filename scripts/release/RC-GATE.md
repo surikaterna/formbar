@@ -1,5 +1,25 @@
 #363 release gate: disabled pending positive implementation
 
+#365 adds `fetchRcEvidence`, an injected **GET-only** REST evidence reader.
+It requires a GitHub-generated sender ID, runtime checkout SHA/tree, exact
+run/attempt and fresh main tree, effective main rules, environment reviewer,
+exact-SHA successful `ci` check, a NEW #250 owner FINAL GO and same-run
+environment approval. GO uses `FINAL GO\n` followed by a single canonical
+JSON object (no whitespace, duplicate keys or trailing text)
+with `run_id`, `attempt`, full `sha`/`tree`, `versions` keyed by six package
+names (each containing `version` and exact `dependencies`), and
+`acknowledges_legacy_validation_issue` set to the required explicit migration
+sentence in `live-go.ts`. A new run needs its own new comment. A deleted,
+edited, expired, ambiguous or malformed comment denies. Comment timestamp
+equality does **not** prove immutability: same-second edits/reversions and
+fetch races remain an owner-accepted risk. The approvals endpoint does not
+provide review timestamp/attempt; the owner accepted operational GO-before-
+approval ordering without claiming it is API-proven. Attempt >1 denies.
+No REST client with credentials, workflow step or publish capability is
+supplied by this adapter; a synthetic positive fixture does not authorize a
+release. #366 owns registry/OIDC/artifact verification; #363 owns final
+gated enablement and re-fetching before each write. #298/#250 remain held.
+
 The #363 live admin audit verified ruleset 24103769 and the `formbar-rc`
 environment (22904271021, required reviewer `spralle` 806157, dispatcher
 `eaglez`). These settings are not a publish authorization. The existing
@@ -15,13 +35,11 @@ attempt number; an approval on the same run cannot by itself prove approval
 of a rerun attempt. Any implementation must reject reruns and use a new
 dispatch, a new owner GO bound uniquely to that run, and a new environment
 review for recovery. A pre-dispatch GO cannot include the run ID not yet
-assigned by GitHub; a reusable SHA/tree-only GO is replayable. The #363
-Architect proposed a NEW post-dispatch comment before the environment review,
-but the approvals REST response has no review timestamp. Without an
-authenticated GO-before-approval ordering witness or an explicit owner decision
-accepting that unprovable ordering, the workflow cannot enforce that sequence.
-Until then, leave dispatch disabled rather than attaching an environment to a
-job that could write without independently verifying its authority.
+assigned by GitHub; a reusable SHA/tree-only GO is replayable. The owner
+accepted the NEW post-dispatch comment before environment review as an
+operational ordering requirement (#363 comment 5867388159), without claiming
+the approvals REST response proves the relative chronology. Leave dispatch
+disabled until separate gated enablement is audited.
 
 #362 source preparation: `rc-source-check.ts` is an offline, read-only evidence
 inspector, not an authority provider or executable publish entrypoint. Its inputs
