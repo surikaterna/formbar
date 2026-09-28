@@ -20,11 +20,13 @@
 		"rc-pack-evidence.ts",
 		"rc-pack-run.ts",
 		"rc-live-run.ts",
+		"rc-publish-method.ts",
 		"__tests__/rc-live-reads.test.ts",
 		"__tests__/rc-pack-evidence.test.ts",
 		"__tests__/rc-registry-proof.test.ts",
 		"__tests__/github-read.test.ts",
 		"__tests__/live-evidence.test.ts",
-		"__tests__/rc-source-check.test.ts"
+		"__tests__/rc-source-check.test.ts",
+		"__tests__/rc-publish-method.test.ts"
 	]
 }
