@@ -120,6 +120,8 @@ function packs(root, temp, commit, tree, base) {
 			pair.push({ bytes: readFileSync(join(dir, output[0].filename)), path: join(dir, output[0].filename) });
 		}
 		assert.deepEqual(pair[0].bytes, pair[1].bytes, `${name} nondeterministic pack`);
+		for (const algorithm of ["sha512", "sha1"])
+			assert.equal(sha(pair[0].bytes, algorithm), sha(pair[1].bytes, algorithm), `${name} ${algorithm} drift`);
 		preflight(root, commit, tree, base);
 		result.push({ name: `@formbar/${name}`, ...pair[0] });
 	}

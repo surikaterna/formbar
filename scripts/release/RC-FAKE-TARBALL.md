@@ -37,12 +37,24 @@ tarball metadata gitHead is absent. No package defines pack/publish lifecycle
 scripts; the tarball-input CLI path also skips directory publish lifecycle.
 
 The study emits `UNVERIFIABLE`, not an authorization, even if all seven CLI
-calls succeed. The fake server's 201/GETs cannot establish npmjs.com direct
-permission, actual registry propagation, real OIDC or genuine signed identity.
-`rc-tarball-sequence.ts` is an *inert* injectable fail-closed contract: it
-stops after ambiguous PUT or changed tags/bytes; existing-version skips and
-postwrite progression require the actual #374 signed, downloaded-byte verifier
-and protected approved run identity. Its tests intentionally reject unsigned
-fake proofs before any next write. Seven publishes are not atomic; a partial
-or uncertain live write must be reconciled independently with NEW run-bound GO.
-The dispatch workflow stays unconditionally rejecting. #363/#250/#298 are held.
+calls succeed. Fake 201/GETs, digest equality and the unsigned signer cannot
+establish npmjs.com direct permission, propagation, real OIDC, signed
+provenance, trusted source authority or release GO. There is no publish
+sequencing method in this study. Seven real publishes would not be atomic;
+partial or uncertain writes cannot be resolved by this fixture.
+
+Negative checkpoints: an incorrect head/tree/base or a refreshed #298 head
+fails `preflight` before packing or any fake PUT. A changed pre.json consumed ID,
+manifest version or internal edge fails `checkPlan` before any fake PUT; a
+modified checkout is also rejected as dirty. A mismatch between two prepack
+byte buffers fails `packs`, and modification of a candidate tarball after pack
+fails the byte read immediately before its CLI call. False rc/latest tags,
+altered attachment bytes and failed/partial CLI calls throw instead of
+printing the final verdict; earlier fake PUTs are not proof of completion.
+
+#363 must independently construct authentic candidates on protected main,
+bind source, run, policy and GO, perform fresh live read-only #365/#371
+observations before writes and genuine #374 verification after writes. It must
+not call this fake study for authorization. #365/#371 observations are not
+permission. The dispatch workflow stays unconditionally rejecting; #363 and
+#250/#298 are held. No workflow enablement, merge or real publish is implied.
