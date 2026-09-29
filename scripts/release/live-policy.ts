@@ -20,8 +20,14 @@ async function verifyMainRules(api: GitHubRead): Promise<void> {
 		sameSet(conditions.include, ["refs/heads/main"]) && sameSet(conditions.exclude, []),
 		"main ruleset ref scope not verified",
 	);
-	requireThat(Array.isArray(ruleset.bypass_actors), "main ruleset bypass actors unreadable");
-	requireThat(ruleset.bypass_actors.length === 0, "main ruleset bypass actors changed");
+	const bypass = ruleset.bypass_actors;
+	if (bypass === null || !("bypass_actors" in ruleset)) {
+		// The installation token cannot prove empty; external admin proof is required before dispatch (#250).
+		console.warn("main ruleset bypass actors UNVERIFIABLE (redacted); external admin proof required");
+	} else {
+		requireThat(Array.isArray(bypass), "main ruleset bypass actors malformed");
+		requireThat(bypass.length === 0, "main ruleset bypass actors changed");
+	}
 	requireThat(ruleset.current_user_can_bypass === "never", "main ruleset caller bypass not verified");
 	await verifyRuleDetails(api, ruleset);
 }

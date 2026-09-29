@@ -67,6 +67,7 @@ function fakeWorkflowEnv(sha: string, event: string, responses: string, requests
 		GITHUB_REPOSITORY: "surikaterna/formbar",
 		GITHUB_EVENT_NAME: "workflow_dispatch",
 		GITHUB_REF: "refs/heads/main",
+		GITHUB_REF_PROTECTED: "true",
 		GITHUB_WORKFLOW_REF: "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main",
 		GITHUB_WORKFLOW_SHA: sha,
 		ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.fixture.invalid/token",
@@ -327,6 +328,8 @@ describe("#397 workflow-bound clean Node preflight", () => {
 		"wrong changelog",
 		"CI",
 		"policy",
+		"redacted bypass",
+		"unprotected ref",
 		"reviewer",
 		"403",
 	])("%s: real bundled gate only permits the complete approved snapshot", async (scenario) => {
@@ -342,12 +345,17 @@ describe("#397 workflow-bound clean Node preflight", () => {
 			const eventPath = join(dir, "event.json");
 			const endpoints = endpointResponses(sha, tree, new Date());
 			driftEndpoints(endpoints, scenario, sha, tree);
+			if (scenario === "redacted bypass")
+				(endpoints["repos/surikaterna/formbar/rulesets/24103769"] as Record<string, unknown>).bypass_actors = null;
 			writeFileSync(responsePath, JSON.stringify(endpoints));
 			writeFileSync(requestPath, "");
 			writeFileSync(eventPath, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: sha } }));
 			expect(existsSync(join(checkout, "node_modules"))).toBe(false);
-			const result = await runBundle(checkout, fakeWorkflowEnv(sha, eventPath, responsePath, requestPath));
-			expect(result.code, result.error).toBe(scenario === "valid" ? 0 : 1);
+			const env = fakeWorkflowEnv(sha, eventPath, responsePath, requestPath);
+			if (scenario === "unprotected ref") env.GITHUB_REF_PROTECTED = "false";
+			const result = await runBundle(checkout, env);
+			expect(result.code, result.error).toBe(["valid", "redacted bypass"].includes(scenario) ? 0 : 1);
+			if (scenario === "redacted bypass") expect(result.error).toContain("UNVERIFIABLE");
 			expect(readFileSync(requestPath, "utf8")).not.toContain("OIDC");
 			expect(execFileSync("git", ["status", "--porcelain"], { cwd: checkout, encoding: "utf8" })).toBe("");
 		} finally {

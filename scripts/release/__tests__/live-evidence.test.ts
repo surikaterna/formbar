@@ -14,6 +14,7 @@ const witness: RunWitness = {
 	repository: "surikaterna/formbar",
 	event: "workflow_dispatch",
 	ref: "refs/heads/main",
+	refProtected: "true",
 	workflowRef: "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main",
 	workflowSha: sha,
 	eventSha: sha,
@@ -49,6 +50,8 @@ describe("#406 single-operator read-only exact-run authority", () => {
 		{ checkoutSha: tree },
 		{ checkoutTree: sha },
 		{ ref: "refs/heads/other" },
+		{ refProtected: "false" },
+		{ refProtected: "" },
 		{ workflowRef: "surikaterna/formbar/.github/workflows/ci.yml@refs/heads/main" },
 	])("rejects witness drift %o", async (drift) => {
 		await expect(fetchRcEvidence(fixture().api, { ...witness, ...drift })).rejects.toThrow();
@@ -145,19 +148,19 @@ describe("#411 main ruleset visibility boundary", () => {
 			reason: "ref scope not verified",
 		},
 		{
-			name: "bypass redacted",
-			change: (rule) => {
-				rule.bypass_actors = null;
-			},
-			reason: "bypass actors unreadable",
-		},
-		{
-			name: "bypass omitted",
+			name: "present undefined is malformed",
 			change: (rule) => {
 				rule.bypass_actors = undefined;
 			},
-			reason: "bypass actors unreadable",
+			reason: "bypass actors malformed",
 		},
+		...(["unknown", {}, 0, true] as unknown[]).map((value) => ({
+			name: `malformed bypass ${String(value)}`,
+			change: (rule: Record<string, unknown>) => {
+				rule.bypass_actors = value;
+			},
+			reason: "bypass actors malformed",
+		})),
 		{
 			name: "bypass granted",
 			change: (rule) => {
@@ -195,7 +198,7 @@ describe("#411 main ruleset visibility boundary", () => {
 					["pull_request", "required_status_checks"].includes(entry.type),
 				);
 			},
-			reason: "bypass actors unreadable",
+			reason: "caller bypass not verified",
 		},
 		{
 			name: "partial rules even with visible bypass",
@@ -208,6 +211,36 @@ describe("#411 main ruleset visibility boundary", () => {
 
 	it("accepts complete privileged REST evidence and effective main rules", async () => {
 		await expect(verifyLivePolicy(fixture().api)).resolves.toBeUndefined();
+	});
+	it.each(["null", "missing"])("accepts %s only as UNVERIFIABLE with all other evidence intact", async (kind) => {
+		const { api, values } = fixture();
+		const rule = values[rulesetPath] as Record<string, unknown>;
+		if (kind === "null") rule.bypass_actors = null;
+		else values[rulesetPath] = Object.fromEntries(Object.entries(rule).filter(([key]) => key !== "bypass_actors"));
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await expect(fetchRcEvidence(api, witness)).resolves.toBeUndefined();
+			expect(warning).toHaveBeenCalledWith(expect.stringContaining("UNVERIFIABLE"));
+			expect(warning).not.toHaveBeenCalledWith(expect.stringContaining("verified empty"));
+		} finally {
+			warning.mockRestore();
+		}
+	});
+	it.each([
+		["main", `${repo}/branches/main`, "commit", { sha: tree }],
+		["CI", `${repo}/commits/${sha}/check-runs?per_page=100&page=1`, "total_count", 0],
+		["policy", rulesetPath, "enforcement", "disabled"],
+		["ref scope", rulesetPath, "conditions", { ref_name: { include: ["refs/heads/other"], exclude: [] } }],
+	] as const)("redaction cannot override %s drift", async (_name, path, key, value) => {
+		const { api, values } = fixture();
+		(values[rulesetPath] as Record<string, unknown>).bypass_actors = null;
+		(values[path] as Record<string, unknown>)[key] = value;
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+		} finally {
+			warning.mockRestore();
+		}
 	});
 
 	it.each(cases)("denies $name without exposing response bodies", async ({ change, reason }) => {

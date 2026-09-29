@@ -63,6 +63,7 @@ jobs:
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$EXPECTED_MAIN_SHA" == "$GITHUB_SHA" ]]
           [[ "$GITHUB_ACTOR" == spralle ]] && [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
           [[ "$GITHUB_REF" == refs/heads/main ]] && [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$GITHUB_REF_PROTECTED" == true ]]
           [[ -z "$(ls -A "$GITHUB_WORKSPACE")" ]]
           export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
           unset GIT_CONFIG_PARAMETERS GIT_TEMPLATE_DIR
@@ -79,7 +80,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ -z "$(git status --porcelain --untracked-files=all)" ]]
           # CI pins this bundle to audited source and verifies byte-for-byte reproduction.
-          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "a9e754e62421819b3e28626edcd9176877dfd68f63e8706ea415cb9dae4b27a7" ]]
+          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "a53e6615c28a52c65a4a58e5f567e652de9aa4e307f7a7b0674424ac299bfc0e" ]]
       - name: Live read-only protected-run preflight (runner Node)
         shell: bash
         env:
