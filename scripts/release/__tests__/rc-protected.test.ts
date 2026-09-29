@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rcPackages, rcVersion } from "../rc-reviewed-plan";
+import { approvedPreflight } from "./rc-workflow-fixture";
 
 const mocks = vi.hoisted(() => ({
 	verify: vi.fn(),
@@ -152,5 +154,78 @@ describe("internal protected RC adapter (mock providers are not release evidence
 		mocks.signed.mockRejectedValue(new Error("UNVERIFIABLE"));
 		await expect(runProtectedRc()).rejects.toThrow("UNVERIFIABLE");
 		expect(mocks.publish).not.toHaveBeenCalled();
+	});
+});
+
+function fakeAdapterTransport(base: string, requests: string[], published: Set<string>): void {
+	process.env.GITHUB_TOKEN = "fake-read-token";
+	process.env.ACTIONS_ID_TOKEN_REQUEST_URL = `${base}/oidc`;
+	mocks.verify.mockResolvedValue(run);
+	mocks.claim.mockResolvedValue({ root: "/checkout", sha, tree, runId: 42 });
+	mocks.refresh.mockResolvedValue({ root: "/checkout", sha, tree, runId: 42 });
+	mocks.prepack.mockResolvedValue(candidates);
+	mocks.bytes.mockResolvedValue(bytes);
+	mocks.load.mockReturnValue({ initialLatest: Object.fromEntries(rcPackages.map((name) => [name, "0.22.0"])) });
+	mocks.inspect.mockImplementation(async () => ({ packages: observed(published) }));
+	mocks.signed.mockImplementation(async (approved, tarball, digest) => {
+		expect(requests.at(-1)).toMatch(/^PUT \/npm\//);
+		expect(approved).toMatchObject({ version: rcVersion, commit: sha, runId: "42", attempt: "1" });
+		expect(tarball).toEqual(bytes);
+		expect(digest).toBe(sha512);
+	});
+	mocks.publish.mockImplementation(async (name: string) => {
+		expect(mocks.verify).toHaveBeenCalledTimes(1);
+		const oidc = await fetch(process.env.ACTIONS_ID_TOKEN_REQUEST_URL ?? "");
+		expect(oidc.ok).toBe(true);
+		const result = await fetch(`${base}/npm/${encodeURIComponent(name)}`, { method: "PUT", body: bytes });
+		if (!result.ok) throw new Error("403 E_STAGE_REQUIRED");
+	});
+}
+
+describe("#397 preflight-to-guarded-adapter no-write transport", () => {
+	it.each([0, 1, 3])("mock OIDC and npm HTTP: stop at PUT %i (0 means seven)", async (failAt) => {
+		vi.resetAllMocks();
+		const preflightReads = approvedPreflight();
+		expect(preflightReads.length).toBeGreaterThan(10);
+		expect(preflightReads.every((request) => request.startsWith("https://api.github.com/"))).toBe(true);
+		const requests: string[] = [];
+		const published = new Set<string>();
+		const server = createServer((request, response) => {
+			const path = request.url ?? "";
+			requests.push(`${request.method} ${path}`);
+			if (path === "/oidc" && request.method === "GET") return void response.writeHead(200).end('{"value":"fake"}');
+			if (path.startsWith("/npm/") && request.method === "PUT") {
+				if (failAt && published.size + 1 === failAt) return void response.writeHead(403).end("E_STAGE_REQUIRED");
+				published.add(decodeURIComponent(path.slice(5)));
+				return void response.writeHead(201).end();
+			}
+			response.writeHead(404).end();
+		});
+		await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+		try {
+			const address = server.address();
+			if (!address || typeof address === "string") throw new Error("missing fake HTTP address");
+			const base = `http://127.0.0.1:${address.port}`;
+			fakeAdapterTransport(base, requests, published);
+			if (failAt) await expect(runProtectedRc()).rejects.toThrow("new run/GO required");
+			else await expect(runProtectedRc()).resolves.toMatchObject({ status: "VERIFIED_SEVEN" });
+			const count = failAt || rcPackages.length;
+			expect(requests.filter((request) => request.startsWith("GET /oidc"))).toHaveLength(count);
+			expect(requests.filter((request) => request.startsWith("PUT /npm/"))).toHaveLength(count);
+			expect(
+				requests.every((request, index) =>
+					index % 2 === 0 ? request === "GET /oidc" : request.startsWith("PUT /npm/"),
+				),
+			).toBe(true);
+			expect(published.size).toBe(failAt ? failAt - 1 : 7);
+			expect(mocks.signed).toHaveBeenCalledTimes(failAt ? failAt - 1 : 14);
+			if (failAt) {
+				mocks.claim.mockRejectedValueOnce(new Error("run already claimed"));
+				await expect(runProtectedRc()).rejects.toThrow("run already claimed");
+				expect(requests.filter((request) => request.startsWith("PUT /npm/"))).toHaveLength(count);
+			}
+		} finally {
+			server.close();
+		}
 	});
 });

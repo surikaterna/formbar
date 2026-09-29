@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
 import { rcPackages } from "../rc-reviewed-plan";
+import { endpointResponses, versionedCheckout } from "./rc-workflow-fixture";
 
 const root = resolve(".");
 const workflow = readFileSync(join(root, ".github/workflows/release.yml"), "utf8");
@@ -15,6 +16,64 @@ const parsed = YAML.parse(workflow) as {
 };
 const steps = parsed.jobs["protected-rc"].steps;
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
+function driftEndpoints(endpoints: Record<string, unknown>, scenario: string, sha: string, tree: string): void {
+	const api = "repos/surikaterna/formbar";
+	const goPath = `${api}/issues/250/comments?per_page=100&page=1`;
+	if (scenario === "missing GO") endpoints[goPath] = [];
+	if (scenario === "wrong GO") {
+		const comment = (endpoints[goPath] as Record<string, unknown>[])[0];
+		endpoints[goPath] = [{ ...comment, body: String(comment.body).replace('"run_id":12345', '"run_id":99999') }];
+	}
+	if (scenario === "wrong tree") (endpoints[`${api}/git/commits/${sha}`] as { tree: { sha: string } }).tree.sha = sha;
+	if (scenario === "wrong SHA") (endpoints[`${api}/branches/main`] as { commit: { sha: string } }).commit.sha = tree;
+	if (scenario === "CI")
+		(
+			endpoints[`${api}/commits/${sha}/check-runs?per_page=100&page=1`] as { check_runs: { conclusion: string }[] }
+		).check_runs[0].conclusion = "failure";
+	if (scenario === "policy")
+		(endpoints[`${api}/rulesets/24103769`] as { enforcement: string }).enforcement = "disabled";
+	if (scenario === "reviewer")
+		(endpoints[`${api}/actions/runs/12345/approvals`] as { user: { id: number } }[])[0].user.id = 1532734;
+	if (scenario === "403") endpoints.deny = `${api}/actions/runs/12345`;
+}
+
+function fakeWorkflowEnv(sha: string, event: string, responses: string, requests: string): NodeJS.ProcessEnv {
+	return {
+		...process.env,
+		RC_TEST_RESPONSES: responses,
+		RC_TEST_REQUESTS: requests,
+		GITHUB_TOKEN: "fake-read-token",
+		GITHUB_EVENT_PATH: event,
+		GITHUB_RUN_ID: "12345",
+		GITHUB_RUN_ATTEMPT: "1",
+		GITHUB_ACTOR: "eaglez",
+		GITHUB_SHA: sha,
+		GITHUB_REPOSITORY: "surikaterna/formbar",
+		GITHUB_EVENT_NAME: "workflow_dispatch",
+		GITHUB_REF: "refs/heads/main",
+		GITHUB_WORKFLOW_REF: "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main",
+		GITHUB_WORKFLOW_SHA: sha,
+		ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.fixture.invalid/token",
+	};
+}
+
+async function runBundle(checkout: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; error: string }> {
+	const command = steps[1].run;
+	if (command !== "node scripts/release/rc-preflight.mjs") throw new Error("workflow gate changed");
+	return new Promise((done) => {
+		const child = spawn(
+			process.execPath,
+			["--import", join(root, "scripts/release/__tests__/rc-fetch-hook.mjs"), ...command.split(" ").slice(1)],
+			{ cwd: checkout, env },
+		);
+		let error = "";
+		child.stderr.on("data", (chunk: Buffer) => {
+			error += chunk.toString();
+		});
+		child.on("close", (code) => done({ code, error }));
+	});
+}
 
 function unversionedCheckout(dir: string): string {
 	const checkout = join(dir, "checkout");
@@ -140,4 +199,41 @@ describe("#397 protected workflow boundary", () => {
 			}
 		},
 	);
+});
+
+describe("#397 workflow-bound clean Node preflight", () => {
+	it.each([
+		"valid",
+		"missing GO",
+		"wrong GO",
+		"wrong tree",
+		"wrong SHA",
+		"wrong version",
+		"wrong IDs",
+		"CI",
+		"policy",
+		"reviewer",
+		"403",
+	])("%s: real bundled gate only permits the complete approved snapshot", async (scenario) => {
+		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-boundary-"));
+		try {
+			const variant = scenario === "wrong version" || scenario === "wrong IDs" ? scenario : undefined;
+			const { checkout, sha, tree } = versionedCheckout(root, dir, variant);
+			const responsePath = join(dir, "responses.json");
+			const requestPath = join(dir, "requests.log");
+			const eventPath = join(dir, "event.json");
+			const endpoints = endpointResponses(sha, tree, new Date());
+			driftEndpoints(endpoints, scenario, sha, tree);
+			writeFileSync(responsePath, JSON.stringify(endpoints));
+			writeFileSync(requestPath, "");
+			writeFileSync(eventPath, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: sha } }));
+			expect(existsSync(join(checkout, "node_modules"))).toBe(false);
+			const result = await runBundle(checkout, fakeWorkflowEnv(sha, eventPath, responsePath, requestPath));
+			expect(result.code, result.error).toBe(scenario === "valid" ? 0 : 1);
+			expect(readFileSync(requestPath, "utf8")).not.toContain("OIDC");
+			expect(execFileSync("git", ["status", "--porcelain"], { cwd: checkout, encoding: "utf8" })).toBe("");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });
