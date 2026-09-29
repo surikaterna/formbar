@@ -39,7 +39,7 @@ scripts; the tarball-input CLI path also skips directory publish lifecycle.
 The study emits `UNVERIFIABLE`, not an authorization, even if all seven CLI
 calls succeed. Fake 201/GETs, digest equality and the unsigned signer cannot
 establish npmjs.com direct permission, propagation, real OIDC, signed
-provenance, trusted source authority or release GO. There is no publish
+provenance or trusted source authority. There is no publish
 sequencing method in this study. Seven real publishes would not be atomic;
 partial or uncertain writes cannot be resolved by this fixture.
 
@@ -52,9 +52,10 @@ fails the byte read immediately before its CLI call. False rc/latest tags,
 altered attachment bytes and failed/partial CLI calls throw instead of
 printing the final verdict; earlier fake PUTs are not proof of completion.
 
-#363 must independently construct authentic candidates on protected main,
-bind source, run, policy and GO, perform fresh live read-only #365/#371
-observations before writes and genuine #374 verification after writes. It must
-not call this fake study for authorization. #365/#371 observations are not
-permission. The dispatch workflow stays unconditionally rejecting; #363 and
-#250/#298 are held. No workflow enablement, merge or real publish is implied.
+#406 binds the exact protected main SHA/tree, first-attempt spralle run, live
+policy and seven candidates without a GO comment or reviewer. It performs
+fresh read-only #365/#371 observations before writes and genuine #374
+verification after writes. This fake study never grants authorization;
+public absence cannot prove npm publisher permission. #298 has merged, but
+the live environment still requires self review and blocks dispatch until the
+source is audited/merged and admin removes that rule. No real publish is implied.

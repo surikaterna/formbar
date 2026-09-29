@@ -17,14 +17,27 @@ const parsed = YAML.parse(workflow) as {
 const steps = parsed.jobs["protected-rc"].steps;
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
+function verifySourceHashes(markdown: string): void {
+	const table = markdown.match(/Source sections in bundle order:\s*```text\n([^`]+)```/);
+	if (!table) throw new Error("missing source hash table");
+	const rows = table[1].trim().split("\n");
+	if (rows.length !== 10) throw new Error("source hash table must contain all ten sources");
+	const seen = new Set<string>();
+	for (const row of rows) {
+		const match = row.match(/^([0-9a-f]{64}) {2}([a-z0-9-]+\.ts)(?: \([^\n]*\))?$/);
+		if (!match) throw new Error(`invalid source hash row: ${row}`);
+		const [, expected, filename] = match;
+		if (seen.has(filename)) throw new Error(`duplicate source hash: ${filename}`);
+		seen.add(filename);
+		const actual = sha256(readFileSync(join(root, "scripts/release", filename)));
+		if (actual !== expected) throw new Error(`source hash drift: ${filename}`);
+	}
+}
+
 function driftEndpoints(endpoints: Record<string, unknown>, scenario: string, sha: string, tree: string): void {
 	const api = "repos/surikaterna/formbar";
-	const goPath = `${api}/issues/250/comments?per_page=100&page=1`;
-	if (scenario === "missing GO") endpoints[goPath] = [];
-	if (scenario === "wrong GO") {
-		const comment = (endpoints[goPath] as Record<string, unknown>[])[0];
-		endpoints[goPath] = [{ ...comment, body: String(comment.body).replace('"run_id":12345', '"run_id":99999') }];
-	}
+	if (scenario === "actor") (endpoints[`${api}/actions/runs/12345`] as { actor: { id: number } }).actor.id = 1532734;
+	if (scenario === "rerun") (endpoints[`${api}/actions/runs/12345`] as { run_attempt: number }).run_attempt = 2;
 	if (scenario === "wrong tree") (endpoints[`${api}/git/commits/${sha}`] as { tree: { sha: string } }).tree.sha = sha;
 	if (scenario === "wrong SHA") (endpoints[`${api}/branches/main`] as { commit: { sha: string } }).commit.sha = tree;
 	if (scenario === "CI")
@@ -34,7 +47,9 @@ function driftEndpoints(endpoints: Record<string, unknown>, scenario: string, sh
 	if (scenario === "policy")
 		(endpoints[`${api}/rulesets/24103769`] as { enforcement: string }).enforcement = "disabled";
 	if (scenario === "reviewer")
-		(endpoints[`${api}/actions/runs/12345/approvals`] as { user: { id: number } }[])[0].user.id = 1532734;
+		(endpoints[`${api}/environments/formbar-rc`] as { protection_rules: unknown[] }).protection_rules.push({
+			type: "required_reviewers",
+		});
 	if (scenario === "403") endpoints.deny = `${api}/actions/runs/12345`;
 }
 
@@ -47,7 +62,7 @@ function fakeWorkflowEnv(sha: string, event: string, responses: string, requests
 		GITHUB_EVENT_PATH: event,
 		GITHUB_RUN_ID: "12345",
 		GITHUB_RUN_ATTEMPT: "1",
-		GITHUB_ACTOR: "eaglez",
+		GITHUB_ACTOR: "spralle",
 		GITHUB_SHA: sha,
 		GITHUB_REPOSITORY: "surikaterna/formbar",
 		GITHUB_EVENT_NAME: "workflow_dispatch",
@@ -98,12 +113,20 @@ function unversionedCheckout(dir: string): string {
 }
 
 describe("#397 protected workflow boundary", () => {
-	it("executes only built-in git and Node before GO; keeps push job independent", () => {
+	it("binds every documented source hash to exact checked-in bytes and rejects drift", () => {
+		const markdown = readFileSync(join(root, "scripts/release/RC-PREFLIGHT.md"), "utf8");
+		expect(() => verifySourceHashes(markdown)).not.toThrow();
+		expect(() => verifySourceHashes(markdown.replace(/[0-9a-f]{64}(?= {2}live-policy\.ts)/, "0".repeat(64)))).toThrow(
+			"source hash drift: live-policy.ts",
+		);
+	});
+
+	it("executes only built-in git and Node before authority checks; keeps push job independent", () => {
 		expect(parsed.jobs["version-proposal"].steps).toHaveLength(5);
 		expect(parsed.jobs["reject-dispatch"]).toBeUndefined();
 		expect(steps.slice(0, 2).map((step) => step.name)).toEqual([
 			"Fetch exact protected commit without actions or repository scripts",
-			"Live read-only GO and protected-run preflight (runner Node)",
+			"Live read-only protected-run preflight (runner Node)",
 		]);
 		expect(steps.slice(0, 2).every((step) => !step.uses)).toBe(true);
 		expect(steps[0].run).toContain("git fetch --no-tags --no-recurse-submodules --depth=1");
@@ -122,7 +145,7 @@ describe("#397 protected workflow boundary", () => {
 		expect(steps.at(-1)?.run).toContain("runProtectedRc()");
 	});
 
-	it("binds the pre-GO executable to a reproducible audited bundle", () => {
+	it("binds the preflight executable to a reproducible audited bundle", () => {
 		const ci = YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"));
 		const setup = ci.jobs.ci.steps.find((step: { name: string }) => step.name === "Setup Bun");
 		expect(setup.with["bun-version"]).toBe("1.2.21");
@@ -158,7 +181,7 @@ describe("#397 protected workflow boundary", () => {
 		expect(bundle).toContain('method: "GET"');
 	});
 
-	it.each(["eaglez", "spralle"])(
+	it.each(["eaglez", "someone-else", "spralle"])(
 		"clean unversioned Node checkout denies %s before any OIDC or write",
 		async (actor) => {
 			const dir = mkdtempSync(join(tmpdir(), "formbar-rc-deny-"));
@@ -172,7 +195,7 @@ describe("#397 protected workflow boundary", () => {
 				expect(existsSync(join(checkout, "node_modules"))).toBe(false);
 				const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: checkout, encoding: "utf8" }).trim();
 				const event = join(dir, "event.json");
-				writeFileSync(event, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: commit } }));
+				writeFileSync(event, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: commit } }));
 				await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
 				const address = server.address();
 				if (!address || typeof address === "string") throw new Error("missing mock OIDC address");
@@ -222,7 +245,7 @@ describe("#397 workflow-bound clean Node preflight", () => {
 			const event = join(dir, "event.json");
 			writeFileSync(responses, JSON.stringify(endpointResponses(second.sha, second.tree, new Date())));
 			writeFileSync(requests, "");
-			writeFileSync(event, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: second.sha } }));
+			writeFileSync(event, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: second.sha } }));
 			const result = await runBundle(second.checkout, fakeWorkflowEnv(second.sha, event, responses, requests));
 			expect(result.code, result.error).toBe(0);
 		} finally {
@@ -259,13 +282,32 @@ describe("#397 workflow-bound clean Node preflight", () => {
 			execFileSync("git", ["clone", "--quiet", "--depth=1", `file://${root}`, source]);
 			expect(existsSync(join(source, "node_modules"))).toBe(false);
 			expect(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: source, encoding: "utf8" }).trim()).toBe("1");
+			// A shallow clone of HEAD may predate this worktree's audited bundle.
+			cpSync(join(root, "scripts/release/rc-preflight.mjs"), join(source, "scripts/release/rc-preflight.mjs"));
+			if (execFileSync("git", ["status", "--porcelain"], { cwd: source, encoding: "utf8" }).trim()) {
+				execFileSync("git", ["add", "scripts/release/rc-preflight.mjs"], { cwd: source });
+				execFileSync(
+					"git",
+					[
+						"-c",
+						"user.name=fixture",
+						"-c",
+						"user.email=fixture@example.test",
+						"commit",
+						"--quiet",
+						"-m",
+						"bundle fixture",
+					],
+					{ cwd: source },
+				);
+			}
 			const { checkout, sha, tree } = versionedCheckout(source, dir);
 			const responsePath = join(dir, "responses.json");
 			const requestPath = join(dir, "requests.log");
 			const eventPath = join(dir, "event.json");
 			writeFileSync(responsePath, JSON.stringify(endpointResponses(sha, tree, new Date())));
 			writeFileSync(requestPath, "");
-			writeFileSync(eventPath, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: sha } }));
+			writeFileSync(eventPath, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: sha } }));
 			const result = await runBundle(checkout, fakeWorkflowEnv(sha, eventPath, responsePath, requestPath));
 			expect(result.code, result.error).toBe(0);
 			expect(existsSync(join(checkout, "node_modules"))).toBe(false);
@@ -276,8 +318,8 @@ describe("#397 workflow-bound clean Node preflight", () => {
 
 	it.each([
 		"valid",
-		"missing GO",
-		"wrong GO",
+		"actor",
+		"rerun",
 		"wrong tree",
 		"wrong SHA",
 		"wrong version",
@@ -302,7 +344,7 @@ describe("#397 workflow-bound clean Node preflight", () => {
 			driftEndpoints(endpoints, scenario, sha, tree);
 			writeFileSync(responsePath, JSON.stringify(endpoints));
 			writeFileSync(requestPath, "");
-			writeFileSync(eventPath, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: sha } }));
+			writeFileSync(eventPath, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: sha } }));
 			expect(existsSync(join(checkout, "node_modules"))).toBe(false);
 			const result = await runBundle(checkout, fakeWorkflowEnv(sha, eventPath, responsePath, requestPath));
 			expect(result.code, result.error).toBe(scenario === "valid" ? 0 : 1);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type RcRead, type Reply, type SourceWitness, inspectExchange, inspectRcRegistry } from "../rc-registry-proof";
 import { initialVersions, rcEdges, rcPackages } from "../rc-reviewed-plan";
-import { consumed } from "../rc-source-check";
+import { consumed } from "../rc-reviewed-plan";
 
 const names = rcPackages;
 const hash = "a".repeat(40);
@@ -93,7 +93,7 @@ describe("#366 read-only rc reconciliation", () => {
 		f.published("core");
 		const partial = await inspectRcRegistry(f.read, f.source);
 		expect(partial.state).toBe("partial-same-sha");
-		expect(partial.blocked.join()).toContain("fresh #250 FINAL GO");
+		expect(partial.blocked.join()).toContain("new attempt=1 protected-main run");
 		for (const name of names) f.published(name);
 		expect(await inspectRcRegistry(f.read, f.source)).toMatchObject({
 			state: "identical",

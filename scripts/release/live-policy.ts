@@ -75,18 +75,9 @@ async function verifyEnvironment(api: GitHubRead): Promise<void> {
 	requireThat(
 		sameSet(
 			protection.map((rule) => rule.type),
-			["required_reviewers", "branch_policy"],
+			["branch_policy"],
 		),
 		"release protection rules changed",
-	);
-	const reviewerRule = protection.find((rule) => rule.type === "required_reviewers");
-	const reviewers = array(reviewerRule?.reviewers);
-	requireThat(
-		reviewerRule?.prevent_self_review === true &&
-			reviewers.length === 1 &&
-			object(object(reviewers[0]).reviewer).id === 806157 &&
-			object(reviewers[0]).type === "User",
-		"sole non-self reviewer changed",
 	);
 	const policies = object(await api.get(`${repo}/environments/formbar-rc/deployment-branch-policies`));
 	const entries = array(policies.branch_policies);
@@ -105,13 +96,8 @@ export async function verifyLivePolicy(api: GitHubRead): Promise<void> {
 }
 
 export async function verifyEligibleActors(api: GitHubRead): Promise<void> {
-	for (const [login, id] of [
-		["eaglez", 1532734],
-		["spralle", 806157],
-	] as const) {
-		const permission = object(await api.get(`${repo}/collaborators/${login}/permission`));
-		requireThat(object(permission.user).id === id && permission.permission === "admin", "actor eligibility changed");
-	}
+	const permission = object(await api.get(`${repo}/collaborators/spralle/permission`));
+	requireThat(object(permission.user).id === 806157 && permission.permission === "admin", "actor eligibility changed");
 }
 
 export async function verifyCi(api: GitHubRead, commit: string): Promise<void> {

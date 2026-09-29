@@ -1,12 +1,11 @@
-import { type GitHubRead, array, object, repo, requireThat, sha } from "./live-evidence-shape";
-import { verifyFreshGo } from "./live-go";
+import { type GitHubRead, object, repo, requireThat, sha } from "./live-evidence-shape";
 import { verifyCi, verifyEligibleActors, verifyLivePolicy } from "./live-policy";
 
 export interface RunWitness {
 	runId: number;
 	attempt: number;
 	actor: string;
-	senderId: number; // From GitHub-generated workflow event, not a caller-supplied GO comment.
+	senderId: number; // From the GitHub-generated workflow event.
 	repository: string;
 	event: string;
 	ref: string;
@@ -19,22 +18,12 @@ export interface RunWitness {
 }
 
 /** Read-only snapshot. Not a publish entrypoint; re-fetch before each future write. */
-export async function fetchRcEvidence(api: GitHubRead, witness: RunWitness, now: Date): Promise<{ commentId: number }> {
+export async function fetchRcEvidence(api: GitHubRead, witness: RunWitness): Promise<void> {
 	verifyWitness(witness);
-	const run = await verifyRunAndMain(api, witness);
+	await verifyRunAndMain(api, witness);
 	await verifyEligibleActors(api);
 	await verifyLivePolicy(api);
 	await verifyCi(api, witness.expectedSha);
-	const commentId = await verifyFreshGo(
-		api,
-		witness.runId,
-		String(run.created_at),
-		witness.expectedSha,
-		witness.checkoutTree,
-		now,
-	);
-	await verifyApproval(api, witness.runId);
-	return { commentId };
 }
 
 function verifyWitness(witness: RunWitness): void {
@@ -42,8 +31,8 @@ function verifyWitness(witness: RunWitness): void {
 		Number.isSafeInteger(witness.runId) &&
 			witness.runId > 0 &&
 			witness.attempt === 1 &&
-			witness.actor === "eaglez" &&
-			witness.senderId === 1532734 &&
+			witness.actor === "spralle" &&
+			witness.senderId === 806157 &&
 			witness.repository === "surikaterna/formbar" &&
 			witness.event === "workflow_dispatch" &&
 			witness.ref === "refs/heads/main" &&
@@ -55,14 +44,14 @@ function verifyWitness(witness: RunWitness): void {
 	);
 }
 
-async function verifyRunAndMain(api: GitHubRead, witness: RunWitness): Promise<Record<string, unknown>> {
+async function verifyRunAndMain(api: GitHubRead, witness: RunWitness): Promise<void> {
 	const run = object(await api.get(`${repo}/actions/runs/${witness.runId}`));
 	requireThat(
 		run.id === witness.runId &&
 			run.event === "workflow_dispatch" &&
 			run.run_attempt === 1 &&
-			object(run.actor).id === 1532734 &&
-			object(run.triggering_actor).id === 1532734 &&
+			object(run.actor).id === 806157 &&
+			object(run.triggering_actor).id === 806157 &&
 			run.head_sha === witness.expectedSha &&
 			run.head_branch === "main" &&
 			run.path === ".github/workflows/release.yml" &&
@@ -74,20 +63,4 @@ async function verifyRunAndMain(api: GitHubRead, witness: RunWitness): Promise<R
 	requireThat(object(main.commit).sha === witness.expectedSha, "main advanced");
 	const gitCommit = object(await api.get(`${repo}/git/commits/${witness.expectedSha}`));
 	requireThat(object(gitCommit.tree).sha === witness.checkoutTree, "main tree changed");
-	return run;
-}
-
-async function verifyApproval(api: GitHubRead, runId: number): Promise<void> {
-	const approvals = array(await api.get(`${repo}/actions/runs/${runId}/approvals`));
-	requireThat(approvals.length === 1, "missing or ambiguous same-run approval");
-	const approval = object(approvals[0]);
-	const environments = array(approval.environments);
-	requireThat(
-		approval.state === "approved" &&
-			object(approval.user).id === 806157 &&
-			environments.length === 1 &&
-			object(environments[0]).id === 22904271021 &&
-			object(environments[0]).name === "formbar-rc",
-		"wrong same-run reviewer or environment",
-	);
 }

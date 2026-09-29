@@ -23,7 +23,7 @@ function fixture() {
 	mkdirSync(temp, { recursive: true, mode: 0o700 });
 	const log = join(base, "puts");
 	const event = join(base, "event.json");
-	writeFileSync(event, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: "a".repeat(40) } }));
+	writeFileSync(event, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: "a".repeat(40) } }));
 	const env = {
 		...process.env,
 		GITHUB_TOKEN: "fake-read-only",
@@ -34,9 +34,10 @@ function fixture() {
 		GITHUB_EVENT_PATH: event,
 		GITHUB_RUN_ID: "12345",
 		GITHUB_RUN_ATTEMPT: "1",
+		GITHUB_ACTOR: "spralle",
 		GITHUB_REPOSITORY: "surikaterna/formbar",
 		GITHUB_SHA: "a".repeat(40),
-		FAKE_GO: "true",
+		FAKE_POLICY: "true",
 		PUT_LOG: log,
 	};
 	return { temp, log, env };
@@ -69,9 +70,9 @@ afterEach(() => {
 });
 
 describe("#363 integrated protected adapter across Node processes (fake GH/npm only)", () => {
-	it("partial/uncertain first PUT stops; a second process with identical GO cannot skip or write", () => {
+	it("partial/uncertain first PUT stops; a second process on the same run cannot skip or write", () => {
 		const { temp, log, env } = fixture();
-		expect(run(env)).toEqual({ status: "STOPPED", reason: "npm publish failed or uncertain; new run/GO required" });
+		expect(run(env)).toEqual({ status: "STOPPED", reason: "npm publish failed or uncertain; new run required" });
 		const claim = join(temp, "formbar-rc-12345-attempt-1.claim");
 		expect(JSON.parse(readFileSync(claim, "utf8"))).toMatchObject({
 			runId: 12345,
@@ -88,7 +89,7 @@ describe("#363 integrated protected adapter across Node processes (fake GH/npm o
 		const { log, env } = fixture();
 		const results = await Promise.all([start(env), start(env)]);
 		expect(results.map((result) => result.reason).sort()).toEqual(
-			["npm publish failed or uncertain; new run/GO required", expect.stringMatching(/EEXIST/)].sort(),
+			["npm publish failed or uncertain; new run required", expect.stringMatching(/EEXIST/)].sort(),
 		);
 		expect(writes(log)).toEqual(["12345 @formbar/expressions"]);
 	});
@@ -97,7 +98,7 @@ describe("#363 integrated protected adapter across Node processes (fake GH/npm o
 		const claim = join(temp, "formbar-rc-12345-attempt-1.claim");
 		writeFileSync(claim, "partial", { mode: 0o600 });
 		expect(run(env).reason).toMatch(/EEXIST/);
-		expect(run({ ...env, GITHUB_SHA: "b".repeat(40) }).reason).toMatch(/GO denied/);
+		expect(run({ ...env, GITHUB_SHA: "b".repeat(40) }).reason).toMatch(/policy denied/);
 		expect(run({ ...env, RUNNER_TEMP: "" }).status).toBe("STOPPED");
 		expect(run({ ...env, RUNNER_TEMP: join(temp, "missing") }).status).toBe("STOPPED");
 		rmSync(claim);
@@ -112,13 +113,13 @@ describe("#363 integrated protected adapter across Node processes (fake GH/npm o
 		expect(run({ ...env, RUNNER_TEMP: alternate }).status).toBe("STOPPED");
 		expect(writes(log)).toEqual([]);
 	});
-	it("a new run requires new fake GO; failures never remove the old claim", () => {
+	it("a new run requires valid policy; failures never remove the old claim", () => {
 		const { temp, log, env } = fixture();
 		run(env);
 		const old = join(temp, "formbar-rc-12345-attempt-1.claim");
-		expect(run({ ...env, GITHUB_RUN_ID: "12346", FAKE_GO: "false" }).reason).toMatch(/GO denied/);
+		expect(run({ ...env, GITHUB_RUN_ID: "12346", FAKE_POLICY: "false" }).reason).toMatch(/policy denied/);
 		expect(writes(log)).toHaveLength(1);
-		expect(run({ ...env, GITHUB_RUN_ID: "12346" }).reason).toMatch(/new run\/GO required/);
+		expect(run({ ...env, GITHUB_RUN_ID: "12346" }).reason).toMatch(/new run required/);
 		expect(writes(log)).toEqual(["12345 @formbar/expressions", "12346 @formbar/expressions"]);
 		expect(existsSync(old)).toBe(true);
 	});

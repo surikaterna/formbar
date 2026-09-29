@@ -37,10 +37,12 @@ const source = {
 		initialLatest: Object.fromEntries(names.map((name) => [name, "0.22.0"])),
 	}),
 };
-function fakeGo(_, run) {
+function fakePolicy(_, run) {
 	if (
-		process.env.FAKE_GO !== "true" ||
+		process.env.FAKE_POLICY !== "true" ||
 		run.runId !== Number(process.env.GITHUB_RUN_ID) ||
+		run.actor !== "spralle" ||
+		run.senderId !== 806157 ||
 		run.attempt !== 1 ||
 		run.checkoutSha !== sha ||
 		run.checkoutTree !== tree ||
@@ -48,7 +50,7 @@ function fakeGo(_, run) {
 		run.eventSha !== sha ||
 		run.repository !== "surikaterna/formbar"
 	)
-		throw Error("fake #365 GO denied");
+		throw Error("fake #406 policy denied");
 }
 function fakeModule(request) {
 	if (request === "./rc-pack-evidence" || request === "./rc-source-local") return source;
@@ -60,7 +62,7 @@ function fakeModule(request) {
 				},
 			}),
 		};
-	if (request === "./live-evidence") return { fetchRcEvidence: fakeGo };
+	if (request === "./live-evidence") return { fetchRcEvidence: fakePolicy };
 	if (request === "./rc-prepacked-candidates" || request === "./rc-prepacked-candidates.js")
 		return { prepackProtectedRun: async () => candidates, verifiedCandidateBytes: async () => Buffer.from(bytes) };
 	if (request === "./rc-live-reads")

@@ -144,7 +144,7 @@ describe("internal protected RC adapter (mock providers are not release evidence
 				published.add(name);
 				throw new Error(reason);
 			});
-			await expect(runProtectedRc()).rejects.toThrow("new run/GO required");
+			await expect(runProtectedRc()).rejects.toThrow("new run required");
 			expect(mocks.publish).toHaveBeenCalledTimes(1);
 		},
 	);
@@ -186,7 +186,7 @@ describe("#397 preflight-to-guarded-adapter no-write transport", () => {
 	it.each([0, 1, 3])("mock OIDC and npm HTTP: stop at PUT %i (0 means seven)", async (failAt) => {
 		vi.resetAllMocks();
 		const preflightReads = approvedPreflight();
-		expect(preflightReads.length).toBeGreaterThan(10);
+		expect(preflightReads.length).toBeGreaterThan(8);
 		expect(preflightReads.every((request) => request.startsWith("https://api.github.com/"))).toBe(true);
 		const requests: string[] = [];
 		const published = new Set<string>();
@@ -207,7 +207,7 @@ describe("#397 preflight-to-guarded-adapter no-write transport", () => {
 			if (!address || typeof address === "string") throw new Error("missing fake HTTP address");
 			const base = `http://127.0.0.1:${address.port}`;
 			fakeAdapterTransport(base, requests, published);
-			if (failAt) await expect(runProtectedRc()).rejects.toThrow("new run/GO required");
+			if (failAt) await expect(runProtectedRc()).rejects.toThrow("new run required");
 			else await expect(runProtectedRc()).resolves.toMatchObject({ status: "VERIFIED_SEVEN" });
 			const count = failAt || rcPackages.length;
 			expect(requests.filter((request) => request.startsWith("GET /oidc"))).toHaveLength(count);
