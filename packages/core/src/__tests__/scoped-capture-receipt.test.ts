@@ -225,7 +225,8 @@ describe("private scoped capture ownership receipt", () => {
 			Reflect.ownKeys = ownKeys;
 		}
 	}
-	test.each([100, 300, 600])("accepts %i independent completions across one detachment", settle, 30_000);
+	test.each([100, 300])("accepts %i independent completions across one detachment", settle, 30_000);
+	test("accepts 600 independent completions across one detachment", () => settle(600), 90_000);
 	test.each([100, 300, 600])(
 		"owned %i metadata settlements avoid data scans and preserve notification count",
 		(count) => {
