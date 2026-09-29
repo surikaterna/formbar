@@ -1,5 +1,11 @@
 # @formbar/expressions
 
+## 0.23.0-rc.0
+
+### Minor Changes
+
+- bf56976: Expose `parseRef` to validate and canonically copy StateRefs without flattening scoped row references.
+
 ## 0.14.3
 
 ### Patch Changes

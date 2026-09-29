@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/expressions",
-	"version": "0.14.3",
+	"version": "0.23.0-rc.0",
 	"type": "module",
 	"description": "Authorized reactive Formbar expressions powered by Kuery",
 	"license": "MIT",

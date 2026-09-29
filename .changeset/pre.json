@@ -11,5 +11,29 @@
 		"@formbar/react": "0.22.0",
 		"@formbar/react-schema": "0.22.0"
 	},
-	"changesets": []
+	"changesets": [
+		"bound-noop-witness",
+		"certified-object-descendants",
+		"checked-bound-handler",
+		"final-owned-generation",
+		"final-retained-attempt-gate",
+		"original-bound-attempt-receipt",
+		"owned-disposal-settlement",
+		"owned-scheduling-boundary",
+		"owned-semantic-epoch",
+		"public-bound-omission",
+		"react-omission-attempt-ui",
+		"real-bound-guarded-bridge",
+		"real-bound-omission-supplier",
+		"reference-codec",
+		"scoped-async-core",
+		"scoped-async-declarative",
+		"scoped-async-from-schema",
+		"scoped-async-react-schema",
+		"scoped-final-async",
+		"scoped-ownership-receipt",
+		"scoped-validation-public-types",
+		"unified-issue-ownership",
+		"validated-hidden-submission-policy"
+	]
 }
