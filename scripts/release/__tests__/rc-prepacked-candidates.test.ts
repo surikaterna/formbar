@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ audit: vi.fn(), refresh: vi.fn(), source: vi.fn(), cli: vi.fn() }));
@@ -13,11 +16,14 @@ import type { VerifiedRun } from "../rc-run-authority";
 
 const run = Object.freeze({}) as VerifiedRun; // Mock-only: production refresh rejects this value.
 const bytes = rcPackages.map((name) => Buffer.from(`native tarball for ${name}`));
+let configDir: string;
 
 function setup() {
 	vi.resetAllMocks();
-	vi.stubEnv("npm_config_userconfig", "/dev/null");
-	vi.stubEnv("npm_config_globalconfig", "/dev/null");
+	configDir = mkdtempSync(join(tmpdir(), "formbar-rc-mock-config-"));
+	for (const name of ["user", "global"]) writeFileSync(join(configDir, `${name}.npmrc`), "", { mode: 0o600 });
+	vi.stubEnv("npm_config_userconfig", join(configDir, "user.npmrc"));
+	vi.stubEnv("npm_config_globalconfig", join(configDir, "global.npmrc"));
 	vi.stubEnv("npm_config_offline", "true");
 	for (const key of ["NPM_TOKEN", "NODE_AUTH_TOKEN", "npm_config_auth", "npm_config__authToken"])
 		vi.stubEnv(key, undefined);
@@ -28,7 +34,10 @@ function setup() {
 	);
 }
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+	vi.unstubAllEnvs();
+	if (configDir) rmSync(configDir, { recursive: true, force: true });
+});
 
 describe("#389 disabled native seven-candidate byte witness (pack process mocked, no publish)", () => {
 	it("copies two native pack passes and binds each digest and bytes to the same run", async () => {
@@ -53,6 +62,8 @@ describe("#389 disabled native seven-candidate byte witness (pack process mocked
 		"wrong-npm",
 		"ambient-token",
 		"wrong-config",
+		"same-config",
+		"nonempty-config",
 		"nondeterministic",
 		"missing",
 		"reordered",
@@ -71,6 +82,9 @@ describe("#389 disabled native seven-candidate byte witness (pack process mocked
 			);
 		if (failure === "ambient-token") vi.stubEnv("NPM_TOKEN", "unsafe");
 		if (failure === "wrong-config") vi.stubEnv("npm_config_userconfig", "/home/user/.npmrc");
+		if (failure === "same-config") vi.stubEnv("npm_config_globalconfig", join(configDir, "user.npmrc"));
+		if (failure === "nonempty-config")
+			writeFileSync(join(configDir, "user.npmrc"), "//registry.npmjs.org/:_authToken=bad");
 		if (failure === "nondeterministic" || failure === "missing" || failure === "reordered") {
 			mocks.audit.mockImplementationOnce(() =>
 				rcPackages.map((name, index) => ({ name: `@formbar/${name}`, bytes: Buffer.from(bytes[index]) })),

@@ -1,9 +1,9 @@
 /** Disabled #389: native npm11.20 twice-packed bytes bound to a private protected-run capability. */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { type PackageAudit, auditPackages } from "../package-artifacts/audit";
 import { loadRcSource } from "./rc-pack-evidence";
 import { rcPackages, rcVersion } from "./rc-reviewed-plan";
@@ -20,14 +20,25 @@ export type PrepackedCandidate = {
 };
 const stored = new WeakMap<object, { run: VerifiedRun; bytes: Buffer }>();
 
+function emptyPrivateConfig(path: string | undefined): boolean {
+	if (!path || !isAbsolute(path)) return false;
+	try {
+		const file = lstatSync(path);
+		return file.isFile() && file.size === 0 && (file.mode & 0o777) === 0o600;
+	} catch {
+		return false;
+	}
+}
+
 function toolchain(): void {
 	const run = (command: string) =>
 		execFileSync(command, ["--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 1024 }).trim();
 	if (
+		!emptyPrivateConfig(process.env.npm_config_userconfig) ||
+		!emptyPrivateConfig(process.env.npm_config_globalconfig) ||
+		process.env.npm_config_userconfig === process.env.npm_config_globalconfig ||
 		run("node") !== "v22.23.2" ||
 		run("npm") !== "11.20.0" ||
-		process.env.npm_config_userconfig !== "/dev/null" ||
-		process.env.npm_config_globalconfig !== "/dev/null" ||
 		process.env.npm_config_offline !== "true" ||
 		Object.entries(process.env).some(
 			([key, value]) =>
