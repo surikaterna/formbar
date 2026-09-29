@@ -1,6 +1,7 @@
 import { checkKaladaV1DirectLocation } from "@kalada/syntax";
 import type { KaladaDirectLocationBinding, KaladaDirectLocationOutcome } from "@kalada/syntax";
 import type { AdmittedDefinition } from "./kalada-definition.js";
+import { writeNode } from "./kalada-write-node.js";
 import { resolveStaticReference, staticDependencyKey } from "./static-references.js";
 
 export type TrustedDirectLocations = Readonly<Record<string, Readonly<Record<string, KaladaDirectLocationBinding>>>>;
@@ -12,7 +13,7 @@ export function checkPrivateDirectLocation(
 	admitted: AdmittedDefinition,
 	locations: TrustedDirectLocations | undefined,
 ): KaladaDirectLocationOutcome | undefined {
-	const field = [...admitted.fields.values()].find((node) => `${node.path}.binding` === path);
+	const field = writeNode(path, admitted);
 	const reference = admitted.targets.get(path);
 	if (!field || !reference || reference.namespace !== "data") return;
 	if (!reference.path.length || typeof reference.path.at(-1) !== "string") return;

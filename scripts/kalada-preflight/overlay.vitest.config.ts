@@ -7,6 +7,7 @@ export default defineConfig({
 		...base.test,
 		include: [
 			"scripts/kalada-preflight/fixtures/**/*.test.ts",
+			"scripts/kalada-preflight/fixtures/**/*.test.tsx",
 			"scripts/kalada-preflight/fixtures/kalada-private-runtime.test.ts",
 			"packages/declarative/src/__tests__/static-references.test.ts",
 			"packages/declarative/src/__tests__/kalada-policy.test.ts",

@@ -6,6 +6,7 @@ import type {
 	ReadScope,
 } from "../../../packages/declarative/src/validators/kalada-data-strategy.js";
 import { KALADA_RUNTIME_ARTIFACT } from "../../../packages/declarative/src/validators/kalada-private-runtime.js";
+import { registryData, rowData, submissionPorts } from "./row-submission-host.js";
 
 export type Node = {
 	id: string;
@@ -116,8 +117,13 @@ export function serialHost() {
 		current.revision = {};
 		current.notify();
 	};
+	const submission = submissionPorts((context) => {
+		const current = state(context);
+		return { revision: current.revision, field: current.field, data: rowData(current.field, current.roots) };
+	});
 	const strategy: FormbarDataStrategyV1 = {
 		contract: "formbar-data-strategy-v1",
+		...submission.ports,
 		identity(context) {
 			if (!states.has(context.instance)) {
 				const first = make("first", "first");
@@ -199,7 +205,7 @@ export function serialHost() {
 			return { status: "applied" };
 		},
 	};
-	return { strategy, states, notifications, bump };
+	return { strategy, states, notifications, bump, ...submission };
 }
 
 export function versionedHost() {
@@ -221,8 +227,17 @@ export function versionedHost() {
 		}
 		return found;
 	};
+	const submission = submissionPorts((context) => {
+		const { version } = state(context);
+		return {
+			revision: version.revision,
+			field: version.field,
+			data: registryData(version.field, version.roots, version.nodes),
+		};
+	});
 	const strategy: FormbarDataStrategyV1 = {
 		contract: "formbar-data-strategy-v1",
+		...submission.ports,
 		identity(context) {
 			if (!states.has(context.instance)) {
 				const first = { ...node("first", "first"), children: ["child"] };
@@ -317,6 +332,7 @@ export function versionedHost() {
 	};
 	return {
 		strategy,
+		...submission,
 		states,
 		notifications,
 		change(instance: object, edit: (draft: RegistryVersion) => void) {

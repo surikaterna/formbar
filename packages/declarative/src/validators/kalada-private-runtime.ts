@@ -12,7 +12,8 @@ import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import type { TrustedDirectLocations } from "./kalada-direct-location.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
-import { privateWritePorts } from "./kalada-private-write.js";
+import { privateProjections } from "./kalada-private-projections.js";
+import { privateSubmission } from "./kalada-private-submission.js";
 import { type KaladaReference, ProgramAdmissionError } from "./kalada-program.js";
 import { resolveStaticReference } from "./static-references.js";
 
@@ -317,12 +318,31 @@ function install(options: RuntimeOptions) {
 	if (!matches()) throw new ProgramAdmissionError("root", "STALE_INSTALLATION");
 	const admitted = admitKaladaDefinitionWithPolicy(options.definition, policy, identity);
 	const slots = prepare(admitted);
-	return { context, strategy, admitted, slots, matches, directLocations: options.directLocations };
+	return {
+		context,
+		strategy,
+		admitted,
+		slots,
+		matches,
+		definition: options.definition,
+		policy,
+		directLocations: options.directLocations,
+	};
 }
 
 function captureRuntime(installed: ReturnType<typeof install>, valid: () => boolean, disposed: () => boolean) {
 	const { context, strategy, admitted, slots } = installed;
 	return capturedSession({ context, strategy, admitted, slots, valid, disposed });
+}
+
+function liveRead(
+	installed: ReturnType<typeof install>,
+	valid: () => boolean,
+	path: string,
+	scope: ReadScope,
+): PrivateEvaluation {
+	const { slots, admitted, strategy, context } = installed;
+	return standaloneRead({ path, scope, slots, admitted, strategy, context, valid });
 }
 
 /** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
@@ -335,16 +355,22 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 		revision++;
 	});
 	const live = () => !disposed && matches();
-	const writes = privateWritePorts({
+	const ports = privateProjections({
 		admitted,
+		definition: installed.definition,
+		policy: installed.policy,
+		locations: installed.directLocations,
 		strategy,
 		context,
-		valid: live,
+		live,
 		revision: () => revision,
-		locations: installed.directLocations,
 		validScope: (scope, enclosing) => validScope(scope, enclosing, admitted),
+		evaluate: (path, scope) => standaloneRead({ path, scope, slots, admitted, strategy, context, valid: live }),
 	});
 	return {
+		...privateSubmission(strategy, context, live),
+		currentRevision: () => (live() ? strategy.current(context) : undefined),
+		subscribe: (invalidate: () => void) => strategy.subscribe(context, invalidate),
 		capture() {
 			const start = revision;
 			return captureRuntime(
@@ -353,18 +379,10 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 				() => disposed,
 			);
 		},
-		...writes,
+		...ports,
 		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
 			const start = revision;
-			return standaloneRead({
-				path,
-				scope,
-				slots,
-				admitted,
-				strategy,
-				context,
-				valid: () => !disposed && revision === start && matches(),
-			});
+			return liveRead(installed, () => !disposed && revision === start && matches(), path, scope);
 		},
 		dispose(): void {
 			if (disposed) return;
