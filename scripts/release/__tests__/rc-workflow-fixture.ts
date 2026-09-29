@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { consumed, initialVersions, rcEdges, rcPackages, rcVersion } from "../rc-reviewed-plan";
+import { checkChangelog, consumed, initialVersions, rcEdges, rcPackages, rcVersion } from "../rc-reviewed-plan";
 
 const repo = "repos/surikaterna/formbar";
 const rules = ["deletion", "non_fast_forward", "pull_request", "required_status_checks"];
@@ -177,7 +177,23 @@ const changelogSections: Record<string, string> = {
   - @formbar/expressions@0.23.0-rc.0`,
 };
 
-export function versionedCheckout(root: string, dir: string, variant?: "wrong version" | "wrong IDs") {
+function reviewedChangelog(name: string, source: string): string {
+	const heading = `# @formbar/${name}\n\n`;
+	if (!source.startsWith(heading)) throw new Error(`unexpected baseline changelog ${name}`);
+	const section = `## ${rcVersion}\n\n${changelogSections[name]}\n\n`;
+	const versioned = source.startsWith(heading + section);
+	if (versioned) checkChangelog(name, source);
+	const history = source.slice(heading.length + (versioned ? section.length : 0));
+	const result = heading + section + history;
+	checkChangelog(name, result);
+	return result;
+}
+
+export function versionedCheckout(
+	root: string,
+	dir: string,
+	variant?: "wrong version" | "wrong IDs" | "wrong changelog",
+) {
 	const checkout = join(dir, "checkout");
 	mkdirSync(join(checkout, ".changeset"), { recursive: true });
 	writeFileSync(
@@ -196,12 +212,13 @@ export function versionedCheckout(root: string, dir: string, variant?: "wrong ve
 		manifest.version = variant === "wrong version" && name === "expressions" ? "0.23.0-rc.1" : rcVersion;
 		for (const dep of rcEdges[name]) manifest.dependencies[`@formbar/${dep}`] = `^${rcVersion}`;
 		writeFileSync(join(path, "package.json"), JSON.stringify(manifest));
-		const baseline = readFileSync(join(root, "packages", name, "CHANGELOG.md"), "utf8");
-		const heading = `# @formbar/${name}\n\n`;
-		if (!baseline.startsWith(heading)) throw new Error(`unexpected baseline changelog ${name}`);
+		const source = readFileSync(join(root, "packages", name, "CHANGELOG.md"), "utf8");
+		const reviewed = reviewedChangelog(name, source);
 		writeFileSync(
 			join(path, "CHANGELOG.md"),
-			`${heading}## ${rcVersion}\n\n${changelogSections[name]}\n\n${baseline.slice(heading.length)}`,
+			variant === "wrong changelog" && name === "expressions"
+				? reviewed.replace("canonically copy", "silently change")
+				: reviewed,
 		);
 	}
 	mkdirSync(join(checkout, "scripts/release"), { recursive: true });
