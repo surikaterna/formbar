@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
-import { rcPackages } from "../rc-reviewed-plan";
+import { checkChangelog, rcPackages, rcVersion } from "../rc-reviewed-plan";
 import { endpointResponses, versionedCheckout } from "./rc-workflow-fixture";
 
 const root = resolve(".");
@@ -205,6 +205,53 @@ describe("#397 protected workflow boundary", () => {
 });
 
 describe("#397 workflow-bound clean Node preflight", () => {
+	it("normalizes unversioned and reviewed versioned sources to one identical seven-package RC", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-single-heading-"));
+		try {
+			const first = versionedCheckout(root, join(dir, "first"));
+			const second = versionedCheckout(first.checkout, join(dir, "second"));
+			for (const name of rcPackages) {
+				const path = join("packages", name, "CHANGELOG.md");
+				const text = readFileSync(join(second.checkout, path), "utf8");
+				expect(text).toBe(readFileSync(join(first.checkout, path), "utf8"));
+				expect(text.split(`## ${rcVersion}\n`)).toHaveLength(2);
+				expect(() => checkChangelog(name, text)).not.toThrow();
+			}
+			const responses = join(dir, "responses.json");
+			const requests = join(dir, "requests.log");
+			const event = join(dir, "event.json");
+			writeFileSync(responses, JSON.stringify(endpointResponses(second.sha, second.tree, new Date())));
+			writeFileSync(requests, "");
+			writeFileSync(event, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: second.sha } }));
+			const result = await runBundle(second.checkout, fakeWorkflowEnv(second.sha, event, responses, requests));
+			expect(result.code, result.error).toBe(0);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it.each(["altered content", "duplicate heading", "unknown heading", "altered history"])(
+		"rejects %s in an already versioned source rather than laundering it",
+		(scenario) => {
+			const dir = mkdtempSync(join(tmpdir(), "formbar-rc-drift-"));
+			try {
+				const source = versionedCheckout(root, join(dir, "source")).checkout;
+				const path = join(source, "packages/expressions/CHANGELOG.md");
+				const text = readFileSync(path, "utf8");
+				const changed = {
+					"altered content": text.replace("canonically copy", "silently change"),
+					"duplicate heading": text.replace("## 0.14.3", `## ${rcVersion}\n\n## 0.14.3`),
+					"unknown heading": text.replace(`## ${rcVersion}`, "## 0.23.0-rc.1"),
+					"altered history": `${text}unreviewed history\n`,
+				}[scenario as "altered content" | "duplicate heading" | "unknown heading" | "altered history"];
+				writeFileSync(path, changed);
+				expect(() => versionedCheckout(source, join(dir, "output"))).toThrow();
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		},
+	);
+
 	it("builds the approved seven-package fixture from a shallow HEAD without node_modules", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-shallow-"));
 		try {
@@ -235,6 +282,7 @@ describe("#397 workflow-bound clean Node preflight", () => {
 		"wrong SHA",
 		"wrong version",
 		"wrong IDs",
+		"wrong changelog",
 		"CI",
 		"policy",
 		"reviewer",
@@ -242,7 +290,10 @@ describe("#397 workflow-bound clean Node preflight", () => {
 	])("%s: real bundled gate only permits the complete approved snapshot", async (scenario) => {
 		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-boundary-"));
 		try {
-			const variant = scenario === "wrong version" || scenario === "wrong IDs" ? scenario : undefined;
+			const variant =
+				scenario === "wrong version" || scenario === "wrong IDs" || scenario === "wrong changelog"
+					? scenario
+					: undefined;
 			const { checkout, sha, tree } = versionedCheckout(root, dir, variant);
 			const responsePath = join(dir, "responses.json");
 			const requestPath = join(dir, "requests.log");
