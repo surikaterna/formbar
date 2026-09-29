@@ -10,6 +10,7 @@ import {
 	validateLicense,
 	validateManifest,
 	validateRcDependencies,
+	validateRcPlan,
 	validateSourceMaps,
 } from "./validate";
 
@@ -95,12 +96,9 @@ function auditPackage(
 
 export function auditPackages(root: string): PackageAudit[] {
 	validateWorkspaceSet(root);
-	const versions = Object.fromEntries(
-		packagePolicies.map((policy) => {
-			const manifest = readManifest(resolve(root, "packages", policy.directory));
-			return [policy.name, manifest.version];
-		}),
-	);
+	const manifests = packagePolicies.map((policy) => readManifest(resolve(root, "packages", policy.directory)));
+	validateRcPlan(root, manifests);
+	const versions = Object.fromEntries(manifests.map(({ name, version }) => [name, version]));
 	const packRoot = mkdtempSync(join(tmpdir(), "formbar-native-packs-"));
 	try {
 		return packagePolicies.map((_, index) => auditPackage(root, packRoot, index, versions));

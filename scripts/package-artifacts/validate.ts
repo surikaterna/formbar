@@ -1,6 +1,7 @@
 import { deepStrictEqual, strictEqual } from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, posix, relative, resolve } from "node:path";
+import { checkManifest, checkPre, rcPackages, rcVersion as reviewedRcVersion } from "../release/rc-reviewed-plan";
 import type { ExportConditions, PackageManifest, PackagePolicy } from "./policy";
 import { exportEntries, expressionAdr, standardPackageFiles } from "./policy";
 
@@ -69,14 +70,7 @@ export function validateRcDependencies(
 		const floor = /^\^(.+)$/.exec(range)?.[1];
 		const expected = rcVersion.exec(target);
 		const actual = floor && rcVersion.exec(floor);
-		if (
-			name !== "@formbar/expressions" &&
-			expected &&
-			actual &&
-			actual[1] === expected[1] &&
-			BigInt(actual[2]) <= BigInt(expected[2])
-		)
-			continue;
+		if (expected && actual && actual[1] === expected[1] && BigInt(actual[2]) <= BigInt(expected[2])) continue;
 		const stableFloor = floor && stableParts.exec(floor);
 		const stableTarget = stableParts.exec(target);
 		if (name === "@formbar/expressions" && stableFloor && stableTarget) {
@@ -91,6 +85,35 @@ export function validateRcDependencies(
 		}
 		fail(policy, `invalid prerelease dependency ${name}: ${range} for ${target}`);
 	}
+}
+
+export function validateRcPlan(root: string, manifests: readonly PackageManifest[]): void {
+	if (!manifests.some(({ version }) => rcVersion.test(version))) return;
+	const path = resolve(root, ".changeset/pre.json");
+	if (!existsSync(path)) throw new Error("prerelease plan requires pre.json");
+	let pre: unknown;
+	try {
+		pre = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		throw new Error("invalid pre.json");
+	}
+	checkPre(pre);
+	if (
+		Object.keys(pre as object)
+			.sort()
+			.join(",") !== "changesets,initialVersions,mode,tag"
+	)
+		throw new Error("unexpected pre.json fields");
+	if (
+		manifests.length !== rcPackages.length ||
+		new Set(manifests.map(({ name }) => name)).size !== rcPackages.length ||
+		manifests.some(
+			({ name, version }) =>
+				!rcPackages.includes(name.slice(9) as (typeof rcPackages)[number]) || version !== reviewedRcVersion,
+		)
+	)
+		throw new Error("incomplete seven-package RC plan");
+	for (const manifest of manifests) checkManifest(manifest.name.slice(9), manifest);
 }
 
 export function validateManifest(
