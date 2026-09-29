@@ -33,12 +33,14 @@ vi.mock("../rc-live-reads", () => ({
 	}),
 	inspectLiveRc: mocks.inspect,
 }));
-vi.mock("../rc-protected-providers", () => ({
+vi.mock("../rc-protected-providers", async (importActual) => ({
+	...(await importActual<typeof import("../rc-protected-providers")>()),
 	publishProtected: mocks.publish,
 	signedPublished: mocks.signed,
 }));
 
 import { runProtectedRc } from "../rc-protected";
+import { SafePublishFailure } from "../rc-protected-providers";
 
 const sha = "a".repeat(40);
 const tree = "b".repeat(40);
@@ -148,6 +150,27 @@ describe("internal protected RC adapter (mock providers are not release evidence
 			expect(mocks.publish).toHaveBeenCalledTimes(1);
 		},
 	);
+
+	it.each(["NPM_STAGE_REQUIRED", "NPM_FORBIDDEN", "NPM_TIMEOUT", "NPM_UNKNOWN"] as const)(
+		"reports safe %s after failed PUT and stops even when registry remains absent",
+		async (category) => {
+			mocks.inspect.mockResolvedValue({ packages: observed(new Set()) });
+			mocks.publish.mockRejectedValueOnce(new SafePublishFailure(category, candidates[0].name, 400));
+			await expect(runProtectedRc()).rejects.toThrow(
+				`npm publish ${category} ${candidates[0].name}@${rcVersion} preflightMs=400 npmMs=0; failed or uncertain; new run required`,
+			);
+			expect(mocks.publish).toHaveBeenCalledTimes(1);
+		},
+	);
+
+	it("discards an unknown secret-bearing publish exception even if reconciliation is ambiguous", async () => {
+		mocks.inspect.mockResolvedValueOnce({ packages: observed(new Set()) });
+		mocks.inspect.mockResolvedValueOnce({ packages: observed(new Set()) });
+		mocks.inspect.mockRejectedValue(new Error("secret registry URL"));
+		mocks.publish.mockRejectedValueOnce(new Error("secret token https://user:secret@registry.invalid"));
+		await expect(runProtectedRc()).rejects.toThrow("npm publish NPM_UNKNOWN; failed or uncertain; new run required");
+		expect(mocks.publish).toHaveBeenCalledTimes(1);
+	});
 
 	it("existing-version skips require signed proof before any PUT", async () => {
 		mocks.inspect.mockResolvedValue({ packages: observed(new Set([candidates[0].name])) });

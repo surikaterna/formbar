@@ -78,6 +78,7 @@ function fakeModule(request) {
 		};
 	if (request === "./rc-protected-providers")
 		return {
+			SafePublishFailure: class SafePublishFailure extends Error {},
 			signedPublished: async () => {
 				throw Error("unexpected signed existing");
 			},
