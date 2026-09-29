@@ -9,6 +9,7 @@ import type {
 } from "./kalada-data-strategy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import { type TrustedDirectLocations, checkPrivateDirectLocation } from "./kalada-direct-location.js";
+import { writeNode } from "./kalada-write-node.js";
 
 interface WriteOptions {
 	readonly path: string;
@@ -29,7 +30,7 @@ export function directWrite(options: WriteOptions): DirectWriteResult {
 	try {
 		if (!strategy.writeDirect) return { status: "unsupported" };
 		if (!valid()) return { status: "stale" };
-		const field = [...admitted.fields.values()].find((node) => `${node.path}.binding` === path);
+		const field = writeNode(path, admitted);
 		const reference = admitted.targets.get(path);
 		if (!field || !reference || reference.namespace !== "data" || !reference.path.length)
 			return { status: "invalid-target" };
@@ -75,6 +76,17 @@ export function directWrite(options: WriteOptions): DirectWriteResult {
 }
 
 /** Bind host-issued identity and expected revisions; invocation still delegates authority to the live host. */
+function snapshotRow(row: EnumeratedRow, writeRevision: object) {
+	return Object.freeze({
+		token: row.token,
+		order: row.order,
+		writeRevision,
+		scope: Object.freeze({
+			rows: Object.freeze(row.scope.rows.map(({ name, token }) => Object.freeze({ name, token }))),
+		}),
+	});
+}
+
 export function bindRowWrite(
 	options: Omit<WriteOptions, "value" | "expectedFormRevision"> & {
 		readonly row: EnumeratedRow;
@@ -84,7 +96,7 @@ export function bindRowWrite(
 ): ((value: unknown) => DirectWriteResult) | undefined {
 	const { path, row, admitted, strategy, context, valid, revision, validScope, source, locations } = options;
 	try {
-		const field = [...admitted.fields.values()].find((node) => `${node.path}.binding` === path);
+		const field = writeNode(path, admitted);
 		if (!field?.enclosingScope || !validScope(row.scope, field.enclosingScope)) return;
 		if (row.scope.rows.at(-1)?.token !== row.token || !row.writeRevision || !row.formRevision) return;
 		if (!valid() || !checkPrivateDirectLocation(path, source, admitted, locations)?.ok) return;
@@ -96,16 +108,14 @@ export function bindRowWrite(
 		)
 			return;
 		const expectedFormRevision = row.formRevision;
-		const bound = Object.freeze({
-			token: row.token,
-			order: row.order,
-			writeRevision: row.writeRevision,
-			scope: Object.freeze({
-				rows: Object.freeze(row.scope.rows.map(({ name, token }) => Object.freeze({ name, token }))),
-			}),
-		});
-		return (value: unknown) =>
-			directWrite({
+		const bound = snapshotRow(row, row.writeRevision);
+		return (value: unknown) => {
+			try {
+				if (!checkPrivateDirectLocation(path, source, admitted, locations)?.ok) return { status: "invalid-target" };
+			} catch {
+				return { status: "invalid-target" };
+			}
+			return directWrite({
 				path,
 				row: bound,
 				value,
@@ -117,6 +127,7 @@ export function bindRowWrite(
 				validScope,
 				expectedFormRevision,
 			});
+		};
 	} catch {
 		return;
 	}
@@ -140,6 +151,31 @@ export function privateWritePorts(
 		},
 		bindRowWrite: (path: string, source: string, row: EnumeratedRow) =>
 			bindRowWrite({ path, source, row, admitted, strategy, context, valid, revision, validScope, locations }),
+		bindDirectWrite(path: string, source: string) {
+			try {
+				if (!valid() || !checkPrivateDirectLocation(path, source, admitted, locations)?.ok) return;
+				const frame = strategy.capture(context);
+				if (frame.instance !== context.instance || frame.token !== strategy.current(context)) return;
+				return (value: unknown) => {
+					if (!checkPrivateDirectLocation(path, source, admitted, locations)?.ok)
+						return { status: "invalid-target" as const };
+					return directWrite({
+						path,
+						row: undefined,
+						value,
+						admitted,
+						strategy,
+						context,
+						valid,
+						revision,
+						validScope,
+						expectedFormRevision: frame.token,
+					});
+				};
+			} catch {
+				return;
+			}
+		},
 		checkDirectLocation: (path: string, source: string) =>
 			checkPrivateDirectLocation(path, source, admitted, locations),
 	};

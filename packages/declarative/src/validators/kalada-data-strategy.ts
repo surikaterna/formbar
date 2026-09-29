@@ -68,6 +68,22 @@ export type DirectWriteResult = {
 	readonly status: "applied" | "denied" | "missing" | "stale" | "conflict" | "invalid-target" | "unsupported";
 };
 
+/** Private atomic whole-data capture; host must snapshot data and revision together. */
+export type SubmissionCapture =
+	| { readonly status: "found"; readonly instance: object; readonly revision: object; readonly data: JsonValue }
+	| { readonly status: "missing" | "denied" | "stale" };
+
+export interface SubmissionRequest {
+	readonly contract: "formbar-submission-v1";
+	readonly instance: object;
+	readonly revision: object;
+	readonly data: JsonValue;
+}
+
+export type SubmissionResult = {
+	readonly status: "submitted" | "missing" | "denied" | "stale" | "conflict" | "unsupported";
+};
+
 export interface FormbarDataStrategyV1 {
 	readonly contract: "formbar-data-strategy-v1";
 	identity(context: DataContext): Readonly<{
@@ -82,4 +98,13 @@ export interface FormbarDataStrategyV1 {
 	 * with mutation. Row targets also require stable lexical identities and row revision (#185).
 	 * No token or captured revision is an authorization grant; never resolve rows by position. */
 	writeDirect?(context: DataContext, request: DirectWriteRequest): DirectWriteResult;
+	/** Never implemented as read(data, []); the host returns bounded whole-data JSON. */
+	captureSubmission?(context: DataContext): SubmissionCapture;
+	/** Host checks freshness AND current grant, instance and revision in its commit critical section,
+	 * including after async handoff. The ephemeral check is never serialized or an authorization grant. */
+	submitCaptured?(
+		context: DataContext,
+		request: SubmissionRequest,
+		fresh: () => boolean,
+	): Promise<SubmissionResult> | SubmissionResult;
 }

@@ -378,7 +378,8 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/185-repeater-write-proof");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/291-strategy-component-bridge");
+	assert.equal(run("git", ["rev-parse", "HEAD^"], source), "8998ab4a8f3d3b7a6438322f14e7fae94dc5887e");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -387,7 +388,7 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/185-repeater-write-proof");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/291-strategy-component-bridge");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
@@ -481,6 +482,7 @@ try {
 		["bun", ["run", "--filter", "@formbar/core", "build:dist"]],
 		["bun", ["run", "--filter", "@formbar/declarative", "build"]],
 		["bun", ["x", "tsc", "-p", "scripts/kalada-preflight/fixtures/kalada-contract.tsconfig.json"]],
+		["bun", ["x", "tsc", "-p", "scripts/kalada-preflight/fixtures/component-bridge.tsconfig.json"]],
 		["bun", ["run", "--filter", "@formbar/declarative", "build:dist"]],
 		["bun", ["x", "vitest", "run", "--config", "scripts/kalada-preflight/overlay.vitest.config.ts"]],
 		["bun", ["x", "vitest", "run", "packages/declarative/src/__tests__", "--exclude", excludedPolicy]],
@@ -489,7 +491,7 @@ try {
 		["bun", ["run", "build"]],
 	]) {
 		const focused = args.includes("scripts/kalada-preflight/overlay.vitest.config.ts");
-		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", fixture: "repeater-write-proof.test.ts" }));
+		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", fixture: "component-bridge.test.tsx" }));
 		assert.equal(
 			testLane(focused ? "candidate-FOCUSED" : "candidate", command, args),
 			0,
@@ -504,7 +506,7 @@ try {
 	);
 	console.log(
 		JSON.stringify({
-			issue: 185,
+			issue: 291,
 			candidate: commit,
 			sourceSha256: createHash("sha256").update(JSON.stringify(before)).digest("hex"),
 			candidateInstalled: "passed",
@@ -560,7 +562,7 @@ try {
 					formbarHeadAfter: run("git", ["rev-parse", "HEAD"], source),
 					sourceBefore: digest(before),
 					sourceAfter: digest(after),
-					changeset: hash(join(source, ".changeset/private-repeater-write-proof.md")),
+					changeset: hash(join(source, ".changeset/private-kalada-runtime.md")),
 				}),
 			);
 			assert.deepEqual(after, before, "worktree source or Changeset changed");
