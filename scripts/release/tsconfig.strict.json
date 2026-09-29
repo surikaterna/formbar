@@ -18,6 +18,9 @@
 		"rc-registry-proof.ts",
 		"rc-live-reads.ts",
 		"rc-pack-evidence.ts",
+		"rc-source-local.ts",
+		"rc-run-authority.ts",
+		"rc-preflight-entry.ts",
 		"rc-pack-run.ts",
 		"rc-live-run.ts",
 		"rc-publish-method.ts",
@@ -27,6 +30,7 @@
 		"__tests__/github-read.test.ts",
 		"__tests__/live-evidence.test.ts",
 		"__tests__/rc-source-check.test.ts",
-		"__tests__/rc-publish-method.test.ts"
+		"__tests__/rc-publish-method.test.ts",
+		"__tests__/rc-workflow.test.ts"
 	]
 }

@@ -4,9 +4,9 @@ import { readFile } from "node:fs/promises";
 import { createGitHubRead } from "./github-read";
 import { type RunWitness, fetchRcEvidence } from "./live-evidence";
 import { claimAttempt, planDigest } from "./rc-attempt-fence";
-import { loadRcSource } from "./rc-pack-evidence";
 import type { PrepackedCandidate } from "./rc-prepacked-candidates";
 import { consumed, rcPackages, rcVersion } from "./rc-reviewed-plan";
+import { loadRcSource } from "./rc-source-local";
 
 declare const brand: unique symbol;
 export type VerifiedRun = { readonly [brand]: true };
@@ -103,7 +103,7 @@ export async function claimVerifiedRun(
 	const source = await refreshVerifiedRun(value);
 	if (process.env.GITHUB_RUN_ATTEMPT !== "1" || candidates.length !== rcPackages.length)
 		throw new Error("unreviewed first-attempt candidate plan");
-	const { verifiedCandidateBytes } = await import("./rc-prepacked-candidates");
+	const { verifiedCandidateBytes } = await import("./rc-prepacked-candidates.js");
 	const packed = [];
 	for (const [index, candidate] of candidates.entries()) {
 		if (

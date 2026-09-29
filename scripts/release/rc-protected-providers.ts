@@ -97,6 +97,8 @@ export async function publishProtected(name: string, bytes: Buffer): Promise<voi
 				"--access",
 				"public",
 				"--provenance",
+				"--ignore-scripts",
+				"--fetch-retries=0",
 				"--registry=https://registry.npmjs.org/",
 				`--userconfig=${user}`,
 				`--globalconfig=${global}`,

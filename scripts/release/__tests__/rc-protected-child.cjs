@@ -51,7 +51,7 @@ function fakeGo(_, run) {
 		throw Error("fake #365 GO denied");
 }
 function fakeModule(request) {
-	if (request === "./rc-pack-evidence") return source;
+	if (request === "./rc-pack-evidence" || request === "./rc-source-local") return source;
 	if (request === "./github-read")
 		return {
 			createGitHubRead: () => ({
@@ -61,7 +61,7 @@ function fakeModule(request) {
 			}),
 		};
 	if (request === "./live-evidence") return { fetchRcEvidence: fakeGo };
-	if (request === "./rc-prepacked-candidates")
+	if (request === "./rc-prepacked-candidates" || request === "./rc-prepacked-candidates.js")
 		return { prepackProtectedRun: async () => candidates, verifiedCandidateBytes: async () => Buffer.from(bytes) };
 	if (request === "./rc-live-reads")
 		return {

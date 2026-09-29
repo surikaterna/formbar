@@ -42,13 +42,72 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  reject-dispatch:
-    if: github.event_name == 'workflow_dispatch'
+  protected-rc:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'surikaterna/formbar'
     runs-on: ubuntu-latest
+    environment: formbar-rc
+    concurrency:
+      group: formbar-rc-${{ github.run_id }}
+      cancel-in-progress: false
     permissions:
       contents: read
+      id-token: write # Capability at job start; audited code makes no request before fresh GO.
     steps:
-      - name: Refuse release until independent approval is enforceable
+      - name: Fetch exact protected commit without actions or repository scripts
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
         run: |
-          printf '::error::#350 release dispatch disabled: no independently verified protected release environment, non-self approval, main protection, or #250 final GO. SHA is not authorization.\n'
-          exit 1
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$EXPECTED_MAIN_SHA" == "$GITHUB_SHA" ]]
+          [[ "$GITHUB_ACTOR" == eaglez ]] && [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
+          [[ "$GITHUB_REF" == refs/heads/main ]] && [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ -z "$(ls -A "$GITHUB_WORKSPACE")" ]]
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+          unset GIT_CONFIG_PARAMETERS GIT_TEMPLATE_DIR
+          git init --quiet --template=/dev/null "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          export GIT_CONFIG_COUNT=3
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false
+          export GIT_CONFIG_KEY_2=core.hooksPath GIT_CONFIG_VALUE_2=/dev/null
+          git fetch --no-tags --no-recurse-submodules --depth=1 https://github.com/surikaterna/formbar.git "$GITHUB_SHA"
+          unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2
+          git -c core.hooksPath=/dev/null -c protocol.file.allow=never checkout --detach --force FETCH_HEAD
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ -z "$(git status --porcelain --untracked-files=all)" ]]
+          # CI pins this bundle to audited source and verifies byte-for-byte reproduction.
+          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "4a4e78bb301b1365797800275b7ab5866bc02066b81c1ae00f9851eeea35b83d" ]]
+      - name: Live read-only GO and protected-run preflight (runner Node)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release/rc-preflight.mjs
+      - name: Setup pinned Bun after GO
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.2.21
+      - name: Setup pinned Node after GO
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.2
+      - name: Install pinned npm and build after GO
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts --no-audit --no-fund npm@11.20.0
+          [[ "$(node --version)" == v22.23.2 ]] && [[ "$(npm --version)" == 11.20.0 ]]
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+          [[ -z "$(git status --porcelain --untracked-files=all)" ]]
+      - name: Revalidate and publish only reviewed seven RC tarballs
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export RC_NODE_BINARY="$(command -v node)" RC_NPM_ROOT="$(npm root -g)/npm"
+          export npm_config_userconfig=/dev/null npm_config_globalconfig=/dev/null npm_config_offline=true
+          bun -e "import('./scripts/release/rc-protected.ts').then(({runProtectedRc}) => runProtectedRc()).catch((error) => { console.error(error); process.exitCode = 1 })"
