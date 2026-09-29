@@ -13,7 +13,7 @@ vi.mock("../github-read", () => ({ createGitHubRead: mocks.api }));
 vi.mock("../live-evidence", () => ({ fetchRcEvidence: mocks.read }));
 vi.mock("../rc-pack-evidence", () => ({ loadRcSource: mocks.source }));
 
-import { claimVerifiedRun, refreshVerifiedRun, verifyProtectedRun } from "../rc-run-authority";
+import { refreshVerifiedRun, verifyProtectedRun } from "../rc-run-authority";
 
 const commit = "a".repeat(40);
 const tree = "b".repeat(40);
@@ -89,12 +89,5 @@ describe("#389 private verified run", () => {
 		const capability = await verifyProtectedRun("/checkout", "read-only-gh-token");
 		vi.stubEnv("GITHUB_RUN_ID", "12346");
 		await expect(refreshVerifiedRun(capability)).rejects.toThrow("new GO required");
-	});
-	it("consumes the run, not merely one object, before any future write", async () => {
-		setup();
-		const first = await verifyProtectedRun("/checkout", "read-only-gh-token");
-		await expect(claimVerifiedRun(first)).resolves.toMatchObject({ runId: 12345, sha: commit });
-		const second = await verifyProtectedRun("/checkout", "read-only-gh-token");
-		await expect(claimVerifiedRun(second)).rejects.toThrow("new protected run");
 	});
 });

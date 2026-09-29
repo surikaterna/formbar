@@ -1,5 +1,15 @@
 #363 release gate: disabled pending positive implementation
 
+The #363 cross-process adapter regression uses two separate Node processes,
+fake authenticated #365 GO/source and fake npm/registry providers; it runs the
+real `runProtectedRc` -> `claimVerifiedRun` -> runner-local exclusive-create
+fence, inspects STOPPED reports and an actual fake PUT log. It is not live
+release evidence. The claim only protects processes sharing the same runner's
+`RUNNER_TEMP` on a filesystem honoring O_EXCL and fsync. It cannot fence jobs
+on different hosts; keep dispatch unconditionally rejected until cross-host
+recovery has a separately audited durable claim/authorization design. Never
+delete a claim on error or resume a partially attempted PUT in the same run.
+
 #365 adds `fetchRcEvidence`, an injected authenticated **GET-only** REST evidence reader.
 It requires a GitHub-generated sender ID, runtime checkout SHA/tree, exact
 run/attempt and fresh main tree, effective main rules, environment reviewer,
