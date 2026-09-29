@@ -140,8 +140,18 @@ var init_github_read = __esm(() => {
 // scripts/release/live-policy.ts
 async function verifyMainRules(api) {
   const ruleset = object(await api.get(`${repo}/rulesets/24103769`));
-  const conditions = object(object(ruleset.conditions).ref_name);
-  requireThat(ruleset.id === 24103769 && ruleset.enforcement === "active" && ruleset.target === "branch" && ruleset.source_type === "Repository" && sameSet(conditions.include, ["refs/heads/main"]) && sameSet(conditions.exclude, []) && sameSet(ruleset.bypass_actors, []) && ruleset.current_user_can_bypass === "never", "main ruleset or bypass changed");
+  requireThat(ruleset.id === 24103769, "main ruleset identity not verified");
+  requireThat(ruleset.enforcement === "active", "main ruleset enforcement not active");
+  requireThat(ruleset.target === "branch", "main ruleset target not branch");
+  requireThat(ruleset.source_type === "Repository", "main ruleset source not repository");
+  requireThat(ruleset.conditions !== null && typeof ruleset.conditions === "object" && !Array.isArray(ruleset.conditions), "main ruleset ref scope unreadable");
+  const refName = object(ruleset.conditions).ref_name;
+  requireThat(refName !== null && typeof refName === "object" && !Array.isArray(refName), "main ruleset ref scope unreadable");
+  const conditions = object(refName);
+  requireThat(sameSet(conditions.include, ["refs/heads/main"]) && sameSet(conditions.exclude, []), "main ruleset ref scope not verified");
+  requireThat(Array.isArray(ruleset.bypass_actors), "main ruleset bypass actors unreadable");
+  requireThat(ruleset.bypass_actors.length === 0, "main ruleset bypass actors changed");
+  requireThat(ruleset.current_user_can_bypass === "never", "main ruleset caller bypass not verified");
   await verifyRuleDetails(api, ruleset);
 }
 async function verifyRuleDetails(api, ruleset) {

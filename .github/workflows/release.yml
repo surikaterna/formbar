@@ -79,7 +79,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ -z "$(git status --porcelain --untracked-files=all)" ]]
           # CI pins this bundle to audited source and verifies byte-for-byte reproduction.
-          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "94345e55b338050596e65ee03e45f3ee6553d1c605c5087d8ec7acf1a8797875" ]]
+          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "a9e754e62421819b3e28626edcd9176877dfd68f63e8706ea415cb9dae4b27a7" ]]
       - name: Live read-only protected-run preflight (runner Node)
         shell: bash
         env:
