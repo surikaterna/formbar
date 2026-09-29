@@ -51,7 +51,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      id-token: write # Capability at job start; audited code makes no request before fresh GO.
+      id-token: write # Capability at job start; audited code makes no request before protected-run checks.
     steps:
       - name: Fetch exact protected commit without actions or repository scripts
         shell: bash
@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$EXPECTED_MAIN_SHA" == "$GITHUB_SHA" ]]
-          [[ "$GITHUB_ACTOR" == eaglez ]] && [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
+          [[ "$GITHUB_ACTOR" == spralle ]] && [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
           [[ "$GITHUB_REF" == refs/heads/main ]] && [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
           [[ -z "$(ls -A "$GITHUB_WORKSPACE")" ]]
           export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -79,21 +79,21 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ -z "$(git status --porcelain --untracked-files=all)" ]]
           # CI pins this bundle to audited source and verifies byte-for-byte reproduction.
-          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "4a4e78bb301b1365797800275b7ab5866bc02066b81c1ae00f9851eeea35b83d" ]]
-      - name: Live read-only GO and protected-run preflight (runner Node)
+          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "94345e55b338050596e65ee03e45f3ee6553d1c605c5087d8ec7acf1a8797875" ]]
+      - name: Live read-only protected-run preflight (runner Node)
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/release/rc-preflight.mjs
-      - name: Setup pinned Bun after GO
+      - name: Setup pinned Bun after preflight
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.2.21
-      - name: Setup pinned Node after GO
+      - name: Setup pinned Node after preflight
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22.23.2
-      - name: Install pinned npm and build after GO
+      - name: Install pinned npm and build after preflight
         shell: bash
         run: |
           set -euo pipefail

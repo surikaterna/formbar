@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type ReadReply, createRegistryGitHubReader, inspectLiveRc } from "../rc-live-reads";
 import type { SourceWitness } from "../rc-registry-proof";
 import { initialVersions, rcEdges, rcPackages } from "../rc-reviewed-plan";
-import { consumed } from "../rc-source-check";
+import { consumed } from "../rc-reviewed-plan";
 
 const names = rcPackages;
 const version = "0.23.0-rc.0";

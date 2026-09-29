@@ -199,6 +199,6 @@ export async function inspectRcRegistry(read: RcRead, source: SourceWitness): Pr
 	}
 	const state = existing === 0 ? "absent" : existing === names.length ? "identical" : "partial-same-sha";
 	if (state === "partial-same-sha")
-		blocked.push("fresh #250 FINAL GO and new attempt=1 approval required before recovery");
+		blocked.push("new attempt=1 protected-main run and registry reconciliation required before recovery");
 	return { state, remaining, blocked };
 }

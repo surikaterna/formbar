@@ -84,10 +84,10 @@ async function reconcile(state: State, candidate: PrepackedCandidate): Promise<v
 			// No result, including a successful read followed by failed signature, authorizes the next write.
 		}
 	}
-	throw new Error("published version UNVERIFIABLE; stop and obtain new run/GO");
+	throw new Error("published version UNVERIFIABLE; stop and obtain new run");
 }
 
-/** No parameters, no caller-supplied verdict/writer. Never invoked by the disabled workflow. */
+/** No parameters or caller-supplied verdict/writer; only the protected workflow invokes this. */
 export async function runProtectedRc(): Promise<{ status: "VERIFIED_SEVEN"; names: string[] }> {
 	const root = process.cwd();
 	const token = process.env.GITHUB_TOKEN;
@@ -114,7 +114,7 @@ export async function runProtectedRc(): Promise<{ status: "VERIFIED_SEVEN"; name
 				await publishProtected(candidate.name, await verifiedCandidateBytes(run, candidate));
 			} catch {
 				await reconcile(state, candidate).catch(() => {});
-				throw new Error("npm publish failed or uncertain; new run/GO required");
+				throw new Error("npm publish failed or uncertain; new run required");
 			}
 		}
 		await reconcile(state, candidate);

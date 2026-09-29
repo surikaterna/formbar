@@ -142,7 +142,7 @@ async function signed(run: VerifiedRun, candidate: PrepackedCandidate, settings:
 			);
 			if (verdict.status === "VERIFIED_EXISTING" && verdict.sha512 === candidate.sha512) return true;
 		} catch {
-			/* Missing installation, attestation or fresh GO cannot advance to another write. */
+			/* Missing installation or attestation cannot advance to another write. */
 		}
 	}
 	return false;

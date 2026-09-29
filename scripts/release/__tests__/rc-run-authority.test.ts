@@ -21,7 +21,7 @@ const environment = {
 	GITHUB_EVENT_PATH: "/generated/event.json",
 	GITHUB_RUN_ID: "12345",
 	GITHUB_RUN_ATTEMPT: "1",
-	GITHUB_ACTOR: "eaglez",
+	GITHUB_ACTOR: "spralle",
 	GITHUB_REPOSITORY: "surikaterna/formbar",
 	GITHUB_EVENT_NAME: "workflow_dispatch",
 	GITHUB_REF: "refs/heads/main",
@@ -33,7 +33,7 @@ const environment = {
 function setup() {
 	vi.resetAllMocks();
 	for (const [key, value] of Object.entries(environment)) vi.stubEnv(key, value);
-	mocks.file.mockResolvedValue(JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: commit } }));
+	mocks.file.mockResolvedValue(JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: commit } }));
 	mocks.git.mockImplementation((_cmd: string, args: string[]) => {
 		if (args[0] === "status") return "";
 		return args[1] === "HEAD^{tree}" ? tree : commit;
@@ -49,33 +49,32 @@ describe("#389 private verified run", () => {
 		await expect(refreshVerifiedRun({ approved: true, sha: commit })).rejects.toThrow("capability");
 		expect(mocks.read).not.toHaveBeenCalled();
 	});
-	it("binds runtime event, checked-out source, real reader boundary and fresh clock; rechecks on reuse", async () => {
+	it("binds runtime event, checked-out source and real reader boundary; rechecks on reuse", async () => {
 		setup();
 		const capability = await verifyProtectedRun("/checkout", "read-only-gh-token");
 		expect(mocks.source).toHaveBeenCalledWith("/checkout", commit, tree);
 		expect(mocks.api).toHaveBeenCalledWith("read-only-gh-token");
 		expect(mocks.read).toHaveBeenCalledWith(
 			{ get: expect.any(Function) },
-			expect.objectContaining({ runId: 12345, checkoutSha: commit, checkoutTree: tree, senderId: 1532734 }),
-			expect.any(Date),
+			expect.objectContaining({ runId: 12345, checkoutSha: commit, checkoutTree: tree, senderId: 806157 }),
 		);
 		expect(await refreshVerifiedRun(capability)).toEqual({ root: "/checkout", sha: commit, tree, runId: 12345 });
 		expect(mocks.read).toHaveBeenCalledTimes(2);
-		mocks.read.mockRejectedValueOnce(new Error("GO revoked"));
-		await expect(refreshVerifiedRun(capability)).rejects.toThrow("GO revoked");
+		mocks.read.mockRejectedValueOnce(new Error("policy changed"));
+		await expect(refreshVerifiedRun(capability)).rejects.toThrow("policy changed");
 	});
-	it.each(["missing-event", "wrong-sha", "dirty", "no-go", "missing-plan", "new-run"])(
+	it.each(["missing-event", "wrong-sha", "dirty", "no-policy", "missing-plan", "new-run"])(
 		"refuses %s before or during minting",
 		async (failure) => {
 			setup();
 			if (failure === "missing-event") vi.stubEnv("GITHUB_EVENT_PATH", "");
 			if (failure === "wrong-sha")
-				mocks.file.mockResolvedValue(JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: tree } }));
+				mocks.file.mockResolvedValue(JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: tree } }));
 			if (failure === "dirty")
 				mocks.git.mockImplementation((_cmd: string, args: string[]) =>
 					args[0] === "status" ? " M packages/core/package.json" : args[1] === "HEAD^{tree}" ? tree : commit,
 				);
-			if (failure === "no-go") mocks.read.mockRejectedValue(new Error("#365 denies FINAL GO"));
+			if (failure === "no-policy") mocks.read.mockRejectedValue(new Error("#406 denies policy"));
 			if (failure === "missing-plan")
 				mocks.source.mockImplementation(() => {
 					throw new Error("#383 prerelease missing");
@@ -88,6 +87,6 @@ describe("#389 private verified run", () => {
 		setup();
 		const capability = await verifyProtectedRun("/checkout", "read-only-gh-token");
 		vi.stubEnv("GITHUB_RUN_ID", "12346");
-		await expect(refreshVerifiedRun(capability)).rejects.toThrow("new GO required");
+		await expect(refreshVerifiedRun(capability)).rejects.toThrow("new run required");
 	});
 });

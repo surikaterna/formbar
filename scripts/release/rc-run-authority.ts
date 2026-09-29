@@ -63,7 +63,7 @@ async function validate(root: string, token: string): Promise<RunWitness> {
 	const run = await witness(root);
 	// #383 validates all seven manifests, exact 23 consumed IDs, changelogs and stable baselines.
 	loadRcSource(root, run.expectedSha, run.checkoutTree);
-	await fetchRcEvidence(createGitHubRead(token), run, new Date());
+	await fetchRcEvidence(createGitHubRead(token), run);
 	const again = await witness(root);
 	if (JSON.stringify(run) !== JSON.stringify(again)) throw new Error("RC checkout or run changed during validation");
 	return run;
@@ -91,7 +91,7 @@ export async function refreshVerifiedRun(
 	if (!bound) throw new Error("missing private verified-run capability");
 	const run = await validate(bound.root, bound.token);
 	if (run.expectedSha !== bound.sha || run.checkoutTree !== bound.tree || run.runId !== bound.runId)
-		throw new Error("protected run changed; new GO required");
+		throw new Error("protected run changed; new run required");
 	return { root: bound.root, sha: bound.sha, tree: bound.tree, runId: bound.runId };
 }
 

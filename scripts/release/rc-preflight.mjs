@@ -108,16 +108,6 @@ function requireThat(condition, message) {
 function sameSet(actual, expected) {
   return Array.isArray(actual) && actual.length === expected.length && actual.every((item) => typeof item === "string" && expected.includes(item)) && new Set(actual).size === actual.length;
 }
-async function pages(api, path) {
-  const collected = [];
-  for (let page = 1;page <= 20; page++) {
-    const items = array(await api.get(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`));
-    collected.push(...items);
-    if (items.length < 100)
-      return collected;
-  }
-  throw new Error("RC evidence denied: pagination limit exceeded");
-}
 var repo = "repos/surikaterna/formbar", sha;
 var init_live_evidence_shape = __esm(() => {
   init_rc_reviewed_plan();
@@ -147,64 +137,6 @@ var init_github_read = __esm(() => {
   init_live_evidence_shape();
 });
 
-// scripts/release/live-go.ts
-function verifyGoBody(body, runId, commit, tree) {
-  requireThat(typeof body === "string" && body.startsWith(`FINAL GO
-`), "missing FINAL GO");
-  let parsed;
-  try {
-    parsed = JSON.parse(body.slice(`FINAL GO
-`.length));
-  } catch {
-    throw new Error("RC evidence denied: malformed GO JSON");
-  }
-  const go = object(parsed);
-  requireThat(JSON.stringify(go) === body.slice(`FINAL GO
-`.length), "GO must be canonical JSON without duplicate keys");
-  requireThat(Object.keys(go).sort().join(",") === "acknowledges_legacy_validation_issue,attempt,run_id,sha,tree,versions" && go.run_id === runId && go.attempt === 1 && go.sha === commit && go.tree === tree && go.acknowledges_legacy_validation_issue === "I acknowledge the global/default legacy ValidationIssue identity, mutability and non-JSON shape migration.", "GO run, SHA, tree or migration acknowledgement differs");
-  const versions = object(go.versions);
-  requireThat(Object.keys(versions).sort().join(",") === rcPackages.map((name) => `@formbar/${name}`).sort().join(","), "GO package set differs");
-  for (const name of rcPackages) {
-    const version = object(versions[`@formbar/${name}`]);
-    requireThat(Object.keys(version).sort().join(",") === "dependencies,version" && version.version === rcVersion, "GO rc version differs");
-    const ranges = object(version.dependencies);
-    requireThat(Object.keys(ranges).sort().join(",") === rcEdges[name].map((dep) => `@formbar/${dep}`).sort().join(","), "GO dependency set differs");
-    for (const dep of rcEdges[name])
-      requireThat(ranges[`@formbar/${dep}`] === `^${rcVersion}`, "GO internal range differs");
-  }
-}
-async function verifyFreshGo(api, runId, createdAt, commit, tree, now) {
-  const created = Date.parse(createdAt);
-  requireThat(Number.isFinite(created) && Number.isFinite(now.getTime()), "run time missing");
-  const listing = await pages(api, `${repo}/issues/250/comments`);
-  const matches = listing.map(object).filter((comment2) => {
-    if (typeof comment2.body !== "string" || !comment2.body.startsWith(`FINAL GO
-`))
-      return false;
-    let candidate;
-    try {
-      candidate = JSON.parse(comment2.body.slice(`FINAL GO
-`.length));
-    } catch {
-      throw new Error("RC evidence denied: malformed FINAL GO in #250");
-    }
-    return object(candidate).run_id === runId;
-  });
-  requireThat(matches.length === 1, "missing or ambiguous run-bound FINAL GO");
-  const id = matches[0].id;
-  requireThat(Number.isSafeInteger(id) && id > 0, "GO comment id missing");
-  const comment = object(await api.get(`${repo}/issues/comments/${id}`));
-  requireThat(comment.id === id && comment.body === matches[0].body && comment.issue_url === `https://api.github.com/${repo}/issues/250` && object(comment.user).id === 806157, "GO comment identity or issue differs");
-  const timestamp = Date.parse(String(comment.created_at));
-  requireThat(sha.test(commit) && sha.test(tree) && comment.created_at === comment.updated_at && Number.isFinite(timestamp) && timestamp > created && timestamp <= now.getTime() && now.getTime() - timestamp < 86400000, "GO edited, stale or predates run");
-  verifyGoBody(comment.body, runId, commit, tree);
-  return id;
-}
-var init_live_go = __esm(() => {
-  init_live_evidence_shape();
-  init_rc_reviewed_plan();
-});
-
 // scripts/release/live-policy.ts
 async function verifyMainRules(api) {
   const ruleset = object(await api.get(`${repo}/rulesets/24103769`));
@@ -231,10 +163,7 @@ async function verifyEnvironment(api) {
   const branch = object(environment.deployment_branch_policy);
   requireThat(environment.id === 22904271021 && environment.can_admins_bypass === false && branch.custom_branch_policies === true && branch.protected_branches === false, "release environment changed");
   const protection = array(environment.protection_rules).map(object);
-  requireThat(sameSet(protection.map((rule) => rule.type), ["required_reviewers", "branch_policy"]), "release protection rules changed");
-  const reviewerRule = protection.find((rule) => rule.type === "required_reviewers");
-  const reviewers = array(reviewerRule?.reviewers);
-  requireThat(reviewerRule?.prevent_self_review === true && reviewers.length === 1 && object(object(reviewers[0]).reviewer).id === 806157 && object(reviewers[0]).type === "User", "sole non-self reviewer changed");
+  requireThat(sameSet(protection.map((rule) => rule.type), ["branch_policy"]), "release protection rules changed");
   const policies = object(await api.get(`${repo}/environments/formbar-rc/deployment-branch-policies`));
   const entries = array(policies.branch_policies);
   requireThat(policies.total_count === 1 && entries.length === 1 && object(entries[0]).name === "main" && object(entries[0]).type === "branch", "main-only deployment policy changed");
@@ -244,13 +173,8 @@ async function verifyLivePolicy(api) {
   await verifyEnvironment(api);
 }
 async function verifyEligibleActors(api) {
-  for (const [login, id] of [
-    ["eaglez", 1532734],
-    ["spralle", 806157]
-  ]) {
-    const permission = object(await api.get(`${repo}/collaborators/${login}/permission`));
-    requireThat(object(permission.user).id === id && permission.permission === "admin", "actor eligibility changed");
-  }
+  const permission = object(await api.get(`${repo}/collaborators/spralle/permission`));
+  requireThat(object(permission.user).id === 806157 && permission.permission === "admin", "actor eligibility changed");
 }
 async function verifyCi(api, commit) {
   const checks = [];
@@ -271,38 +195,26 @@ var init_live_policy = __esm(() => {
 });
 
 // scripts/release/live-evidence.ts
-async function fetchRcEvidence(api, witness, now) {
+async function fetchRcEvidence(api, witness) {
   verifyWitness(witness);
-  const run = await verifyRunAndMain(api, witness);
+  await verifyRunAndMain(api, witness);
   await verifyEligibleActors(api);
   await verifyLivePolicy(api);
   await verifyCi(api, witness.expectedSha);
-  const commentId = await verifyFreshGo(api, witness.runId, String(run.created_at), witness.expectedSha, witness.checkoutTree, now);
-  await verifyApproval(api, witness.runId);
-  return { commentId };
 }
 function verifyWitness(witness) {
-  requireThat(Number.isSafeInteger(witness.runId) && witness.runId > 0 && witness.attempt === 1 && witness.actor === "eaglez" && witness.senderId === 1532734 && witness.repository === "surikaterna/formbar" && witness.event === "workflow_dispatch" && witness.ref === "refs/heads/main" && witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" && sha.test(witness.expectedSha) && sha.test(witness.checkoutTree) && [witness.workflowSha, witness.eventSha, witness.checkoutSha].every((s) => s === witness.expectedSha), "runtime actor, sender, workflow, ref or checkout differs");
+  requireThat(Number.isSafeInteger(witness.runId) && witness.runId > 0 && witness.attempt === 1 && witness.actor === "spralle" && witness.senderId === 806157 && witness.repository === "surikaterna/formbar" && witness.event === "workflow_dispatch" && witness.ref === "refs/heads/main" && witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" && sha.test(witness.expectedSha) && sha.test(witness.checkoutTree) && [witness.workflowSha, witness.eventSha, witness.checkoutSha].every((s) => s === witness.expectedSha), "runtime actor, sender, workflow, ref or checkout differs");
 }
 async function verifyRunAndMain(api, witness) {
   const run = object(await api.get(`${repo}/actions/runs/${witness.runId}`));
-  requireThat(run.id === witness.runId && run.event === "workflow_dispatch" && run.run_attempt === 1 && object(run.actor).id === 1532734 && object(run.triggering_actor).id === 1532734 && run.head_sha === witness.expectedSha && run.head_branch === "main" && run.path === ".github/workflows/release.yml" && run.workflow_id === 349257014 && object(run.head_commit).tree_id === witness.checkoutTree, "GitHub run identity changed");
+  requireThat(run.id === witness.runId && run.event === "workflow_dispatch" && run.run_attempt === 1 && object(run.actor).id === 806157 && object(run.triggering_actor).id === 806157 && run.head_sha === witness.expectedSha && run.head_branch === "main" && run.path === ".github/workflows/release.yml" && run.workflow_id === 349257014 && object(run.head_commit).tree_id === witness.checkoutTree, "GitHub run identity changed");
   const main = object(await api.get(`${repo}/branches/main`));
   requireThat(object(main.commit).sha === witness.expectedSha, "main advanced");
   const gitCommit = object(await api.get(`${repo}/git/commits/${witness.expectedSha}`));
   requireThat(object(gitCommit.tree).sha === witness.checkoutTree, "main tree changed");
-  return run;
-}
-async function verifyApproval(api, runId) {
-  const approvals = array(await api.get(`${repo}/actions/runs/${runId}/approvals`));
-  requireThat(approvals.length === 1, "missing or ambiguous same-run approval");
-  const approval = object(approvals[0]);
-  const environments = array(approval.environments);
-  requireThat(approval.state === "approved" && object(approval.user).id === 806157 && environments.length === 1 && object(environments[0]).id === 22904271021 && object(environments[0]).name === "formbar-rc", "wrong same-run reviewer or environment");
 }
 var init_live_evidence = __esm(() => {
   init_live_evidence_shape();
-  init_live_go();
   init_live_policy();
 });
 
@@ -413,7 +325,7 @@ async function witness(root) {
 async function validate(root, token) {
   const run = await witness(root);
   loadRcSource(root, run.expectedSha, run.checkoutTree);
-  await fetchRcEvidence(createGitHubRead(token), run, new Date);
+  await fetchRcEvidence(createGitHubRead(token), run);
   const again = await witness(root);
   if (JSON.stringify(run) !== JSON.stringify(again))
     throw new Error("RC checkout or run changed during validation");

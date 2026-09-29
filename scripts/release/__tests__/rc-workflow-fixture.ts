@@ -241,8 +241,8 @@ function runResponses(sha: string, tree: string, created: string): Record<string
 			id: runId,
 			event: "workflow_dispatch",
 			run_attempt: 1,
-			actor: { id: 1532734 },
-			triggering_actor: { id: 1532734 },
+			actor: { id: 806157 },
+			triggering_actor: { id: 806157 },
 			head_sha: sha,
 			head_branch: "main",
 			path: ".github/workflows/release.yml",
@@ -252,7 +252,6 @@ function runResponses(sha: string, tree: string, created: string): Record<string
 		},
 		[`${repo}/branches/main`]: { commit: { sha } },
 		[`${repo}/git/commits/${sha}`]: { tree: { sha: tree } },
-		[`${repo}/collaborators/eaglez/permission`]: { user: { id: 1532734 }, permission: "admin" },
 		[`${repo}/collaborators/spralle/permission`]: { user: { id: 806157 }, permission: "admin" },
 	};
 }
@@ -281,14 +280,7 @@ function policyResponses(sha: string): Record<string, unknown> {
 			id: 22904271021,
 			can_admins_bypass: false,
 			deployment_branch_policy: { custom_branch_policies: true, protected_branches: false },
-			protection_rules: [
-				{
-					type: "required_reviewers",
-					prevent_self_review: true,
-					reviewers: [{ type: "User", reviewer: { id: 806157 } }],
-				},
-				{ type: "branch_policy" },
-			],
+			protection_rules: [{ type: "branch_policy" }],
 		},
 		[`${repo}/environments/formbar-rc/deployment-branch-policies`]: {
 			total_count: 1,
@@ -303,40 +295,9 @@ function policyResponses(sha: string): Record<string, unknown> {
 
 export function endpointResponses(sha: string, tree: string, now: Date): Record<string, unknown> {
 	const created = new Date(now.getTime() - 120_000).toISOString();
-	const posted = new Date(now.getTime() - 60_000).toISOString();
-	const go = {
-		run_id: runId,
-		attempt: 1,
-		sha,
-		tree,
-		versions: Object.fromEntries(
-			rcPackages.map((name) => [
-				`@formbar/${name}`,
-				{
-					version: rcVersion,
-					dependencies: Object.fromEntries(rcEdges[name].map((dep) => [`@formbar/${dep}`, `^${rcVersion}`])),
-				},
-			]),
-		),
-		acknowledges_legacy_validation_issue:
-			"I acknowledge the global/default legacy ValidationIssue identity, mutability and non-JSON shape migration.",
-	};
-	const comment = {
-		id: 456,
-		issue_url: `https://api.github.com/${repo}/issues/250`,
-		user: { id: 806157 },
-		created_at: posted,
-		updated_at: posted,
-		body: `FINAL GO\n${JSON.stringify(go)}`,
-	};
 	return {
 		...runResponses(sha, tree, created),
 		...policyResponses(sha),
-		[`${repo}/issues/250/comments?per_page=100&page=1`]: [comment],
-		[`${repo}/issues/comments/456`]: comment,
-		[`${repo}/actions/runs/${runId}/approvals`]: [
-			{ state: "approved", user: { id: 806157 }, environments: [{ id: 22904271021, name: "formbar-rc" }] },
-		],
 	};
 }
 
@@ -350,7 +311,7 @@ export function approvedPreflight(): string[] {
 		const event = join(dir, "event.json");
 		writeFileSync(responses, JSON.stringify(endpointResponses(sha, tree, new Date())));
 		writeFileSync(requests, "");
-		writeFileSync(event, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: sha } }));
+		writeFileSync(event, JSON.stringify({ sender: { id: 806157 }, inputs: { expected_main_sha: sha } }));
 		execFileSync(
 			process.execPath,
 			["--import", join(root, "scripts/release/__tests__/rc-fetch-hook.mjs"), "scripts/release/rc-preflight.mjs"],
@@ -364,7 +325,7 @@ export function approvedPreflight(): string[] {
 					GITHUB_EVENT_PATH: event,
 					GITHUB_RUN_ID: "12345",
 					GITHUB_RUN_ATTEMPT: "1",
-					GITHUB_ACTOR: "eaglez",
+					GITHUB_ACTOR: "spralle",
 					GITHUB_SHA: sha,
 					GITHUB_REPOSITORY: "surikaterna/formbar",
 					GITHUB_EVENT_NAME: "workflow_dispatch",
