@@ -330,6 +330,7 @@ export function approvedPreflight(): string[] {
 					GITHUB_REPOSITORY: "surikaterna/formbar",
 					GITHUB_EVENT_NAME: "workflow_dispatch",
 					GITHUB_REF: "refs/heads/main",
+					GITHUB_REF_PROTECTED: "true",
 					GITHUB_WORKFLOW_REF: "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main",
 					GITHUB_WORKFLOW_SHA: sha,
 					ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.fixture.invalid/token",

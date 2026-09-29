@@ -50,6 +50,7 @@ async function witness(root: string): Promise<RunWitness> {
 		repository: env.GITHUB_REPOSITORY ?? "",
 		event: env.GITHUB_EVENT_NAME ?? "",
 		ref: env.GITHUB_REF ?? "",
+		refProtected: env.GITHUB_REF_PROTECTED ?? "",
 		workflowRef: env.GITHUB_WORKFLOW_REF ?? "",
 		workflowSha: env.GITHUB_WORKFLOW_SHA ?? "",
 		eventSha: env.GITHUB_SHA ?? "",

@@ -9,6 +9,7 @@ export interface RunWitness {
 	repository: string;
 	event: string;
 	ref: string;
+	refProtected: string;
 	workflowRef: string;
 	workflowSha: string;
 	eventSha: string;
@@ -36,6 +37,7 @@ function verifyWitness(witness: RunWitness): void {
 			witness.repository === "surikaterna/formbar" &&
 			witness.event === "workflow_dispatch" &&
 			witness.ref === "refs/heads/main" &&
+			witness.refProtected === "true" &&
 			witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" &&
 			sha.test(witness.expectedSha) &&
 			sha.test(witness.checkoutTree) &&

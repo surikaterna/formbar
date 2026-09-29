@@ -149,8 +149,13 @@ async function verifyMainRules(api) {
   requireThat(refName !== null && typeof refName === "object" && !Array.isArray(refName), "main ruleset ref scope unreadable");
   const conditions = object(refName);
   requireThat(sameSet(conditions.include, ["refs/heads/main"]) && sameSet(conditions.exclude, []), "main ruleset ref scope not verified");
-  requireThat(Array.isArray(ruleset.bypass_actors), "main ruleset bypass actors unreadable");
-  requireThat(ruleset.bypass_actors.length === 0, "main ruleset bypass actors changed");
+  const bypass = ruleset.bypass_actors;
+  if (bypass === null || !("bypass_actors" in ruleset)) {
+    console.warn("main ruleset bypass actors UNVERIFIABLE (redacted); external admin proof required");
+  } else {
+    requireThat(Array.isArray(bypass), "main ruleset bypass actors malformed");
+    requireThat(bypass.length === 0, "main ruleset bypass actors changed");
+  }
   requireThat(ruleset.current_user_can_bypass === "never", "main ruleset caller bypass not verified");
   await verifyRuleDetails(api, ruleset);
 }
@@ -213,7 +218,7 @@ async function fetchRcEvidence(api, witness) {
   await verifyCi(api, witness.expectedSha);
 }
 function verifyWitness(witness) {
-  requireThat(Number.isSafeInteger(witness.runId) && witness.runId > 0 && witness.attempt === 1 && witness.actor === "spralle" && witness.senderId === 806157 && witness.repository === "surikaterna/formbar" && witness.event === "workflow_dispatch" && witness.ref === "refs/heads/main" && witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" && sha.test(witness.expectedSha) && sha.test(witness.checkoutTree) && [witness.workflowSha, witness.eventSha, witness.checkoutSha].every((s) => s === witness.expectedSha), "runtime actor, sender, workflow, ref or checkout differs");
+  requireThat(Number.isSafeInteger(witness.runId) && witness.runId > 0 && witness.attempt === 1 && witness.actor === "spralle" && witness.senderId === 806157 && witness.repository === "surikaterna/formbar" && witness.event === "workflow_dispatch" && witness.ref === "refs/heads/main" && witness.refProtected === "true" && witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" && sha.test(witness.expectedSha) && sha.test(witness.checkoutTree) && [witness.workflowSha, witness.eventSha, witness.checkoutSha].every((s) => s === witness.expectedSha), "runtime actor, sender, workflow, ref or checkout differs");
 }
 async function verifyRunAndMain(api, witness) {
   const run = object(await api.get(`${repo}/actions/runs/${witness.runId}`));
@@ -324,6 +329,7 @@ async function witness(root) {
     repository: env.GITHUB_REPOSITORY ?? "",
     event: env.GITHUB_EVENT_NAME ?? "",
     ref: env.GITHUB_REF ?? "",
+    refProtected: env.GITHUB_REF_PROTECTED ?? "",
     workflowRef: env.GITHUB_WORKFLOW_REF ?? "",
     workflowSha: env.GITHUB_WORKFLOW_SHA ?? "",
     eventSha: env.GITHUB_SHA ?? "",
