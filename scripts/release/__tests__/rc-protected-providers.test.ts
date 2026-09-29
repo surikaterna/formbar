@@ -37,7 +37,33 @@ describe("production-only npm boundary", () => {
 	it("classifies forced timeout independently of secret-bearing stderr and unknown spawn failures", () => {
 		expect(npmCategory({ killed: true, code: null, stderr: "secret-otp" })).toBe("NPM_TIMEOUT");
 		expect(npmCategory({ code: "ETIMEDOUT", stderr: "secret" })).toBe("NPM_TIMEOUT");
-		expect(npmCategory({ code: "ENOENT", stderr: "E_STAGE_REQUIRED secret" })).toBe("NPM_UNKNOWN");
+		expect(npmCategory({ code: "ENOENT", stderr: "npm error code E_STAGE_REQUIRED secret" })).toBe("NPM_UNKNOWN");
+	});
+	it.each([
+		"npm error code E401\nnpm error code E404",
+		"npm error code EACCES\nnpm error code EPERM",
+		"npm error code E401\nnpm error code E401 extra",
+		"npm error code E401\nnpm ERR! code unknown",
+		"npm error code E401\nnpm error code",
+		"npm error code E401\nnpm error code E401;secret",
+		"npm error code e401",
+		"npm error code E401 https://user:secret@registry.invalid/",
+		"npm error code E999",
+		"https://registry.invalid/npm%20error%20code%20E401",
+		"npm error OIDC trusted publisher failed; ENEEDAUTH",
+		"npm ERR! 403 Forbidden; E_STAGE_REQUIRED",
+	])("rejects ambiguous, malformed and prose-only diagnostics", (stderr) => {
+		expect(npmCategory({ code: 1, stderr })).toBe("NPM_UNKNOWN");
+	});
+	it("requires numeric nonzero exit and string stderr; ignores stdout and spawn output", () => {
+		for (const code of [0, "1", null, Number.NaN, 1.5]) {
+			expect(npmCategory({ code, stderr: "npm error code E401" })).toBe("NPM_UNKNOWN");
+		}
+		expect(npmCategory({ code: 1, stdout: "npm error code E401", stderr: "opaque" })).toBe("NPM_UNKNOWN");
+		expect(npmCategory({ code: 1, stderr: Buffer.from("npm error code E401") })).toBe("NPM_UNKNOWN");
+		expect(npmCategory({ code: 1, stderr: "npm error code E401\r\nnpm ERR! code E401\r\n" })).toBe(
+			"NPM_REGISTRY_UNAUTHORIZED",
+		);
 	});
 	it.each([
 		["no GitHub OIDC", {}],
@@ -59,24 +85,36 @@ describe("production-only npm boundary", () => {
 	});
 
 	it.each([
+		["ENEEDAUTH", "npm error code ENEEDAUTH", "NPM_AUTH_REQUIRED"],
+		["E401", "npm error code E401", "NPM_REGISTRY_UNAUTHORIZED"],
+		["E404", "npm error code E404", "NPM_REGISTRY_NOT_FOUND"],
+		["EUSAGE", "npm error code EUSAGE", "NPM_CLI_USAGE"],
 		["E_STAGE_REQUIRED", "npm ERR! code E_STAGE_REQUIRED", "NPM_STAGE_REQUIRED"],
-		["403", "npm ERR! 403 Forbidden https://user:secret@registry.invalid/", "NPM_FORBIDDEN"],
-		["OTP", "npm ERR! EOTP secret-otp", "NPM_OTP"],
-		["permission", "npm ERR! EACCES secret-path", "NPM_PERMISSION"],
+		["E403", "npm ERR! code E403", "NPM_FORBIDDEN"],
+		["EOTP", "npm error code EOTP", "NPM_OTP"],
+		["EACCES", "npm error code EACCES", "NPM_PERMISSION"],
+		["EPERM", "npm error code EPERM", "NPM_PERMISSION"],
 		["unknown", "secret-opaque https://user:secret@registry.invalid/", "NPM_UNKNOWN"],
 	])("sanitizes fake npm %s without exposing subprocess output", async (_, stderr, category) => {
-		const { calls } = fakeNpm(stderr, 1);
+		const { calls } = fakeNpm(`${stderr}\nnpm error detail https://user:secret@registry.invalid/oidc?token=secret`, 1);
 		const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
-		let message = "";
+		let failure: unknown;
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
 			await publishProtected("@formbar/expressions", Buffer.from("fixture"));
 		} catch (error) {
-			message = String(error);
+			failure = error;
 		}
+		const message = String(failure);
 		expect(message).toMatch(
 			new RegExp(`npm publish ${category} @formbar/expressions@0\\.23\\.0-rc\\.0 preflightMs=\\d+ npmMs=\\d+`),
 		);
 		expect(message).not.toMatch(/secret|registry\.invalid|opaque|npm ERR|user:/i);
+		expect(failure).not.toHaveProperty("cause");
+		expect(JSON.stringify(failure)).not.toMatch(/secret|registry\.invalid|user:/i);
+		expect((failure as Error).stack).not.toMatch(/secret|registry\.invalid|user:/i);
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
 		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
 		expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
 	});
