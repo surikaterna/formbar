@@ -27,7 +27,7 @@ CI rebuilds and compares bundle bytes. Source sections in bundle order:
 62d288331897879f62cb882712845c5b910b55d1a1cf105d67bfa96cf0bcabb6  rc-reviewed-plan.ts
 4a4f20d3f6e1cdb24f5edd04df6b511d22fbe5bc0cf0137d61533e9da0e705fd  live-evidence-shape.ts
 18f00e03812fff53033ed694d16611a941be406ea038c7ffe92b87268c822e28  github-read.ts
-3257c8ba2ed14d70f28f5ef1b0c1f74baf673ccacc745636a97b11bcd1aa2d65  live-policy.ts
+ccde7a3dbc9873aec0b3947bfbea99d6ee4a0f37ced43220246b1ece1893f06a  live-policy.ts
 e45c74178ef87a9f9e925150c338f3c299c311e5001baf6f2e7d675462742a79  live-evidence.ts
 25c87aef56fbd654e4657520b0e0684eedd1c92b5cf9fa2dfe67ff1070932b94  rc-attempt-fence.ts (tree-shaken initializer)
 cd10695bc0b12392491f250be9ba72de1f600e4e4983c7f61be1c41ad934430c  rc-registry-proof.ts (source check only)

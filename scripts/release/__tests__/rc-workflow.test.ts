@@ -17,6 +17,23 @@ const parsed = YAML.parse(workflow) as {
 const steps = parsed.jobs["protected-rc"].steps;
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
+function verifySourceHashes(markdown: string): void {
+	const table = markdown.match(/Source sections in bundle order:\s*```text\n([^`]+)```/);
+	if (!table) throw new Error("missing source hash table");
+	const rows = table[1].trim().split("\n");
+	if (rows.length !== 10) throw new Error("source hash table must contain all ten sources");
+	const seen = new Set<string>();
+	for (const row of rows) {
+		const match = row.match(/^([0-9a-f]{64}) {2}([a-z0-9-]+\.ts)(?: \([^\n]*\))?$/);
+		if (!match) throw new Error(`invalid source hash row: ${row}`);
+		const [, expected, filename] = match;
+		if (seen.has(filename)) throw new Error(`duplicate source hash: ${filename}`);
+		seen.add(filename);
+		const actual = sha256(readFileSync(join(root, "scripts/release", filename)));
+		if (actual !== expected) throw new Error(`source hash drift: ${filename}`);
+	}
+}
+
 function driftEndpoints(endpoints: Record<string, unknown>, scenario: string, sha: string, tree: string): void {
 	const api = "repos/surikaterna/formbar";
 	if (scenario === "actor") (endpoints[`${api}/actions/runs/12345`] as { actor: { id: number } }).actor.id = 1532734;
@@ -96,6 +113,14 @@ function unversionedCheckout(dir: string): string {
 }
 
 describe("#397 protected workflow boundary", () => {
+	it("binds every documented source hash to exact checked-in bytes and rejects drift", () => {
+		const markdown = readFileSync(join(root, "scripts/release/RC-PREFLIGHT.md"), "utf8");
+		expect(() => verifySourceHashes(markdown)).not.toThrow();
+		expect(() => verifySourceHashes(markdown.replace(/[0-9a-f]{64}(?= {2}live-policy\.ts)/, "0".repeat(64)))).toThrow(
+			"source hash drift: live-policy.ts",
+		);
+	});
+
 	it("executes only built-in git and Node before authority checks; keeps push job independent", () => {
 		expect(parsed.jobs["version-proposal"].steps).toHaveLength(5);
 		expect(parsed.jobs["reject-dispatch"]).toBeUndefined();
