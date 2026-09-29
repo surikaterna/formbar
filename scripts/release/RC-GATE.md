@@ -1,5 +1,9 @@
 #363 release gate: disabled pending positive implementation
 
+Historical pre-#397 source-only design notes below; the protected workflow
+wiring and CURRENT run policy are documented in [RC-PREFLIGHT.md](RC-PREFLIGHT.md).
+These notes do not override the current workflow or grant dispatch authority.
+
 The #363 cross-process adapter regression uses two separate Node processes,
 fake authenticated #365 GO/source and fake npm/registry providers; it runs the
 real `runProtectedRc` -> `claimVerifiedRun` -> runner-local exclusive-create

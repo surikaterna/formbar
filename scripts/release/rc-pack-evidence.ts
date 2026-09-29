@@ -2,10 +2,11 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { type PackageAudit, auditPackages } from "../package-artifacts/audit";
-import { type SourceWitness, sourceCheck } from "./rc-registry-proof";
-import { checkChangelog, rcPackages, rcVersion } from "./rc-reviewed-plan";
+import { rcPackages, rcVersion } from "./rc-reviewed-plan";
+import { loadRcSource } from "./rc-source-local";
+
+export { loadRcSource } from "./rc-source-local";
 
 const names = rcPackages;
 const version = rcVersion;
@@ -14,9 +15,6 @@ const lifecycle = "npm pack defaults (prepack, prepare, postpack if configured);
 
 function run(program: string, args: string[], cwd: string): string {
 	return execFileSync(program, args, { cwd, encoding: "utf8", maxBuffer: 1024 * 1024 }).trim();
-}
-function json(path: string): unknown {
-	return JSON.parse(readFileSync(path, "utf8"));
 }
 export function checkSnapshot(root: string, sha: string, tree: string): void {
 	if (
@@ -31,32 +29,6 @@ export function checkSnapshot(root: string, sha: string, tree: string): void {
 	const commit = JSON.parse(run("gh", ["api", `repos/surikaterna/formbar/git/commits/${sha}`], root));
 	if (current.head?.sha !== sha || !/^[0-9a-f]{40}$/.test(current.base?.sha) || commit.tree?.sha !== tree)
 		throw new Error("version PR head/base/tree drift");
-}
-
-export function loadRcSource(root: string, sha: string, tree: string): SourceWitness {
-	const manifests: Record<string, unknown> = {};
-	const changelogs: Record<string, string> = {};
-	for (const name of names) {
-		const directory = resolve(root, "packages", name);
-		const manifest = json(resolve(directory, "package.json")) as { scripts?: Record<string, string> };
-		if (["prepack", "prepare", "postpack", "publish", "prepublishOnly"].some((key) => manifest.scripts?.[key]))
-			throw new Error("unexpected npm pack lifecycle script");
-		manifests[name] = manifest;
-		changelogs[name] = readFileSync(resolve(directory, "CHANGELOG.md"), "utf8");
-		checkChangelog(name, changelogs[name]);
-	}
-	const pre = json(resolve(root, ".changeset/pre.json")) as { initialVersions: Record<string, string> };
-	const source: SourceWitness = {
-		commit: sha,
-		tree,
-		pre,
-		manifests,
-		changelogs,
-		artifacts: Object.fromEntries(names.map((name) => [name, undefined])),
-		initialLatest: Object.fromEntries(names.map((name) => [name, pre.initialVersions[`@formbar/${name}`]])),
-	};
-	sourceCheck(source);
-	return source;
 }
 
 function packDigests(left: PackageAudit[], right: PackageAudit[]) {

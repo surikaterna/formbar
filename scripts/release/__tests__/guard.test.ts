@@ -42,7 +42,7 @@ const reader = { npmVersion } as unknown as ReleaseReader;
 describe("#350 fail-closed release", () => {
 	it("keeps push-main proposal-only even when Changesets reports no changesets", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
-		expect(Object.keys(workflow.jobs)).toEqual(["version-proposal", "reject-dispatch"]);
+		expect(Object.keys(workflow.jobs)).toEqual(["version-proposal", "protected-rc"]);
 		expect(workflow.on.push).toEqual({ branches: ["main"] });
 		expect(Object.keys(workflow.on.workflow_dispatch.inputs)).toEqual(["expected_main_sha"]);
 		expect(workflow.jobs["version-proposal"].if).toContain("github.event_name == 'push'");
@@ -50,25 +50,22 @@ describe("#350 fail-closed release", () => {
 			uses: "changesets/action@v1",
 			with: { version: "bun run version:packages" },
 		});
-		expect(workflow.jobs["reject-dispatch"].if).toContain("workflow_dispatch");
-		expect(workflow.jobs["reject-dispatch"].steps.at(-1).run).toContain("exit 1");
-		expect(JSON.stringify(workflow.jobs)).not.toMatch(
-			/hasChangesets|changeset publish|release\/plan|release\/apply|id-token|NPM_CONFIG_PROVENANCE/,
-		);
+		expect(workflow.jobs["protected-rc"].if).toContain("workflow_dispatch");
+		expect(JSON.stringify(workflow.jobs["version-proposal"])).not.toMatch(/hasChangesets|changeset publish|id-token/);
 	});
 
-	it("dispatch runs only a rejecting shell step without any publish permission", async () => {
+	it("denies the wrong actor before checkout, third-party code or credentials", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
-		const rejected = workflow.jobs["reject-dispatch"];
+		const protectedJob = workflow.jobs["protected-rc"];
 		expect(workflow.permissions).toEqual({ contents: "read" });
-		expect(rejected.permissions).toEqual({ contents: "read" });
-		expect(rejected.environment).toBeUndefined();
-		const result = spawnSync("bash", ["-e", "-c", rejected.steps[0].run], {
+		expect(protectedJob.permissions).toEqual({ contents: "read", "id-token": "write" });
+		expect(protectedJob.environment).toBe("formbar-rc");
+		const result = spawnSync("bash", ["-e", "-c", protectedJob.steps[0].run], {
 			encoding: "utf8",
-			env: { ...process.env, EXPECTED_MAIN_SHA: sha },
+			env: { ...process.env, GITHUB_SHA: sha, EXPECTED_MAIN_SHA: sha, GITHUB_ACTOR: "spralle" },
 		});
 		expect(result.status).toBe(1);
-		expect(result.stdout).toContain("release dispatch disabled");
+		expect(result.stdout).toBe("");
 	});
 
 	it.each([

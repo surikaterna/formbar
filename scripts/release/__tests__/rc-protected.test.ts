@@ -42,9 +42,12 @@ const sha = "a".repeat(40);
 const tree = "b".repeat(40);
 const run = Object.freeze({});
 const originalToken = process.env.GITHUB_TOKEN;
+const originalOidcUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
 afterEach(() => {
 	if (originalToken === undefined) process.env.GITHUB_TOKEN = undefined;
 	else process.env.GITHUB_TOKEN = originalToken;
+	if (originalOidcUrl === undefined) process.env.ACTIONS_ID_TOKEN_REQUEST_URL = undefined;
+	else process.env.ACTIONS_ID_TOKEN_REQUEST_URL = originalOidcUrl;
 });
 const bytes = Buffer.from("test");
 const sha512 = createHash("sha512").update(bytes).digest("hex");
@@ -82,14 +85,19 @@ describe("internal protected RC adapter (mock providers are not release evidence
 
 	it("orders seven tarball PUTs; requires signed existing and prepacked verification between each", async () => {
 		const published = new Set<string>();
+		const fakeOidcRequests: string[] = [];
+		process.env.ACTIONS_ID_TOKEN_REQUEST_URL = "https://oidc.fixture.invalid/token";
 		mocks.inspect.mockImplementation(async () => ({ packages: observed(published) }));
 		mocks.publish.mockImplementation(async (name: string) => {
+			expect(mocks.verify).toHaveBeenCalledTimes(1);
 			if (published.size && mocks.signed.mock.calls.length < published.size)
 				throw new Error("unsigned previous package");
+			fakeOidcRequests.push(process.env.ACTIONS_ID_TOKEN_REQUEST_URL ?? "");
 			published.add(name);
 		});
 		await expect(runProtectedRc()).resolves.toEqual({ status: "VERIFIED_SEVEN", names: candidates.map((c) => c.name) });
 		expect(mocks.publish.mock.calls.map(([name]) => name)).toEqual(candidates.map((c) => c.name));
+		expect(fakeOidcRequests).toEqual(Array(rcPackages.length).fill("https://oidc.fixture.invalid/token"));
 		expect(mocks.signed).toHaveBeenCalledTimes(14);
 	});
 

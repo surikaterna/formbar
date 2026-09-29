@@ -11,7 +11,7 @@ vi.mock("node:child_process", () => ({ execFileSync: mocks.git }));
 vi.mock("node:fs/promises", () => ({ readFile: mocks.file }));
 vi.mock("../github-read", () => ({ createGitHubRead: mocks.api }));
 vi.mock("../live-evidence", () => ({ fetchRcEvidence: mocks.read }));
-vi.mock("../rc-pack-evidence", () => ({ loadRcSource: mocks.source }));
+vi.mock("../rc-source-local", () => ({ loadRcSource: mocks.source }));
 
 import { refreshVerifiedRun, verifyProtectedRun } from "../rc-run-authority";
 
