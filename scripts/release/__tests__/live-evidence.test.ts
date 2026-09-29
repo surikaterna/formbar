@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { type RunWitness, fetchRcEvidence } from "../live-evidence";
 import { type GitHubRead, repo } from "../live-evidence-shape";
+import { verifyLivePolicy } from "../live-policy";
 import { endpointResponses } from "./rc-workflow-fixture";
 
 const sha = "a".repeat(40);
@@ -95,5 +96,134 @@ describe("#406 single-operator read-only exact-run authority", () => {
 			throw Object.assign(new Error("HTTP"), { status });
 		});
 		await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+	});
+});
+
+describe("#411 main ruleset visibility boundary", () => {
+	const rulesetPath = `${repo}/rulesets/24103769`;
+	const cases: { name: string; change: (rule: Record<string, unknown>) => void; reason: string }[] = [
+		{
+			name: "wrong identity",
+			change: (rule) => {
+				rule.id = 0;
+			},
+			reason: "identity not verified",
+		},
+		{
+			name: "disabled",
+			change: (rule) => {
+				rule.enforcement = "disabled";
+			},
+			reason: "enforcement not active",
+		},
+		{
+			name: "wrong target",
+			change: (rule) => {
+				rule.target = "push";
+			},
+			reason: "target not branch",
+		},
+		{
+			name: "wrong source",
+			change: (rule) => {
+				rule.source_type = "Organization";
+			},
+			reason: "source not repository",
+		},
+		{
+			name: "missing ref scope",
+			change: (rule) => {
+				rule.conditions = null;
+			},
+			reason: "ref scope unreadable",
+		},
+		{
+			name: "other branch",
+			change: (rule) => {
+				rule.conditions = { ref_name: { include: ["refs/heads/other"], exclude: [] } };
+			},
+			reason: "ref scope not verified",
+		},
+		{
+			name: "bypass redacted",
+			change: (rule) => {
+				rule.bypass_actors = null;
+			},
+			reason: "bypass actors unreadable",
+		},
+		{
+			name: "bypass omitted",
+			change: (rule) => {
+				rule.bypass_actors = undefined;
+			},
+			reason: "bypass actors unreadable",
+		},
+		{
+			name: "bypass granted",
+			change: (rule) => {
+				rule.bypass_actors = [{ actor_id: 1 }];
+			},
+			reason: "bypass actors changed",
+		},
+		{
+			name: "caller redacted",
+			change: (rule) => {
+				rule.current_user_can_bypass = null;
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "caller omitted",
+			change: (rule) => {
+				rule.current_user_can_bypass = undefined;
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "caller allowed",
+			change: (rule) => {
+				rule.current_user_can_bypass = "always";
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "public shape with partial rules",
+			change: (rule) => {
+				rule.bypass_actors = null;
+				rule.current_user_can_bypass = null;
+				rule.rules = (rule.rules as { type: string }[]).filter((entry) =>
+					["pull_request", "required_status_checks"].includes(entry.type),
+				);
+			},
+			reason: "bypass actors unreadable",
+		},
+		{
+			name: "partial rules even with visible bypass",
+			change: (rule) => {
+				rule.rules = (rule.rules as { type: string }[]).filter((entry) => entry.type !== "deletion");
+			},
+			reason: "main ruleset types changed",
+		},
+	];
+
+	it("accepts complete privileged REST evidence and effective main rules", async () => {
+		await expect(verifyLivePolicy(fixture().api)).resolves.toBeUndefined();
+	});
+
+	it.each(cases)("denies $name without exposing response bodies", async ({ change, reason }) => {
+		const { api, values, get } = fixture();
+		const rule = values[rulesetPath] as Record<string, unknown>;
+		change(rule);
+		rule.secret_fixture_marker = "DO_NOT_LOG_TOKEN_OR_BODY";
+		const error = await verifyLivePolicy(api).then(
+			() => "accepted",
+			(failure: Error) => failure.message,
+		);
+		expect(error).toContain(reason);
+		expect(error).not.toContain("DO_NOT_LOG_TOKEN_OR_BODY");
+		if (reason !== "main ruleset types changed")
+			expect(
+				get.mock.calls.some(([path]) => path.includes("/rules/branches/main") || path.includes("/environments/")),
+			).toBe(false);
 	});
 });
