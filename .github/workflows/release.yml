@@ -110,5 +110,11 @@ jobs:
         run: |
           set -euo pipefail
           export RC_NODE_BINARY="$(command -v node)" RC_NPM_ROOT="$(npm root -g)/npm"
-          export npm_config_userconfig=/dev/null npm_config_globalconfig=/dev/null npm_config_offline=true
+          [[ ! -e .npmrc && -z "${NPM_TOKEN:-}" && -z "${NODE_AUTH_TOKEN:-}" ]]
+          umask 077
+          npm_config_dir="$(mktemp -d "${RUNNER_TEMP:?}/formbar-rc-npm.XXXXXXXX")"
+          trap 'status=$?; rm -rf -- "$npm_config_dir" || status=1; exit "$status"' EXIT
+          export npm_config_userconfig="$npm_config_dir/user.npmrc" npm_config_globalconfig="$npm_config_dir/global.npmrc" npm_config_offline=true
+          : > "$npm_config_userconfig"
+          : > "$npm_config_globalconfig"
           bun -e "import('./scripts/release/rc-protected.ts').then(({runProtectedRc}) => runProtectedRc()).catch((error) => { console.error(error); process.exitCode = 1 })"
