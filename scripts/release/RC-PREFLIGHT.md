@@ -13,7 +13,9 @@ live checks after preflight and before any irreversible write. Any REST 403,
 missing or stale GO, unversioned checkout, or changed policy denies. No GO
 exists on current main: approval alone is **not** publish authorization.
 
-From a clean review checkout, pin Bun 1.2.21 and reproduce the committed bundle:
+CI pins Bun 1.2.21 too: Bun 1.2.0 emits an extra newline in the
+`rc-attempt-fence.ts` empty initializer and cannot reproduce the committed
+bundle byte-for-byte. From a clean review checkout, pin Bun 1.2.21 and rebuild:
 
 ```sh
 mise exec bun@1.2.21 -- bun build scripts/release/rc-preflight-entry.ts --target=node --format=esm --bundle --outfile=scripts/release/rc-preflight.mjs

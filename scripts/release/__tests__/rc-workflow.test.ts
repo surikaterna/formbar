@@ -123,6 +123,9 @@ describe("#397 protected workflow boundary", () => {
 	});
 
 	it("binds the pre-GO executable to a reproducible audited bundle", () => {
+		const ci = YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"));
+		const setup = ci.jobs.ci.steps.find((step: { name: string }) => step.name === "Setup Bun");
+		expect(setup.with["bun-version"]).toBe("1.2.21");
 		const bundle = readFileSync(join(root, "scripts/release/rc-preflight.mjs"));
 		expect(steps[0].run).toContain(sha256(bundle));
 		const dir = mkdtempSync(join(tmpdir(), "formbar-preflight-rebuild-"));
@@ -202,6 +205,28 @@ describe("#397 protected workflow boundary", () => {
 });
 
 describe("#397 workflow-bound clean Node preflight", () => {
+	it("builds the approved seven-package fixture from a shallow HEAD without node_modules", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-shallow-"));
+		try {
+			const source = join(dir, "source");
+			execFileSync("git", ["clone", "--quiet", "--depth=1", `file://${root}`, source]);
+			expect(existsSync(join(source, "node_modules"))).toBe(false);
+			expect(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: source, encoding: "utf8" }).trim()).toBe("1");
+			const { checkout, sha, tree } = versionedCheckout(source, dir);
+			const responsePath = join(dir, "responses.json");
+			const requestPath = join(dir, "requests.log");
+			const eventPath = join(dir, "event.json");
+			writeFileSync(responsePath, JSON.stringify(endpointResponses(sha, tree, new Date())));
+			writeFileSync(requestPath, "");
+			writeFileSync(eventPath, JSON.stringify({ sender: { id: 1532734 }, inputs: { expected_main_sha: sha } }));
+			const result = await runBundle(checkout, fakeWorkflowEnv(sha, eventPath, responsePath, requestPath));
+			expect(result.code, result.error).toBe(0);
+			expect(existsSync(join(checkout, "node_modules"))).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it.each([
 		"valid",
 		"missing GO",
