@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { type PackageEvidence, createRegistryGitHubReader, inspectLiveRc } from "./rc-live-reads";
 import { loadRcSource } from "./rc-pack-evidence";
 import { type PrepackedCandidate, prepackProtectedRun, verifiedCandidateBytes } from "./rc-prepacked-candidates";
-import { publishProtected, signedPublished } from "./rc-protected-providers";
+import { SafePublishFailure, publishProtected, signedPublished } from "./rc-protected-providers";
 import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 import { type VerifiedRun, claimVerifiedRun, refreshVerifiedRun, verifyProtectedRun } from "./rc-run-authority";
 import type { ApprovedVersion } from "./rc-signed-existing";
@@ -112,9 +112,10 @@ export async function runProtectedRc(): Promise<{ status: "VERIFIED_SEVEN"; name
 			await refreshVerifiedRun(run);
 			try {
 				await publishProtected(candidate.name, await verifiedCandidateBytes(run, candidate));
-			} catch {
+			} catch (error) {
 				await reconcile(state, candidate).catch(() => {});
-				throw new Error("npm publish failed or uncertain; new run required");
+				const diagnostic = error instanceof SafePublishFailure ? error.message : "npm publish NPM_UNKNOWN";
+				throw new Error(`${diagnostic}; failed or uncertain; new run required`);
 			}
 		}
 		await reconcile(state, candidate);

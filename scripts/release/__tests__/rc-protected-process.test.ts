@@ -72,7 +72,10 @@ afterEach(() => {
 describe("#363 integrated protected adapter across Node processes (fake GH/npm only)", () => {
 	it("partial/uncertain first PUT stops; a second process on the same run cannot skip or write", () => {
 		const { temp, log, env } = fixture();
-		expect(run(env)).toEqual({ status: "STOPPED", reason: "npm publish failed or uncertain; new run required" });
+		expect(run(env)).toEqual({
+			status: "STOPPED",
+			reason: "npm publish NPM_UNKNOWN; failed or uncertain; new run required",
+		});
 		const claim = join(temp, "formbar-rc-12345-attempt-1.claim");
 		expect(JSON.parse(readFileSync(claim, "utf8"))).toMatchObject({
 			runId: 12345,
@@ -89,7 +92,7 @@ describe("#363 integrated protected adapter across Node processes (fake GH/npm o
 		const { log, env } = fixture();
 		const results = await Promise.all([start(env), start(env)]);
 		expect(results.map((result) => result.reason).sort()).toEqual(
-			["npm publish failed or uncertain; new run required", expect.stringMatching(/EEXIST/)].sort(),
+			["npm publish NPM_UNKNOWN; failed or uncertain; new run required", expect.stringMatching(/EEXIST/)].sort(),
 		);
 		expect(writes(log)).toEqual(["12345 @formbar/expressions"]);
 	});

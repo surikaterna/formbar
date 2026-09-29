@@ -7,10 +7,48 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { withIsolatedSignedAudit } from "./rc-isolated-install";
 import { assertPinnedPublishTools } from "./rc-publish-toolchain";
+import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 import { type ApprovedVersion, verifyExistingSignedVersion, verifyPrepackedSignedVersion } from "./rc-signed-existing";
 import { createSignedRegistryReader } from "./rc-signed-reader";
 
 const exec = promisify(execFile);
+type PublishCategory =
+	| "PRESPAWN_CONFIG"
+	| "PRESPAWN_TOOLCHAIN"
+	| "PRESPAWN_OIDC"
+	| "NPM_STAGE_REQUIRED"
+	| "NPM_FORBIDDEN"
+	| "NPM_OTP"
+	| "NPM_PERMISSION"
+	| "NPM_TIMEOUT"
+	| "NPM_UNKNOWN";
+
+export class SafePublishFailure extends Error {
+	constructor(category: PublishCategory, name: string, elapsedMs: number, npmMs = 0) {
+		// The name and version come only from the reviewed plan, never from subprocess output.
+		super(
+			`npm publish ${category} ${name}@${rcVersion} preflightMs=${Math.min(120_000, Math.max(0, Math.floor(elapsedMs - npmMs)))} npmMs=${Math.min(120_000, Math.max(0, Math.floor(npmMs)))}`,
+		);
+		this.name = "SafePublishFailure";
+	}
+}
+
+export function npmCategory(error: unknown): PublishCategory {
+	if (!error || typeof error !== "object") return "NPM_UNKNOWN";
+	const record = error as { code?: unknown; killed?: unknown; stderr?: unknown };
+	if (record.code === "ETIMEDOUT" || record.killed === true) return "NPM_TIMEOUT";
+	if (typeof record.code !== "number" || record.code === 0 || typeof record.stderr !== "string") return "NPM_UNKNOWN";
+	// Match only known npm diagnostic tokens; never copy any part of stderr into an error.
+	if (/\bE_STAGE_REQUIRED\b/i.test(record.stderr)) return "NPM_STAGE_REQUIRED";
+	if (/\b(?:EOTP|OTP required|one.time pass(?:word|code))\b/i.test(record.stderr)) return "NPM_OTP";
+	if (/\b(?:E403|403 Forbidden|403 - Forbidden)\b/i.test(record.stderr)) return "NPM_FORBIDDEN";
+	if (/\b(?:EACCES|EPERM|permission denied)\b/i.test(record.stderr)) return "NPM_PERMISSION";
+	return "NPM_UNKNOWN";
+}
+
+function safeName(name: string): string {
+	return rcPackages.some((entry) => name === `@formbar/${entry}`) ? name : "UNREVIEWED_PACKAGE";
+}
 export function protectedTools() {
 	const node = process.env.RC_NODE_BINARY;
 	const npm = process.env.RC_NPM_ROOT;
@@ -73,39 +111,89 @@ function publishEnv(dir: string) {
 	};
 }
 
-export async function publishProtected(name: string, bytes: Buffer): Promise<void> {
-	const { node, npm } = protectedTools();
-	await assertPinnedPublishTools(node, npm);
-	assertOidcOnly();
-	const dir = await mkdtemp(join(tmpdir(), "formbar-rc-publish-"));
+async function publishPreflight(name: string, elapsed: () => number) {
+	let node: string;
+	let npm: string;
 	try {
-		const tar = join(dir, `${name.slice(9)}.tgz`);
-		const user = join(dir, ".userconfig");
-		const global = join(dir, ".globalconfig");
-		await writeFile(tar, bytes, { flag: "wx", mode: 0o600 });
-		await writeFile(user, "", { flag: "wx", mode: 0o600 });
-		await writeFile(global, "", { flag: "wx", mode: 0o600 });
-		if (!Buffer.from(await readFile(tar)).equals(bytes)) throw new Error("tarball drift");
-		await exec(
-			node,
-			[
-				join(npm, "bin/npm-cli.js"),
-				"publish",
-				tar,
-				"--tag",
-				"rc",
-				"--access",
-				"public",
-				"--provenance",
-				"--ignore-scripts",
-				"--fetch-retries=0",
-				"--registry=https://registry.npmjs.org/",
-				`--userconfig=${user}`,
-				`--globalconfig=${global}`,
-			],
-			{ cwd: dir, env: publishEnv(dir), timeout: 120_000, maxBuffer: 100_000 },
+		({ node, npm } = protectedTools());
+	} catch {
+		throw new SafePublishFailure("PRESPAWN_CONFIG", safeName(name), elapsed());
+	}
+	try {
+		await assertPinnedPublishTools(node, npm);
+	} catch {
+		throw new SafePublishFailure("PRESPAWN_TOOLCHAIN", safeName(name), elapsed());
+	}
+	try {
+		assertOidcOnly();
+	} catch {
+		throw new SafePublishFailure("PRESPAWN_OIDC", safeName(name), elapsed());
+	}
+	return { node, npm };
+}
+
+async function preparePublish(dir: string, name: string, bytes: Buffer): Promise<string> {
+	const tar = join(dir, `${name.slice(9)}.tgz`);
+	await writeFile(tar, bytes, { flag: "wx", mode: 0o600 });
+	await writeFile(join(dir, ".userconfig"), "", { flag: "wx", mode: 0o600 });
+	await writeFile(join(dir, ".globalconfig"), "", { flag: "wx", mode: 0o600 });
+	if (!Buffer.from(await readFile(tar)).equals(bytes)) throw new Error("tarball drift");
+	return tar;
+}
+
+async function execPublish(node: string, npm: string, dir: string, tar: string): Promise<void> {
+	await exec(
+		node,
+		[
+			join(npm, "bin/npm-cli.js"),
+			"publish",
+			tar,
+			"--tag",
+			"rc",
+			"--access",
+			"public",
+			"--provenance",
+			"--ignore-scripts",
+			"--fetch-retries=0",
+			"--registry=https://registry.npmjs.org/",
+			`--userconfig=${join(dir, ".userconfig")}`,
+			`--globalconfig=${join(dir, ".globalconfig")}`,
+		],
+		{ cwd: dir, env: publishEnv(dir), timeout: 120_000, maxBuffer: 100_000 },
+	);
+}
+
+export async function publishProtected(name: string, bytes: Buffer): Promise<void> {
+	const started = Date.now();
+	const elapsed = () => Date.now() - started;
+	const { node, npm } = await publishPreflight(name, elapsed);
+	let dir: string;
+	try {
+		dir = await mkdtemp(join(tmpdir(), "formbar-rc-publish-"));
+	} catch {
+		throw new SafePublishFailure("PRESPAWN_CONFIG", safeName(name), elapsed());
+	}
+	let stage: "prepare" | "npm" = "prepare";
+	let npmStarted = 0;
+	let failure: SafePublishFailure | undefined;
+	try {
+		const tar = await preparePublish(dir, name, bytes);
+		stage = "npm";
+		npmStarted = Date.now();
+		await execPublish(node, npm, dir, tar);
+	} catch (error) {
+		failure = new SafePublishFailure(
+			stage === "npm" ? npmCategory(error) : "PRESPAWN_CONFIG",
+			safeName(name),
+			elapsed(),
+			stage === "npm" ? Date.now() - npmStarted : 0,
 		);
 	} finally {
-		await rm(dir, { recursive: true, force: true });
+		try {
+			await rm(dir, { recursive: true, force: true });
+		} catch {
+			failure ??= new SafePublishFailure("NPM_UNKNOWN", safeName(name), elapsed());
+		}
 	}
+	if (failure) throw failure;
 }
