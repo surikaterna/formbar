@@ -205,7 +205,7 @@ describe("package artifact policy", () => {
 		expect(() => validateAllowedFiles(policy, [...standardFiles, "dist/leak.test.js"])).toThrow(
 			/prohibited packed file/,
 		);
-	});
+	}, 25_000); // Native npm pack is a subprocess; hosted CI exceeded Vitest's 5s default under concurrent load (#422).
 
 	it("requires every runtime, declaration, and subpath target to be packed", () => {
 		const manifest = exportFixture();
