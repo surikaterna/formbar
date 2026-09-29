@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { consumed, initialVersions, rcEdges, rcPackages, rcVersion } from "../../release/rc-reviewed-plan";
 import { npmPackDryRun } from "../npm-pack";
 import { type PackageManifest, packagePolicies } from "../policy";
 import {
@@ -9,6 +10,7 @@ import {
 	validateExportTargets,
 	validateLicense,
 	validateRcDependencies,
+	validateRcPlan,
 	validateSourceMaps,
 	validateVersion,
 } from "../validate";
@@ -137,7 +139,55 @@ describe("package artifact policy", () => {
 				/invalid prerelease dependency/,
 			);
 		}
+		const rcExpressions = { "@formbar/expressions": "0.23.0-rc.0" };
+		expect(() => validateRcDependencies(policy, withExpressions("^0.23.0-rc.0"), rcExpressions)).not.toThrow();
+		for (const range of ["^0.14.3", "^0.23.0-rc.1", "^0.23.0", "^0.23.0-rc.00"]) {
+			expect(() => validateRcDependencies(policy, withExpressions(range), rcExpressions)).toThrow(
+				/invalid prerelease dependency/,
+			);
+		}
+		expect(() => validateRcDependencies(policy, withExpressions("^0.23.0-rc.0"), expressions)).toThrow(
+			/invalid prerelease dependency/,
+		);
 		expect(() => validateRcDependencies(policy, manifest("0.14.3", "^0.22.2"), versions)).not.toThrow();
+	});
+	it("binds the seven RC manifest graph to the reviewed pre.json plan", () => {
+		const root = temporaryDirectory("seven-rc-plan");
+		mkdirSync(resolve(root, ".changeset"));
+		const pre = { mode: "pre", tag: "rc", initialVersions, changesets: consumed };
+		const prePath = resolve(root, ".changeset/pre.json");
+		const manifests = rcPackages.map((name) => ({
+			name: `@formbar/${name}`,
+			version: rcVersion,
+			dependencies: Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${rcVersion}`])),
+		})) as PackageManifest[];
+		writeFileSync(prePath, JSON.stringify(pre));
+		expect(() => validateRcPlan(root, manifests)).not.toThrow();
+		expect(() => validateRcPlan(root, manifests.slice(1))).toThrow(/incomplete seven-package/);
+		expect(() =>
+			validateRcPlan(root, [...manifests, { name: "@formbar/extra", version: rcVersion } as PackageManifest]),
+		).toThrow(/incomplete seven-package/);
+		for (const changed of [
+			{ ...manifests[0], version: "0.14.3" },
+			{ ...manifests[1], dependencies: { "@formbar/expressions": "^0.14.3" } },
+			{ ...manifests[1], dependencies: { ...manifests[1].dependencies, "@formbar/react": `^${rcVersion}` } },
+		]) {
+			expect(() =>
+				validateRcPlan(
+					root,
+					manifests.map((item) => (item.name === changed.name ? changed : item)),
+				),
+			).toThrow();
+		}
+		for (const forged of [
+			{ ...pre, mode: "exit" },
+			{ ...pre, changesets: consumed.slice(1) },
+			{ ...pre, initialVersions: { ...initialVersions, "@formbar/expressions": "0.99.0" } },
+			{ ...pre, injected: true },
+		]) {
+			writeFileSync(prePath, JSON.stringify(forged));
+			expect(() => validateRcPlan(root, manifests)).toThrow();
+		}
 	});
 	it("rejects a test file selected by native npm pack", () => {
 		const directory = temporaryDirectory("pack-leak");
