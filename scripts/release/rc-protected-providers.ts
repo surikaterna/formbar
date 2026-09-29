@@ -17,6 +17,10 @@ type PublishCategory =
 	| "PRESPAWN_TOOLCHAIN"
 	| "PRESPAWN_OIDC"
 	| "NPM_STAGE_REQUIRED"
+	| "NPM_AUTH_REQUIRED"
+	| "NPM_REGISTRY_UNAUTHORIZED"
+	| "NPM_REGISTRY_NOT_FOUND"
+	| "NPM_CLI_USAGE"
 	| "NPM_FORBIDDEN"
 	| "NPM_OTP"
 	| "NPM_PERMISSION"
@@ -33,17 +37,43 @@ export class SafePublishFailure extends Error {
 	}
 }
 
+const npmCodes: Readonly<Record<string, PublishCategory>> = {
+	ENEEDAUTH: "NPM_AUTH_REQUIRED",
+	E401: "NPM_REGISTRY_UNAUTHORIZED",
+	E404: "NPM_REGISTRY_NOT_FOUND",
+	EUSAGE: "NPM_CLI_USAGE",
+	E_STAGE_REQUIRED: "NPM_STAGE_REQUIRED",
+	EOTP: "NPM_OTP",
+	E403: "NPM_FORBIDDEN",
+	EACCES: "NPM_PERMISSION",
+	EPERM: "NPM_PERMISSION",
+};
+
 export function npmCategory(error: unknown): PublishCategory {
 	if (!error || typeof error !== "object") return "NPM_UNKNOWN";
 	const record = error as { code?: unknown; killed?: unknown; stderr?: unknown };
 	if (record.code === "ETIMEDOUT" || record.killed === true) return "NPM_TIMEOUT";
-	if (typeof record.code !== "number" || record.code === 0 || typeof record.stderr !== "string") return "NPM_UNKNOWN";
-	// Match only known npm diagnostic tokens; never copy any part of stderr into an error.
-	if (/\bE_STAGE_REQUIRED\b/i.test(record.stderr)) return "NPM_STAGE_REQUIRED";
-	if (/\b(?:EOTP|OTP required|one.time pass(?:word|code))\b/i.test(record.stderr)) return "NPM_OTP";
-	if (/\b(?:E403|403 Forbidden|403 - Forbidden)\b/i.test(record.stderr)) return "NPM_FORBIDDEN";
-	if (/\b(?:EACCES|EPERM|permission denied)\b/i.test(record.stderr)) return "NPM_PERMISSION";
-	return "NPM_UNKNOWN";
+	if (
+		typeof record.code !== "number" ||
+		!Number.isInteger(record.code) ||
+		record.code === 0 ||
+		typeof record.stderr !== "string"
+	)
+		return "NPM_UNKNOWN";
+	let category: PublishCategory | undefined;
+	let seenCode: string | undefined;
+	for (const line of record.stderr.split("\n")) {
+		// Only a complete npm diagnostic line is evidence; prose and URLs are not.
+		const diagnostic = /^npm (?:error|ERR!) code(?:[ \t]+(.*))?\r?$/.exec(line);
+		if (!diagnostic) continue;
+		const code = diagnostic[1]?.replace(/\r$/, "");
+		if (!code || !/^[A-Z0-9_]{1,32}$/.test(code) || !Object.prototype.hasOwnProperty.call(npmCodes, code))
+			return "NPM_UNKNOWN";
+		if (seenCode && seenCode !== code) return "NPM_UNKNOWN";
+		seenCode = code;
+		category = npmCodes[code];
+	}
+	return category ?? "NPM_UNKNOWN";
 }
 
 function safeName(name: string): string {
