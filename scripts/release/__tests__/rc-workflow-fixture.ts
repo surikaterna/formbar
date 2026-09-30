@@ -239,6 +239,7 @@ function runResponses(sha: string, tree: string, created: string): Record<string
 	return {
 		[`${repo}/actions/runs/${runId}`]: {
 			id: runId,
+			repository: { full_name: "surikaterna/formbar", id: 1245476636, owner: { login: "surikaterna", id: 9478205 } },
 			event: "workflow_dispatch",
 			run_attempt: 1,
 			actor: { id: 806157 },
@@ -319,6 +320,8 @@ export function approvedPreflight(): string[] {
 					GITHUB_SHA: sha,
 					GITHUB_REPOSITORY: "surikaterna/formbar",
 					GITHUB_EVENT_NAME: "workflow_dispatch",
+					GITHUB_REPOSITORY_ID: "1245476636",
+					GITHUB_REPOSITORY_OWNER_ID: "9478205",
 					GITHUB_REF: "refs/heads/main",
 					GITHUB_REF_PROTECTED: "true",
 					GITHUB_WORKFLOW_REF: "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main",

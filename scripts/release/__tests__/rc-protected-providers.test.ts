@@ -16,11 +16,13 @@ vi.mock("node:fs/promises", async (original) => {
 	};
 });
 import { npmCategory, publishProtected } from "../rc-protected-providers";
+import { assertPinnedPublishTools } from "../rc-publish-toolchain";
 import { assertAuthWithheld, authLeakFixtures } from "./rc-auth-leak-fixtures";
 
 const original = { ...process.env };
 const fixtures: string[] = [];
 afterEach(() => {
+	vi.mocked(assertPinnedPublishTools).mockReset();
 	faults.cleanup = false;
 	process.env = { ...original };
 	for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -33,13 +35,17 @@ function fakeNpm(stderr: string, exit: number, stdout = ""): { root: string; cal
 	const calls = join(root, "calls");
 	writeFileSync(
 		join(root, "bin/npm-cli.js"),
-		`require('node:fs').appendFileSync(${JSON.stringify(calls)}, 'attempt\\n'); process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${exit});`,
+		`require('node:fs').appendFileSync(${JSON.stringify(calls)}, 'attempt\\n'); require('node:fs').writeFileSync(${JSON.stringify(join(root, "env.json"))}, JSON.stringify(process.env)); process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${exit});`,
 	);
 	process.env = {
 		...original,
 		RC_NODE_BINARY: process.execPath,
 		RC_NPM_ROOT: root,
 		GITHUB_ACTIONS: "true",
+		GITHUB_REPOSITORY: "surikaterna/formbar",
+		GITHUB_EVENT_NAME: "workflow_dispatch",
+		GITHUB_REPOSITORY_ID: "1245476636",
+		GITHUB_REPOSITORY_OWNER_ID: "9478205",
 		ACTIONS_ID_TOKEN_REQUEST_URL: "https://secret.invalid/oidc?token=secret-oidc",
 		ACTIONS_ID_TOKEN_REQUEST_TOKEN: "secret-oidc",
 	};
@@ -47,6 +53,72 @@ function fakeNpm(stderr: string, exit: number, stdout = ""): { root: string; cal
 }
 
 describe("production-only npm boundary", () => {
+	it("uses the checked immutable snapshot across asynchronous tool preflight", async () => {
+		const { root } = fakeNpm("", 0);
+		vi.mocked(assertPinnedPublishTools).mockImplementationOnce(async () => {
+			process.env.GITHUB_REPOSITORY = "spoof/formbar";
+			process.env.GITHUB_EVENT_NAME = "push";
+			process.env.GITHUB_REPOSITORY_ID = "spoof";
+			process.env.GITHUB_REPOSITORY_OWNER_ID = "spoof";
+		});
+		await publishProtected("@formbar/expressions", Buffer.from("fixture"));
+		expect(JSON.parse(readFileSync(join(root, "env.json"), "utf8"))).toMatchObject({
+			GITHUB_REPOSITORY: "surikaterna/formbar",
+			GITHUB_EVENT_NAME: "workflow_dispatch",
+			GITHUB_REPOSITORY_ID: "1245476636",
+			GITHUB_REPOSITORY_OWNER_ID: "9478205",
+		});
+	});
+	it.each(
+		["GITHUB_EVENT_NAME", "GITHUB_REPOSITORY_ID", "GITHUB_REPOSITORY_OWNER_ID", "GITHUB_REPOSITORY"].flatMap((key) =>
+			[undefined, "", " ", "WORKFLOW_DISPATCH", "spoof", "01245476636", "+9478205", "9478205.0"].map((value) => [
+				key,
+				value,
+			]),
+		),
+	)("denies invalid public metadata %s=%s without a publish child", async (key, value) => {
+		const { calls } = fakeNpm("", 0);
+		if (value === undefined) delete process.env[key as string];
+		else process.env[key as string] = value;
+		await expect(publishProtected("@formbar/expressions", Buffer.from("fixture"))).rejects.toThrow("PRESPAWN_METADATA");
+		expect(assertPinnedPublishTools).not.toHaveBeenCalled();
+		expect(() => readFileSync(calls)).toThrow();
+	});
+	it("passes exactly the three public additions and no ambient secrets to the real fake child", async () => {
+		const { root } = fakeNpm("", 0);
+		process.env.GITHUB_TOKEN = "private-github";
+		process.env.SENTINEL_SECRET = "private-sentinel";
+		await publishProtected("@formbar/expressions", Buffer.from("fixture"));
+		const env = JSON.parse(readFileSync(join(root, "env.json"), "utf8"));
+		expect(Object.keys(env).sort()).toEqual(
+			[
+				"PATH",
+				"HOME",
+				"TMPDIR",
+				"GITHUB_ACTIONS",
+				"GITHUB_REPOSITORY",
+				"GITHUB_SERVER_URL",
+				"GITHUB_WORKFLOW_REF",
+				"GITHUB_SHA",
+				"GITHUB_RUN_ID",
+				"GITHUB_RUN_ATTEMPT",
+				"GITHUB_REF",
+				"GITHUB_WORKFLOW",
+				"ACTIONS_ID_TOKEN_REQUEST_URL",
+				"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+				"GITHUB_EVENT_NAME",
+				"GITHUB_REPOSITORY_ID",
+				"GITHUB_REPOSITORY_OWNER_ID",
+			].sort(),
+		);
+		expect(env).toMatchObject({
+			GITHUB_EVENT_NAME: "workflow_dispatch",
+			GITHUB_REPOSITORY_ID: "1245476636",
+			GITHUB_REPOSITORY_OWNER_ID: "9478205",
+		});
+		for (const key of ["GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN", "SENTINEL_SECRET"])
+			expect(env).not.toHaveProperty(key);
+	});
 	it("reports cleanup failure without exposing its raw cause", async () => {
 		fakeNpm("", 0);
 		const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-")));

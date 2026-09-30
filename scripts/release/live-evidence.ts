@@ -7,6 +7,8 @@ export interface RunWitness {
 	actor: string;
 	senderId: number; // From the GitHub-generated workflow event.
 	repository: string;
+	repositoryId: string;
+	repositoryOwnerId: string;
 	event: string;
 	ref: string;
 	refProtected: string;
@@ -35,6 +37,8 @@ function verifyWitness(witness: RunWitness): void {
 			witness.actor === "spralle" &&
 			witness.senderId === 806157 &&
 			witness.repository === "surikaterna/formbar" &&
+			witness.repositoryId === "1245476636" &&
+			witness.repositoryOwnerId === "9478205" &&
 			witness.event === "workflow_dispatch" &&
 			witness.ref === "refs/heads/main" &&
 			witness.refProtected === "true" &&
@@ -48,8 +52,14 @@ function verifyWitness(witness: RunWitness): void {
 
 async function verifyRunAndMain(api: GitHubRead, witness: RunWitness): Promise<void> {
 	const run = object(await api.get(`${repo}/actions/runs/${witness.runId}`));
+	const repository = object(run.repository);
+	const owner = object(repository.owner);
 	requireThat(
 		run.id === witness.runId &&
+			repository.full_name === witness.repository &&
+			repository.id === 1245476636 &&
+			owner.login === "surikaterna" &&
+			owner.id === 9478205 &&
 			run.event === "workflow_dispatch" &&
 			run.run_attempt === 1 &&
 			object(run.actor).id === 806157 &&

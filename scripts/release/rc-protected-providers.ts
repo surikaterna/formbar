@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { withIsolatedSignedAudit } from "./rc-isolated-install";
 import { type NpmDiagnostic, credentialValues, npmDiagnostics } from "./rc-npm-diagnostics";
+import { type PublicMetadata, publicMetadata } from "./rc-public-metadata";
 import { assertPinnedPublishTools } from "./rc-publish-toolchain";
 import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 import { type ApprovedVersion, verifyExistingSignedVersion, verifyPrepackedSignedVersion } from "./rc-signed-existing";
@@ -17,6 +18,7 @@ type PublishCategory =
 	| "PRESPAWN_CONFIG"
 	| "PRESPAWN_TOOLCHAIN"
 	| "PRESPAWN_OIDC"
+	| "PRESPAWN_METADATA"
 	| "NPM_STAGE_REQUIRED"
 	| "NPM_AUTH_REQUIRED"
 	| "NPM_REGISTRY_UNAUTHORIZED"
@@ -181,13 +183,13 @@ function assertOidcOnly(): void {
 		throw new Error("GitHub Actions OIDC request unavailable");
 }
 
-function publishEnv(dir: string) {
+function publishEnv(dir: string, metadata: PublicMetadata) {
 	return {
+		...metadata,
 		PATH: process.env.PATH ?? "",
 		HOME: dir,
 		TMPDIR: dir,
 		GITHUB_ACTIONS: "true",
-		GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "",
 		GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL ?? "",
 		GITHUB_WORKFLOW_REF: process.env.GITHUB_WORKFLOW_REF ?? "",
 		GITHUB_SHA: process.env.GITHUB_SHA ?? "",
@@ -201,6 +203,12 @@ function publishEnv(dir: string) {
 }
 
 async function publishPreflight(name: string, elapsed: () => number) {
+	let metadata: PublicMetadata;
+	try {
+		metadata = publicMetadata(process.env);
+	} catch {
+		throw new SafePublishFailure("PRESPAWN_METADATA", safeName(name), elapsed());
+	}
 	let node: string;
 	let npm: string;
 	try {
@@ -218,7 +226,7 @@ async function publishPreflight(name: string, elapsed: () => number) {
 	} catch {
 		throw new SafePublishFailure("PRESPAWN_OIDC", safeName(name), elapsed());
 	}
-	return { node, npm };
+	return { node, npm, metadata };
 }
 
 async function preparePublish(dir: string, name: string, bytes: Buffer): Promise<string> {
@@ -230,7 +238,13 @@ async function preparePublish(dir: string, name: string, bytes: Buffer): Promise
 	return tar;
 }
 
-async function execPublish(node: string, npm: string, dir: string, tar: string): Promise<void> {
+async function execPublish(
+	node: string,
+	npm: string,
+	dir: string,
+	tar: string,
+	metadata: PublicMetadata,
+): Promise<void> {
 	await exec(
 		node,
 		[
@@ -248,14 +262,14 @@ async function execPublish(node: string, npm: string, dir: string, tar: string):
 			`--userconfig=${join(dir, ".userconfig")}`,
 			`--globalconfig=${join(dir, ".globalconfig")}`,
 		],
-		{ cwd: dir, env: publishEnv(dir), timeout: 120_000, maxBuffer: 100_000 },
+		{ cwd: dir, env: publishEnv(dir, metadata), timeout: 120_000, maxBuffer: 100_000 },
 	);
 }
 
 export async function publishProtected(name: string, bytes: Buffer): Promise<void> {
 	const started = Date.now();
 	const elapsed = () => Date.now() - started;
-	const { node, npm } = await publishPreflight(name, elapsed);
+	const { node, npm, metadata } = await publishPreflight(name, elapsed);
 	let dir: string;
 	try {
 		dir = await mkdtemp(join(tmpdir(), "formbar-rc-publish-"));
@@ -270,7 +284,7 @@ export async function publishProtected(name: string, bytes: Buffer): Promise<voi
 		const tar = await preparePublish(dir, name, bytes);
 		stage = "npm";
 		npmStarted = Date.now();
-		await execPublish(node, npm, dir, tar);
+		await execPublish(node, npm, dir, tar, metadata);
 	} catch (error) {
 		failure = new SafePublishFailure(
 			stage === "npm" ? npmCategory(error) : "PRESPAWN_CONFIG",

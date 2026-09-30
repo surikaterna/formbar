@@ -207,11 +207,13 @@ async function fetchRcEvidence(api, witness) {
   await verifyCi(api, witness.expectedSha);
 }
 function verifyWitness(witness) {
-  requireThat(Number.isSafeInteger(witness.runId) && witness.runId > 0 && witness.attempt === 1 && witness.actor === "spralle" && witness.senderId === 806157 && witness.repository === "surikaterna/formbar" && witness.event === "workflow_dispatch" && witness.ref === "refs/heads/main" && witness.refProtected === "true" && witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" && sha.test(witness.expectedSha) && sha.test(witness.checkoutTree) && [witness.workflowSha, witness.eventSha, witness.checkoutSha].every((s) => s === witness.expectedSha), "runtime actor, sender, workflow, ref or checkout differs");
+  requireThat(Number.isSafeInteger(witness.runId) && witness.runId > 0 && witness.attempt === 1 && witness.actor === "spralle" && witness.senderId === 806157 && witness.repository === "surikaterna/formbar" && witness.repositoryId === "1245476636" && witness.repositoryOwnerId === "9478205" && witness.event === "workflow_dispatch" && witness.ref === "refs/heads/main" && witness.refProtected === "true" && witness.workflowRef === "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main" && sha.test(witness.expectedSha) && sha.test(witness.checkoutTree) && [witness.workflowSha, witness.eventSha, witness.checkoutSha].every((s) => s === witness.expectedSha), "runtime actor, sender, workflow, ref or checkout differs");
 }
 async function verifyRunAndMain(api, witness) {
   const run = object(await api.get(`${repo}/actions/runs/${witness.runId}`));
-  requireThat(run.id === witness.runId && run.event === "workflow_dispatch" && run.run_attempt === 1 && object(run.actor).id === 806157 && object(run.triggering_actor).id === 806157 && run.head_sha === witness.expectedSha && run.head_branch === "main" && run.path === ".github/workflows/release.yml" && run.workflow_id === 349257014 && object(run.head_commit).tree_id === witness.checkoutTree, "GitHub run identity changed");
+  const repository = object(run.repository);
+  const owner = object(repository.owner);
+  requireThat(run.id === witness.runId && repository.full_name === witness.repository && repository.id === 1245476636 && owner.login === "surikaterna" && owner.id === 9478205 && run.event === "workflow_dispatch" && run.run_attempt === 1 && object(run.actor).id === 806157 && object(run.triggering_actor).id === 806157 && run.head_sha === witness.expectedSha && run.head_branch === "main" && run.path === ".github/workflows/release.yml" && run.workflow_id === 349257014 && object(run.head_commit).tree_id === witness.checkoutTree, "GitHub run identity changed");
   const main = object(await api.get(`${repo}/branches/main`));
   requireThat(object(main.commit).sha === witness.expectedSha, "main advanced");
   const gitCommit = object(await api.get(`${repo}/git/commits/${witness.expectedSha}`));
@@ -316,6 +318,8 @@ async function witness(root) {
     actor: env.GITHUB_ACTOR ?? "",
     senderId: event.sender?.id ?? -1,
     repository: env.GITHUB_REPOSITORY ?? "",
+    repositoryId: env.GITHUB_REPOSITORY_ID ?? "",
+    repositoryOwnerId: env.GITHUB_REPOSITORY_OWNER_ID ?? "",
     event: env.GITHUB_EVENT_NAME ?? "",
     ref: env.GITHUB_REF ?? "",
     refProtected: env.GITHUB_REF_PROTECTED ?? "",

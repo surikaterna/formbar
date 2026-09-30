@@ -12,6 +12,8 @@ const witness: RunWitness = {
 	actor: "spralle",
 	senderId: 806157,
 	repository: "surikaterna/formbar",
+	repositoryId: "1245476636",
+	repositoryOwnerId: "9478205",
 	event: "workflow_dispatch",
 	ref: "refs/heads/main",
 	refProtected: "true",
@@ -33,6 +35,19 @@ function fixture() {
 }
 
 describe("#406 single-operator read-only exact-run authority", () => {
+	it.each(
+		[undefined, null, "", " ", "1245476636", 0, -1, 1245476637, true, {}].flatMap((value) => [
+			["repository", value],
+			["owner", value],
+		]),
+	)("denies missing/malformed/mismatched authenticated %s ID=%s", async (field, value) => {
+		const { api, values, get } = fixture();
+		const run = values[`${repo}/actions/runs/12345`] as { repository: { id: unknown; owner: { id: unknown } } };
+		if (field === "repository") run.repository.id = value;
+		else run.repository.owner.id = value;
+		await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+		expect(get).toHaveBeenCalledTimes(1);
+	});
 	it("accepts spralle with no GO or approval endpoint and only GET capability", async () => {
 		const { api, get } = fixture();
 		await expect(fetchRcEvidence(api, witness)).resolves.toBeUndefined();
@@ -45,6 +60,11 @@ describe("#406 single-operator read-only exact-run authority", () => {
 		{ senderId: 1532734 },
 		{ runId: 12346 },
 		{ attempt: 2 },
+		{ repositoryId: "01245476636" },
+		{ repositoryOwnerId: "9478205 " },
+		{ repositoryId: "" },
+		{ repositoryOwnerId: "" },
+		{ event: "WORKFLOW_DISPATCH" },
 		{ eventSha: tree },
 		{ workflowSha: tree },
 		{ checkoutSha: tree },
@@ -58,6 +78,18 @@ describe("#406 single-operator read-only exact-run authority", () => {
 	});
 	it.each([
 		[`${repo}/actions/runs/12345`, "run_attempt", 2],
+		[`${repo}/actions/runs/12345`, "event", "push"],
+		...[
+			undefined,
+			null,
+			"spoof",
+			{},
+			{ full_name: "surikaterna/formbar", id: "1245476636", owner: { login: "surikaterna", id: 9478205 } },
+			{ full_name: "spoof/formbar", id: 1245476636, owner: { login: "surikaterna", id: 9478205 } },
+			{ full_name: "surikaterna/formbar", id: 1245476636, owner: { login: "spoof", id: 9478205 } },
+			{ full_name: "surikaterna/formbar", id: 1245476636, owner: { login: "surikaterna", id: "9478205" } },
+			{ full_name: "surikaterna/formbar", id: 1245476636, owner: null },
+		].map((value) => [`${repo}/actions/runs/12345`, "repository", value] as const),
 		[`${repo}/actions/runs/12345`, "actor", { id: 1532734 }],
 		[`${repo}/actions/runs/12345`, "triggering_actor", { id: 1532734 }],
 		[`${repo}/actions/runs/12345`, "head_branch", "other"],

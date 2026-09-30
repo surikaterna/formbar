@@ -32,7 +32,7 @@ mise exec bun@1.2.21 -- bunx vitest run scripts/release/__tests__/rc-workflow.te
 ```
 
 Expected bundle SHA-256, also pinned in the workflow:
-`50bfb5247297d325e94cbd307151004941f017cbe6d1c3805bb7d7b3716c6ae0`.
+`77e644259c1fa716923946593658ccee83b8d91e5dea3c33ee6a98e36a39c15e`.
 CI rebuilds and compares bundle bytes. Source sections in bundle order:
 
 ```text
@@ -40,11 +40,11 @@ CI rebuilds and compares bundle bytes. Source sections in bundle order:
 4a4f20d3f6e1cdb24f5edd04df6b511d22fbe5bc0cf0137d61533e9da0e705fd  live-evidence-shape.ts
 18f00e03812fff53033ed694d16611a941be406ea038c7ffe92b87268c822e28  github-read.ts
 26a74acccde1091b321927b21bf0b4ed8f68d3855a55f85baebf9045efd7a845  live-policy.ts
-babcdddc96924cd206e0cb00b310c3d19af09ad82d01f1db8b02d79f430cec26  live-evidence.ts
+cc9df9835d66e6c1c1ca4a14e39ebc06b2da6fac6b3a7a6c32d0c2642507833e  live-evidence.ts
 25c87aef56fbd654e4657520b0e0684eedd1c92b5cf9fa2dfe67ff1070932b94  rc-attempt-fence.ts (tree-shaken initializer)
 cd10695bc0b12392491f250be9ba72de1f600e4e4983c7f61be1c41ad934430c  rc-registry-proof.ts (source check only)
 49e339f5e88a55ac03dbcfc7507fc906e5f9a084bc0a533b74d51aa3ec33e1f7  rc-source-local.ts
-c1afb9f80765158c2ba47c8a012276c9f8fdc286d61050d45856fb01c48fb6bd  rc-run-authority.ts (read-only verification)
+cf4b72cd2c7374214ccde3eceb4dcd45c3171473e629c00beae39ed9a939cf3b  rc-run-authority.ts (read-only verification)
 1f3e584c7610eb971e21b862e058209b3c124d228464c099f0d693dd76b1d6fc  rc-preflight-entry.ts
 ```
 
