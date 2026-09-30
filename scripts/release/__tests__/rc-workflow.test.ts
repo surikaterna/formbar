@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
 import { checkChangelog, rcPackages, rcVersion } from "../rc-reviewed-plan";
+import { createDenialCheckoutTemp } from "./rc-checkout-temp";
 import { endpointResponses, versionedCheckout } from "./rc-workflow-fixture";
 
 const root = resolve(".");
@@ -187,7 +188,8 @@ describe("#397 protected workflow boundary", () => {
 	it.each(["eaglez", "someone-else", "spralle"])(
 		"clean unversioned Node checkout denies %s before any OIDC or write",
 		async (actor) => {
-			const dir = mkdtempSync(join(tmpdir(), "formbar-rc-deny-"));
+			const fixture = createDenialCheckoutTemp();
+			const { dir } = fixture;
 			const server = createServer((_request, response) => {
 				requests++;
 				response.writeHead(403).end();
@@ -224,7 +226,7 @@ describe("#397 protected workflow boundary", () => {
 				expect(execFileSync("git", ["status", "--porcelain"], { cwd: checkout, encoding: "utf8" })).toBe("");
 			} finally {
 				server.close();
-				rmSync(dir, { recursive: true, force: true });
+				await fixture.cleanup();
 			}
 		},
 	);
