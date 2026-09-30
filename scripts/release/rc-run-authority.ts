@@ -48,6 +48,8 @@ async function witness(root: string): Promise<RunWitness> {
 		actor: env.GITHUB_ACTOR ?? "",
 		senderId: event.sender?.id ?? -1,
 		repository: env.GITHUB_REPOSITORY ?? "",
+		repositoryId: env.GITHUB_REPOSITORY_ID ?? "",
+		repositoryOwnerId: env.GITHUB_REPOSITORY_OWNER_ID ?? "",
 		event: env.GITHUB_EVENT_NAME ?? "",
 		ref: env.GITHUB_REF ?? "",
 		refProtected: env.GITHUB_REF_PROTECTED ?? "",

@@ -76,16 +76,28 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint
-        run: bun run lint
+      - name: Setup pinned offline provenance Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
 
-      - name: Test
-        run: bun run test
+      - name: Install pinned provenance generator (fixture itself is offline)
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund npm@11.20.0
+          [[ "$(node --version)" == v22.23.2 ]] && [[ "$(npm --version)" == 11.20.0 ]]
+          printf 'RC_NODE_BINARY=%s\nRC_NPM_ROOT=%s\n' "$(command -v node)" "$(npm root -g)/npm" >> "$GITHUB_ENV"
 
       - name: Build packages
         run: |
           rm -rf packages/*/dist
           bun run build
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun run test
 
       - name: Check package artifacts
         run: bun run check:package-artifacts
