@@ -35,7 +35,10 @@ function makeBundles() {
 		predicate: {
 			buildDefinition: {
 				buildType: "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
-				externalParameters: { workflow: { repository: source, path: approved.workflow, ref: approved.ref } },
+				externalParameters: {
+					workflow: { repository: source, path: approved.workflow, ref: approved.ref },
+					environment: "",
+				},
 				resolvedDependencies: [{ uri: `git+${source}@${approved.ref}`, digest: { gitCommit: approved.commit } }],
 			},
 			runDetails: {

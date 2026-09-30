@@ -59,7 +59,7 @@ describe("#350 fail-closed release", () => {
 		const protectedJob = workflow.jobs["protected-rc"];
 		expect(workflow.permissions).toEqual({ contents: "read" });
 		expect(protectedJob.permissions).toEqual({ contents: "read", "id-token": "write" });
-		expect(protectedJob.environment).toBe("formbar-rc");
+		expect(protectedJob).not.toHaveProperty("environment");
 		const result = spawnSync("bash", ["-e", "-c", protectedJob.steps[0].run], {
 			encoding: "utf8",
 			env: { ...process.env, GITHUB_SHA: sha, EXPECTED_MAIN_SHA: sha, GITHUB_ACTOR: "spralle" },

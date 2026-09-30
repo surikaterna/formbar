@@ -46,10 +46,10 @@ function driftEndpoints(endpoints: Record<string, unknown>, scenario: string, sh
 		).check_runs[0].conclusion = "failure";
 	if (scenario === "policy")
 		(endpoints[`${api}/rulesets/24103769`] as { enforcement: string }).enforcement = "disabled";
-	if (scenario === "reviewer")
-		(endpoints[`${api}/environments/formbar-rc`] as { protection_rules: unknown[] }).protection_rules.push({
-			type: "required_reviewers",
-		});
+	if (scenario.startsWith("environment ")) {
+		endpoints.deny = `${api}/environments/formbar-rc`;
+		endpoints.denyStatus = Number(scenario.split(" ")[1]);
+	}
 	if (scenario === "403") endpoints.deny = `${api}/actions/runs/12345`;
 }
 
@@ -152,6 +152,7 @@ describe("#397 protected workflow boundary", () => {
 		expect(setup.with["bun-version"]).toBe("1.2.21");
 		const bundle = readFileSync(join(root, "scripts/release/rc-preflight.mjs"));
 		expect(steps[0].run).toContain(sha256(bundle));
+		expect(readFileSync(join(root, "scripts/release/RC-PREFLIGHT.md"), "utf8")).toContain(`\`${sha256(bundle)}\``);
 		const dir = mkdtempSync(join(tmpdir(), "formbar-preflight-rebuild-"));
 		try {
 			const output = join(dir, "rc-preflight.mjs");
@@ -180,6 +181,7 @@ describe("#397 protected workflow boundary", () => {
 		expect(imports.every((specifier) => specifier.startsWith("node:"))).toBe(true);
 		expect(bundle).not.toMatch(/\b(import\(|execFileSync\("npm"|spawn\(|ACTIONS_ID_TOKEN_REQUEST_URL)/);
 		expect(bundle).toContain('method: "GET"');
+		expect(bundle).not.toMatch(/\/environments\/|deployment_branch_policy|protection_rules/);
 	});
 
 	it.each(["eaglez", "someone-else", "spralle"])(
@@ -330,7 +332,9 @@ describe("#397 workflow-bound clean Node preflight", () => {
 		"policy",
 		"redacted bypass",
 		"unprotected ref",
-		"reviewer",
+		"environment 403",
+		"environment 401",
+		"environment 404",
 		"403",
 	])("%s: real bundled gate only permits the complete approved snapshot", async (scenario) => {
 		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-boundary-"));
@@ -354,9 +358,12 @@ describe("#397 workflow-bound clean Node preflight", () => {
 			const env = fakeWorkflowEnv(sha, eventPath, responsePath, requestPath);
 			if (scenario === "unprotected ref") env.GITHUB_REF_PROTECTED = "false";
 			const result = await runBundle(checkout, env);
-			expect(result.code, result.error).toBe(["valid", "redacted bypass"].includes(scenario) ? 0 : 1);
+			expect(result.code, result.error).toBe(
+				["valid", "redacted bypass"].includes(scenario) || scenario.startsWith("environment ") ? 0 : 1,
+			);
 			if (scenario === "redacted bypass") expect(result.error).toContain("UNVERIFIABLE");
 			expect(readFileSync(requestPath, "utf8")).not.toContain("OIDC");
+			expect(readFileSync(requestPath, "utf8")).not.toContain("/environments/");
 			expect(execFileSync("git", ["status", "--porcelain"], { cwd: checkout, encoding: "utf8" })).toBe("");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

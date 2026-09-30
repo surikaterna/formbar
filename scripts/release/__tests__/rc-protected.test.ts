@@ -209,7 +209,8 @@ describe("#397 preflight-to-guarded-adapter no-write transport", () => {
 	it.each([0, 1, 3])("mock OIDC and npm HTTP: stop at PUT %i (0 means seven)", async (failAt) => {
 		vi.resetAllMocks();
 		const preflightReads = approvedPreflight();
-		expect(preflightReads.length).toBeGreaterThan(8);
+		expect(preflightReads).toHaveLength(7);
+		expect(preflightReads.some((request) => request.includes("/environments/"))).toBe(false);
 		expect(preflightReads.every((request) => request.startsWith("https://api.github.com/"))).toBe(true);
 		const requests: string[] = [];
 		const published = new Set<string>();

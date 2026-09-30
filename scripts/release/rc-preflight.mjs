@@ -173,19 +173,8 @@ async function verifyRuleDetails(api, ruleset) {
   const effectiveChecks = object(effective.find((rule) => rule.ruleset_id === 24103769 && rule.type === "required_status_checks")?.parameters);
   requireThat(JSON.stringify(effectivePr) === JSON.stringify(pr) && JSON.stringify(effectiveChecks) === JSON.stringify(checks), "effective main parameters differ");
 }
-async function verifyEnvironment(api) {
-  const environment = object(await api.get(`${repo}/environments/formbar-rc`));
-  const branch = object(environment.deployment_branch_policy);
-  requireThat(environment.id === 22904271021 && environment.can_admins_bypass === false && branch.custom_branch_policies === true && branch.protected_branches === false, "release environment changed");
-  const protection = array(environment.protection_rules).map(object);
-  requireThat(sameSet(protection.map((rule) => rule.type), ["branch_policy"]), "release protection rules changed");
-  const policies = object(await api.get(`${repo}/environments/formbar-rc/deployment-branch-policies`));
-  const entries = array(policies.branch_policies);
-  requireThat(policies.total_count === 1 && entries.length === 1 && object(entries[0]).name === "main" && object(entries[0]).type === "branch", "main-only deployment policy changed");
-}
 async function verifyLivePolicy(api) {
   await verifyMainRules(api);
-  await verifyEnvironment(api);
 }
 async function verifyEligibleActors(api) {
   const permission = object(await api.get(`${repo}/collaborators/spralle/permission`));
