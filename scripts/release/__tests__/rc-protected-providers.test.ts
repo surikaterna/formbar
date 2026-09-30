@@ -4,11 +4,23 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../rc-publish-toolchain", () => ({ assertPinnedPublishTools: vi.fn() }));
+const faults = vi.hoisted(() => ({ cleanup: false }));
+vi.mock("node:fs/promises", async (original) => {
+	const fs = await original<typeof import("node:fs/promises")>();
+	return {
+		...fs,
+		rm: async (...args: Parameters<typeof fs.rm>) => {
+			if (faults.cleanup) throw new Error("private-cleanup-cause");
+			return fs.rm(...args);
+		},
+	};
+});
 import { npmCategory, publishProtected } from "../rc-protected-providers";
 
 const original = { ...process.env };
 const fixtures: string[] = [];
 afterEach(() => {
+	faults.cleanup = false;
 	process.env = { ...original };
 	for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -34,6 +46,50 @@ function fakeNpm(stderr: string, exit: number, stdout = ""): { root: string; cal
 }
 
 describe("production-only npm boundary", () => {
+	it("reports cleanup failure without exposing its raw cause", async () => {
+		fakeNpm("", 0);
+		const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-")));
+		faults.cleanup = true;
+		let failure: unknown;
+		try {
+			await publishProtected("@formbar/expressions", Buffer.from("fixture"));
+		} catch (error) {
+			failure = error;
+		} finally {
+			faults.cleanup = false;
+		}
+		for (const name of readdirSync(tmpdir()).filter(
+			(name) => name.startsWith("formbar-rc-publish-") && !before.has(name),
+		))
+			fixtures.push(join(tmpdir(), name));
+		expect(String(failure)).toContain("reason=cleanup-failure");
+		expect((failure as Error).stack).not.toContain("private-cleanup-cause");
+		expect(failure).not.toHaveProperty("cause");
+	});
+	it.each([false, true])(
+		"redacts hostile exec output on every error surface (controls=%s) and cleans up",
+		async (controls) => {
+			const secret = "private-application-value";
+			const stderr = `npm error config collision ${secret} ${encodeURIComponent(secret)}\nnpm error https://user:private-url@host.invalid/path?token=private-query#private-fragment\nnpm error Authorization: Bearer private-bearer\nnpm error ghp_privateprefix npm_privateprefix eyJprivate.payload.signature\nnpm error ::warning:: useful final reason${controls ? "\x1b[31m\r\n::error::injected" : ""}`;
+			fakeNpm(stderr, 1, "private stdout");
+			process.env.APP_SECRET = secret;
+			const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
+			let failure: unknown;
+			try {
+				await publishProtected("@formbar/expressions", Buffer.from("fixture"));
+			} catch (error) {
+				failure = error;
+			}
+			for (const surface of [String(failure), JSON.stringify(failure), (failure as Error).stack]) {
+				expect(surface).not.toMatch(/private-|privateprefix|eyJprivate|host\.invalid|::/);
+				expect(surface).not.toContain("\x1b");
+			}
+			expect(String(failure)).toContain(controls ? "suppression=unsafe-controls" : "useful final reason");
+			expect(failure).not.toHaveProperty("cause");
+			expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
+		},
+	);
+
 	it("classifies forced timeout independently of secret-bearing stderr and unknown spawn failures", () => {
 		expect(npmCategory({ killed: true, code: null, stderr: "secret-otp" })).toBe("NPM_TIMEOUT");
 		expect(npmCategory({ code: "ETIMEDOUT", stderr: "secret" })).toBe("NPM_TIMEOUT");
@@ -145,7 +201,7 @@ describe("production-only npm boundary", () => {
 		["EOTP", "npm error code EOTP", "NPM_OTP"],
 		["EACCES", "npm error code EACCES", "NPM_PERMISSION"],
 		["EPERM", "npm error code EPERM", "NPM_PERMISSION"],
-		["unknown", "secret-opaque https://user:secret@registry.invalid/", "NPM_UNKNOWN"],
+		["unknown", "npm error useful unknown failure https://user:secret@registry.invalid/", "NPM_UNKNOWN"],
 	])("sanitizes fake npm %s without exposing subprocess output", async (_, stderr, category) => {
 		const { calls } = fakeNpm(`${stderr}\nnpm error detail https://user:secret@registry.invalid/oidc?token=secret`, 1);
 		const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
@@ -160,7 +216,7 @@ describe("production-only npm boundary", () => {
 		expect(message).toMatch(
 			new RegExp(`npm publish ${category} @formbar/expressions@0\\.23\\.0-rc\\.0 preflightMs=\\d+ npmMs=\\d+`),
 		);
-		expect(message).not.toMatch(/secret|registry\.invalid|opaque|npm ERR|user:/i);
+		expect(message).not.toMatch(/secret|registry\.invalid|opaque|user:/i);
 		expect(failure).not.toHaveProperty("cause");
 		expect(JSON.stringify(failure)).not.toMatch(/secret|registry\.invalid|user:/i);
 		expect((failure as Error).stack).not.toMatch(/secret|registry\.invalid|user:/i);
@@ -223,9 +279,9 @@ describe("production-only npm boundary", () => {
 				`npm publish NPM_UNKNOWN @formbar/expressions@0\\.23\\.0-rc\\.0 preflightMs=\\d+ npmMs=\\d+ stdoutBytes=${Buffer.byteLength(stdout)} stderrBytes=${Buffer.byteLength(stderr)}`,
 			),
 		);
-		expect(String(failure)).not.toMatch(/secret|E404|E401|oidc/i);
-		expect(JSON.stringify(failure)).not.toMatch(/secret|E404|E401|oidc/i);
-		expect((failure as Error).stack).not.toMatch(/secret|E404|E401|oidc/i);
+		expect(String(failure)).not.toMatch(/secret|E404|oidc/i);
+		expect(JSON.stringify(failure)).not.toMatch(/secret|E404|oidc/i);
+		expect((failure as Error).stack).not.toMatch(/secret|E404|oidc/i);
 		expect(failure).not.toHaveProperty("cause");
 		expect(spy).not.toHaveBeenCalled();
 		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
