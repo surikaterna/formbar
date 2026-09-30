@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -42,30 +41,26 @@ const reader = { npmVersion } as unknown as ReleaseReader;
 describe("#350 fail-closed release", () => {
 	it("keeps push-main proposal-only even when Changesets reports no changesets", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
-		expect(Object.keys(workflow.jobs)).toEqual(["version-proposal", "protected-rc"]);
+		expect(Object.keys(workflow.jobs)).toEqual(["version-proposal", "publish-rc"]);
 		expect(workflow.on.push).toEqual({ branches: ["main"] });
-		expect(Object.keys(workflow.on.workflow_dispatch.inputs)).toEqual(["expected_main_sha"]);
+		expect(workflow.on.workflow_dispatch).toBeNull();
 		expect(workflow.jobs["version-proposal"].if).toContain("github.event_name == 'push'");
 		expect(workflow.jobs["version-proposal"].steps.at(-1)).toMatchObject({
 			uses: "changesets/action@v1",
 			with: { version: "bun run version:packages" },
 		});
-		expect(workflow.jobs["protected-rc"].if).toContain("workflow_dispatch");
+		expect(workflow.jobs["publish-rc"].if).toContain("workflow_dispatch");
 		expect(JSON.stringify(workflow.jobs["version-proposal"])).not.toMatch(/hasChangesets|changeset publish|id-token/);
 	});
 
-	it("denies the wrong actor before checkout, third-party code or credentials", async () => {
+	it("restricts the manual job to main and the operator without an environment", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
-		const protectedJob = workflow.jobs["protected-rc"];
+		const protectedJob = workflow.jobs["publish-rc"];
 		expect(workflow.permissions).toEqual({ contents: "read" });
 		expect(protectedJob.permissions).toEqual({ contents: "read", "id-token": "write" });
 		expect(protectedJob).not.toHaveProperty("environment");
-		const result = spawnSync("bash", ["-e", "-c", protectedJob.steps[0].run], {
-			encoding: "utf8",
-			env: { ...process.env, GITHUB_SHA: sha, EXPECTED_MAIN_SHA: sha, GITHUB_ACTOR: "spralle" },
-		});
-		expect(result.status).toBe(1);
-		expect(result.stdout).toBe("");
+		expect(protectedJob.if).toContain("github.actor == 'spralle'");
+		expect(protectedJob.if).toContain("github.ref == 'refs/heads/main'");
 	});
 
 	it.each([

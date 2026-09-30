@@ -11,11 +11,6 @@ import { createDenialCheckoutTemp } from "./rc-checkout-temp";
 import { endpointResponses, versionedCheckout } from "./rc-workflow-fixture";
 
 const root = resolve(".");
-const workflow = readFileSync(join(root, ".github/workflows/release.yml"), "utf8");
-const parsed = YAML.parse(workflow) as {
-	jobs: Record<string, { steps: { name: string; run?: string; uses?: string }[] }>;
-};
-const steps = parsed.jobs["protected-rc"].steps;
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
 function verifySourceHashes(markdown: string): void {
@@ -78,8 +73,7 @@ function fakeWorkflowEnv(sha: string, event: string, responses: string, requests
 }
 
 async function runBundle(checkout: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; error: string }> {
-	const command = steps[1].run;
-	if (command !== "node scripts/release/rc-preflight.mjs") throw new Error("workflow gate changed");
+	const command = "node scripts/release/rc-preflight.mjs";
 	return new Promise((done) => {
 		const child = spawn(
 			process.execPath,
@@ -116,7 +110,7 @@ function unversionedCheckout(dir: string): string {
 	return checkout;
 }
 
-describe("#397 protected workflow boundary", () => {
+describe("#397 archived preflight boundary (not an active release gate)", () => {
 	it("binds every documented source hash to exact checked-in bytes and rejects drift", () => {
 		const markdown = readFileSync(join(root, "scripts/release/RC-PREFLIGHT.md"), "utf8");
 		expect(() => verifySourceHashes(markdown)).not.toThrow();
@@ -125,36 +119,11 @@ describe("#397 protected workflow boundary", () => {
 		);
 	});
 
-	it("executes only built-in git and Node before authority checks; keeps push job independent", () => {
-		expect(parsed.jobs["version-proposal"].steps).toHaveLength(5);
-		expect(parsed.jobs["reject-dispatch"]).toBeUndefined();
-		expect(steps.slice(0, 2).map((step) => step.name)).toEqual([
-			"Fetch exact protected commit without actions or repository scripts",
-			"Live read-only protected-run preflight (runner Node)",
-		]);
-		expect(steps.slice(0, 2).every((step) => !step.uses)).toBe(true);
-		expect(steps[0].run).toContain("git fetch --no-tags --no-recurse-submodules --depth=1");
-		expect(steps[0].run).toContain("git init --quiet --template=/dev/null");
-		expect(steps[0].run).toContain("git status --porcelain --untracked-files=all");
-		expect(steps[1].run).toBe("node scripts/release/rc-preflight.mjs");
-		expect(
-			steps
-				.slice(2)
-				.map((step) => step.uses)
-				.filter(Boolean),
-		).toEqual([
-			"oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
-			"actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
-		]);
-		expect(steps.at(-1)?.run).toContain("runProtectedRc()");
-	});
-
-	it("binds the preflight executable to a reproducible audited bundle", () => {
+	it("retains the reproducible archived bundle", () => {
 		const ci = YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"));
 		const setup = ci.jobs.ci.steps.find((step: { name: string }) => step.name === "Setup Bun");
 		expect(setup.with["bun-version"]).toBe("1.2.21");
 		const bundle = readFileSync(join(root, "scripts/release/rc-preflight.mjs"));
-		expect(steps[0].run).toContain(sha256(bundle));
 		expect(readFileSync(join(root, "scripts/release/RC-PREFLIGHT.md"), "utf8")).toContain(`\`${sha256(bundle)}\``);
 		const dir = mkdtempSync(join(tmpdir(), "formbar-preflight-rebuild-"));
 		try {
@@ -234,7 +203,7 @@ describe("#397 protected workflow boundary", () => {
 	);
 });
 
-describe("#397 workflow-bound clean Node preflight", () => {
+describe("#397 archived clean Node preflight", () => {
 	it("normalizes unversioned and reviewed versioned sources to one identical seven-package RC", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "formbar-rc-single-heading-"));
 		try {

@@ -1,16 +1,9 @@
-name: Version proposal (release disabled)
+name: Version proposal and manual RC
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      expected_main_sha:
-        description: Full lowercase SHA at the tip of main (NOT publish authorization)
-        required: true
-        type: string
-
-concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: read
@@ -42,78 +35,76 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  protected-rc:
-    if: github.event_name == 'workflow_dispatch' && github.repository == 'surikaterna/formbar'
+  publish-rc:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'surikaterna/formbar' && github.ref == 'refs/heads/main' && github.actor == 'spralle'
     runs-on: ubuntu-latest
     concurrency:
-      group: formbar-rc-${{ github.run_id }}
+      group: formbar-manual-rc
       cancel-in-progress: false
     permissions:
       contents: read
-      id-token: write # Capability at job start; audited code makes no request before protected-run checks.
+      id-token: write
     steps:
-      - name: Fetch exact protected commit without actions or repository scripts
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
-        run: |
-          set -euo pipefail
-          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$EXPECTED_MAIN_SHA" == "$GITHUB_SHA" ]]
-          [[ "$GITHUB_ACTOR" == spralle ]] && [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
-          [[ "$GITHUB_REF" == refs/heads/main ]] && [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
-          [[ "$GITHUB_REF_PROTECTED" == true ]]
-          [[ -z "$(ls -A "$GITHUB_WORKSPACE")" ]]
-          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-          unset GIT_CONFIG_PARAMETERS GIT_TEMPLATE_DIR
-          git init --quiet --template=/dev/null "$GITHUB_WORKSPACE"
-          cd "$GITHUB_WORKSPACE"
-          export GIT_CONFIG_COUNT=3
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false
-          export GIT_CONFIG_KEY_2=core.hooksPath GIT_CONFIG_VALUE_2=/dev/null
-          git fetch --no-tags --no-recurse-submodules --depth=1 https://github.com/surikaterna/formbar.git "$GITHUB_SHA"
-          unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2
-          git -c core.hooksPath=/dev/null -c protocol.file.allow=never checkout --detach --force FETCH_HEAD
-          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
-          [[ -z "$(git status --porcelain --untracked-files=all)" ]]
-          # CI pins this bundle to audited source and verifies byte-for-byte reproduction.
-          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "77e644259c1fa716923946593658ccee83b8d91e5dea3c33ee6a98e36a39c15e" ]]
-      - name: Live read-only protected-run preflight (runner Node)
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/release/rc-preflight.mjs
-      - name: Setup pinned Bun after preflight
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.21
-      - name: Setup pinned Node after preflight
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
-      - name: Install pinned npm and build after preflight
-        shell: bash
+      - name: Install npm and provision offline test tools
         run: |
-          set -euo pipefail
           npm install --global --ignore-scripts --no-audit --no-fund npm@11.20.0
-          [[ "$(node --version)" == v22.23.2 ]] && [[ "$(npm --version)" == 11.20.0 ]]
-          bun install --frozen-lockfile --ignore-scripts
-          bun run build
-          [[ -z "$(git status --porcelain --untracked-files=all)" ]]
-      - name: Revalidate and publish only reviewed seven RC tarballs
+          [[ "$(node --version)" == v22.23.2 && "$(npm --version)" == 11.20.0 ]]
+          printf 'RC_NODE_BINARY=%s\nRC_NPM_ROOT=%s\n' "$(command -v node)" "$(npm root -g)/npm" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build packages
+        run: bun run build
+      - name: Test
+        run: bun run test
+      - name: Publish and check RC
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          export RC_NODE_BINARY="$(command -v node)" RC_NPM_ROOT="$(npm root -g)/npm"
-          [[ ! -e .npmrc && -z "${NPM_TOKEN:-}" && -z "${NODE_AUTH_TOKEN:-}" ]]
-          umask 077
-          npm_config_dir="$(mktemp -d "${RUNNER_TEMP:?}/formbar-rc-npm.XXXXXXXX")"
-          trap 'status=$?; rm -rf -- "$npm_config_dir" || status=1; exit "$status"' EXIT
-          export npm_config_userconfig="$npm_config_dir/user.npmrc" npm_config_globalconfig="$npm_config_dir/global.npmrc" npm_config_offline=true
-          : > "$npm_config_userconfig"
-          : > "$npm_config_globalconfig"
-          bun -e "import('./scripts/release/rc-protected.ts').then(({runProtectedRc}) => runProtectedRc()).catch((error) => { console.error(error); process.exitCode = 1 })"
+          packages=(expressions core declarative from-schema react arbiter react-schema)
+          version="$(node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const names = ['expressions', 'core', 'declarative', 'from-schema', 'react', 'arbiter', 'react-schema'];
+          const manifests = names.map(name => JSON.parse(readFileSync(`packages/${name}/package.json`)));
+          const version = manifests[0].version;
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.(0|[1-9]\d*)$/.test(version) ||
+              manifests.some((manifest, index) => manifest.version !== version || manifest.name !== `@formbar/${names[index]}`)) {
+            throw new Error('All seven named packages must have the same well-formed RC version');
+          }
+          console.log(version);
+          NODE
+          )"
+          snapshot="$(mktemp -d)"
+          trap 'rm -rf "$snapshot"' EXIT
+          for package in "${packages[@]}"; do
+            npm view "@formbar/$package" dist-tags.latest --json > "$snapshot/$package.latest"
+            printf '%s latest before: ' "@formbar/$package"
+            cat "$snapshot/$package.latest"
+            jq -e 'type == "string" and length > 0' "$snapshot/$package.latest"
+          done
+          for package in "${packages[@]}"; do
+            if npm view "@formbar/$package@$version" name version --json > "$snapshot/exact.json"; then
+              jq -e --arg name "@formbar/$package" --arg version "$version" '.name == $name and .version == $version' "$snapshot/exact.json"
+              printf 'Skipping immutable existing %s@%s\n' "@formbar/$package" "$version"
+            else
+              jq -e '.error.code == "E404"' "$snapshot/exact.json"
+              (cd "packages/$package" && npm publish --tag rc --access public --provenance)
+            fi
+          done
+          for package in "${packages[@]}"; do
+            npm view "@formbar/$package@$version" name version --json > "$snapshot/exact.json"
+            cat "$snapshot/exact.json"
+            jq -e --arg name "@formbar/$package" --arg version "$version" '.name == $name and .version == $version' "$snapshot/exact.json"
+            npm view "@formbar/$package" dist-tags --json > "$snapshot/tags.json"
+            cat "$snapshot/tags.json"
+            jq -e --arg version "$version" --slurpfile latest "$snapshot/$package.latest" '.rc == $version and .latest == $latest[0]' "$snapshot/tags.json"
+          done

@@ -1,5 +1,10 @@
 # #406 read-only bootstrap
 
+> **Archived research — superseded by #442 and #250 comment 5913830240.**
+> The bundle and its reproducibility/fixture tests remain research only;
+> the active workflow does not invoke it or gate on its hash.
+> Use [the manual RC procedure](../../docs/npm-trusted-publishing.md).
+
 `release.yml` fetches only the generated event's full SHA into an empty
 repository with built-in shell/git, suppressing templates, hooks, global/system
 config and redirects. Its temporary authorization header is used only for

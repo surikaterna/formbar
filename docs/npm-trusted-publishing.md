@@ -1,66 +1,46 @@
-# npm trusted publishing: protected seven-package RC
+# Manual npm RC distribution
 
-The manual protected RC job in `.github/workflows/release.yml` publishes reviewed
-tarballs using direct `npm publish --provenance --tag rc` through GitHub Actions
-OIDC. No deployment environment is attached. There is no `NPM_TOKEN`,
-`NODE_AUTH_TOKEN`, local bootstrap, Changesets-publish or token fallback path.
-Main pushes update only the version proposal, not publication.
+The active procedure is `.github/workflows/release.yml`, simplified under #442
+and the owner policy supersession in #250 (comment 5913830240). Archived release
+research is not a prerequisite. Main pushes only create Changesets version
+proposals; they never publish.
 
-## Intended existing publisher identity (not verified configuration)
+## Operator steps
 
-For EACH of these seven public packages:
+1. Audit the source PR and pass normal protected-branch CI before merge. Source
+   delivery does **not** authorize publication; #250 remains release HOLD.
+2. On a separate owner instruction, `spralle` starts a **new** manual run of
+   `release.yml` on `main` in `surikaterna/formbar`. Never rerun historical failed
+   runs (including 36723897550). No SHA/GO input or deployment environment is used.
+3. The job checks out source, sets up Bun **1.2.21**, Node **22.23.2** and npm
+   **11.20.0**, provisions the required offline test tools, then performs frozen
+   install → sequential package build → full tests. All seven named manifests
+   must share a well-formed `-rc.N` version (currently **0.23.0-rc.0**).
+4. The job records each stable `latest` tag, queries each exact candidate version,
+   and skips matching existing name/version pairs under npm immutability. Only a
+   structured npm `E404` failure permits publication. Other errors stop the job.
+   Absent candidates publish directly from package directories with
+   `npm publish --tag rc --access public --provenance`, in this order:
+   **expressions → core → declarative → from-schema → react → arbiter → react-schema**.
+5. Review normal npm stdout/stderr and the final registry records: exact name and
+   version must match, `rc` must equal the candidate, and `latest` must be unchanged
+   for all seven. A mismatch or failure stops visibly. There is no failed PUT
+   retry, automatic tag repair, or GitHub tag/release requirement for RC npm tests.
+   Investigate partial publication before requesting another new run.
 
-- `@formbar/core`
-- `@formbar/arbiter`
-- `@formbar/declarative`
-- `@formbar/expressions`
-- `@formbar/from-schema`
-- `@formbar/react`
-- `@formbar/react-schema`
+## Authentication and limits
 
-A human npm package administrator must inspect Settings -> Trusted publishing
-and Publishing access, read-only, and report sanitized yes/no/unknown categories:
+The intended existing npm trusted publisher is GitHub Actions, repository
+**surikaterna/formbar**, workflow filename **release.yml**, environment **blank**,
+with **direct npm publish** allowed. The job grants `contents: read` and
+`id-token: write`; it uses OIDC with the normal inherited GitHub environment,
+including public provenance metadata. No NPM_TOKEN, NODE_AUTH_TOKEN, generated
+`.npmrc`, config scrub, or custom signed-package runner is added. Do not print
+tokens or dump environment/configuration; standard GitHub masking still applies.
 
-- Provider GitHub Actions; repository owner/name exactly `surikaterna/formbar`.
-- Workflow filename exactly `release.yml` (filename, not path; case sensitive).
-- Environment name **BLANK**, matching the no-environment RC job (#434).
-- Allowed actions include **direct npm publish**, not merely stage publishing.
-- Public visibility and publishing/MFA policy compatible with OIDC.
-- Other relevant connections present: yes/no/unknown, without identifiers.
+Source tests do not certify private npm publisher settings or future registry
+acceptance. Matching existing versions are immutable skips, not custom signer
+proof. Registry absence does not establish whether a historical PUT occurred.
+No settings changes or mandatory admin-readback gate are part of this procedure.
 
-Do not create, modify or remove connections, npm settings or credentials. The
-existing GitHub deployment environment may remain unused; do not delete it.
-Readback of expressions alone does not establish settings for the other six.
-If admin access is unavailable, record UNVERIFIED and retain release HOLD.
-Public metadata, dry runs and diagnostic categories cannot establish these
-private settings or prove historical authentication success/failure or no PUT.
-
-## Publication and release fence
-
-The intended default OIDC subject is
-`repo:surikaterna/formbar:ref:refs/heads/main`. This is not the Fulcio certificate
-workflow SAN; production signed verification still requires the exact workflow
-URI/ref, repository, commit, run and attempt, issuer, certificate OIDs and
-transparency verification. Blank environment does not weaken these checks.
-
-The reviewed candidate remains all seven `0.23.0-rc.0` packages and the exact
-23-ID version graph. Before every write, the adapter rechecks current protected
-main SHA/tree, manual spralle identity (806157), attempt1, PR/rules policy and
-unique green exact-SHA ci app15368. The redacted bypass exception requires fresh
-independent authenticated admin `bypass_actors: []` readbacks before dispatch
-and postflight, never an inferred empty list.
-
-Each publication uses explicit `rc`, never `latest`; registry-host bytes and
-signed provenance must verify after publication before the next package.
-Any uncertain or partial failure stops publication and requires reconciliation,
-not a retry. #250 remains RELEASE HOLD and #427 remains unresolved. Source/docs
-delivery is not release authorization: require independent audit, normal merge,
-fresh exact-current-main readiness and all-seven registry/tag reconciliation,
-then separate owner GO for one NEW attempt1 run. Never retry historical failed
-runs. Historical NPM_UNKNOWN has no proven cause; blank environment is intended
-configuration, not a retrospective diagnosis.
-
-References: [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/),
-[GitHub OIDC](https://docs.github.com/en/actions/reference/security/oidc),
-[RC policy](../scripts/release/RC-GATE.md),
-[preflight and exception](../scripts/release/RC-PREFLIGHT.md).
+Reference: [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/).

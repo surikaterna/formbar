@@ -1,71 +1,221 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
 
-const workflow = YAML.parse(readFileSync(resolve(".github/workflows/release.yml"), "utf8"));
-const steps = workflow.jobs["protected-rc"].steps as { name: string; run?: string }[];
-const setup = steps.find((step) => step.name === "Install pinned npm and build after preflight")?.run;
-const publish = steps.find((step) => step.name === "Revalidate and publish only reviewed seven RC tarballs")?.run;
-const entry =
-	"bun -e \"import('./scripts/release/rc-protected.ts').then(({runProtectedRc}) => runProtectedRc()).catch((error) => { console.error(error); process.exitCode = 1 })\"";
+const source = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
+const workflow = YAML.parse(source);
+const job = workflow.jobs["publish-rc"];
+const packages = ["expressions", "core", "declarative", "from-schema", "react", "arbiter", "react-schema"];
+const version = "0.23.0-rc.0";
+type Call = { args: string[]; cwd: string; metadata: string[] };
 
-describe("#420 real workflow npm isolation (no OIDC or publish)", () => {
-	it("keeps the setup pin and protected entrypoint, with no bypass", () => {
-		expect(setup).toContain("npm@11.20.0");
-		expect(setup).toContain('[[ "$(npm --version)" == 11.20.0 ]]');
-		expect(publish?.trimEnd().endsWith(entry)).toBe(true);
-		expect(publish).not.toMatch(/GO_BYPASS|BYTE_BYPASS|NPM_TOKEN=|\.npmrc\s*>/);
+function prepareFixture(directory: string, scenario: string, changedVersion: string, changedName?: string) {
+	const bin = join(directory, "bin");
+	mkdirSync(bin);
+	for (const name of packages) {
+		const path = join(directory, "packages", name);
+		mkdirSync(path, { recursive: true });
+		writeFileSync(
+			join(path, "package.json"),
+			JSON.stringify({
+				name: name === "react-schema" ? changedName || `@formbar/${name}` : `@formbar/${name}`,
+				version: scenario === "all-invalid" || name === "react-schema" ? changedVersion : version,
+			}),
+		);
+	}
+	for (const command of ["npm", "bun"]) {
+		const executable = join(bin, command);
+		writeFileSync(
+			executable,
+			`#!/bin/sh\nexec node ${JSON.stringify(resolve("scripts/release/__tests__/manual-npm-fixture.cjs"))} "$@"\n`,
+		);
+		chmodSync(executable, 0o755);
+	}
+	const state = join(directory, "state.json");
+	const log = join(directory, "calls.jsonl");
+	writeFileSync(state, JSON.stringify({ scenario, version, published: [] }));
+	writeFileSync(log, "");
+	return { bin, state, log };
+}
+
+function runWorkflowShell(scenario: string, changedVersion = version, changedName?: string) {
+	const directory = mkdtempSync(join(tmpdir(), "formbar-manual-rc-"));
+	try {
+		const { bin, state, log } = prepareFixture(directory, scenario, changedVersion, changedName);
+		const preparation = ["prepare", "build-failure", "test-failure"].includes(scenario);
+		const commands = job.steps
+			.slice(preparation ? 4 : 7)
+			.map((step: { run: string }) => step.run)
+			.join("\n");
+		const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", commands], {
+			cwd: directory,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				PATH: `${bin}:${process.env.PATH}`,
+				TEST_STATE: state,
+				TEST_LOG: log,
+				GITHUB_EVENT_NAME: "workflow_dispatch",
+				GITHUB_REPOSITORY_ID: "1245476636",
+				GITHUB_REPOSITORY_OWNER_ID: "9478205",
+			},
+		});
+		const calls = readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.map((line): Call => JSON.parse(line));
+		return { ...result, calls, publications: calls.filter((call) => call.args[0] === "publish") };
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+}
+
+describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", () => {
+	it.each([
+		["workflow_dispatch", "surikaterna/formbar", "refs/heads/main", "spralle", true],
+		["push", "surikaterna/formbar", "refs/heads/main", "spralle", false],
+		["workflow_dispatch", "other/repo", "refs/heads/main", "spralle", false],
+		["workflow_dispatch", "surikaterna/formbar", "refs/heads/feature", "spralle", false],
+		["workflow_dispatch", "surikaterna/formbar", "refs/heads/main", "other", false],
+	])("job eligibility %s %s %s %s", (event, repository, ref, actor, expected) => {
+		const context: Record<string, string> = {
+			event_name: String(event),
+			repository: String(repository),
+			ref: String(ref),
+			actor: String(actor),
+		};
+		const comparisons = job.if.split(" && ").map((condition: string) => {
+			const match = condition.match(/^github\.(\w+) == '([^']+)'$/);
+			if (!match) throw new Error(`Unexpected condition: ${condition}`);
+			return context[match[1]] === match[2];
+		});
+		expect(comparisons.every(Boolean)).toBe(expected);
 	});
 
-	it.each(["clean", "project-config", "home-config", "token", "failed-entry", "same-config"])(
-		"%s: executes the parsed publish setup with real npm and cleans up",
+	it("uses standard setup, permissions and sequential install/build/full tests before publishing", () => {
+		expect(job.permissions).toEqual({ contents: "read", "id-token": "write" });
+		expect(job.concurrency).toEqual({ group: "formbar-manual-rc", "cancel-in-progress": false });
+		expect(job.environment).toBeUndefined();
+		expect(job.steps.slice(0, 3)).toMatchObject([
+			{ uses: "actions/checkout@v5" },
+			{ uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.2.21" } },
+			{ uses: "actions/setup-node@v4", with: { "node-version": "22.23.2" } },
+		]);
+		expect(job.steps[3].run).toContain("npm@11.20.0");
+		expect(job.steps[3].run).toContain("RC_NODE_BINARY=%s\\nRC_NPM_ROOT=%s");
+		expect(job.steps.slice(4, 7).map((step: { run: string }) => step.run)).toEqual([
+			"bun install --frozen-lockfile",
+			"bun run build",
+			"bun run test",
+		]);
+		expect(source).not.toMatch(
+			/environment:|NPM_TOKEN|NODE_AUTH_TOKEN|\.npmrc|registry-url|preflight|runProtectedRc|expected_main_sha|GO_BYPASS/,
+		);
+		expect(job.steps.every((step: { env?: unknown }) => !step.env)).toBe(true);
+	});
+
+	it("publishes direct directories in dependency order, preserving public metadata and normal output", () => {
+		const result = runWorkflowShell("absent");
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.publications.map((call) => call.cwd)).toEqual(packages);
+		for (const call of result.publications)
+			expect(call.args).toEqual(["publish", "--tag", "rc", "--access", "public", "--provenance"]);
+		for (const call of result.calls) expect(call.metadata).toEqual(["workflow_dispatch", "1245476636", "9478205"]);
+		expect(result.calls.slice(0, 7).map((call) => call.args)).toEqual(
+			packages.map((name) => ["view", `@formbar/${name}`, "dist-tags.latest", "--json"]),
+		);
+		expect(result.calls.slice(7, 21).map((call) => call.args[0])).toEqual(packages.flatMap(() => ["view", "publish"]));
+		expect(result.calls.slice(21).map((call) => call.args)).toEqual(
+			packages.flatMap((name) => [
+				["view", `@formbar/${name}@${version}`, "name", "version", "--json"],
+				["view", `@formbar/${name}`, "dist-tags", "--json"],
+			]),
+		);
+		expect(result.stdout).toContain("normal npm publish stdout");
+		expect(result.stderr).toContain("normal npm publish stderr");
+	});
+	it("executes frozen install then build then full tests before any registry access", () => {
+		const result = runWorkflowShell("prepare");
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.calls.slice(0, 3).map((call) => call.args)).toEqual([
+			["install", "--frozen-lockfile"],
+			["run", "build"],
+			["run", "test"],
+		]);
+		expect(result.calls[3].args[0]).toBe("view");
+	});
+	it.each(["build-failure", "test-failure"])("stops %s before registry access", (scenario) => {
+		const result = runWorkflowShell(scenario);
+		expect(result.status).toBe(19);
+		expect(result.calls.every((call) => ["install", "run"].includes(call.args[0]))).toBe(true);
+	});
+	it.each(["latest-error", "latest-malformed"])("requires a valid latest snapshot: %s", (scenario) => {
+		const result = runWorkflowShell(scenario);
+		expect(result.status).not.toBe(0);
+		expect(result.calls).toHaveLength(1);
+		expect(result.publications).toEqual([]);
+	});
+
+	it.each(["0.23.0", "0.23.0-rc.1", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
+		"denies version %s before registry access",
+		(candidate) => {
+			const result = runWorkflowShell("absent", candidate);
+			expect(result.status).not.toBe(0);
+			expect(result.calls).toEqual([]);
+		},
+	);
+	it("denies a mismatched package name before registry access", () => {
+		const result = runWorkflowShell("absent", version, "@formbar/other");
+		expect(result.status).not.toBe(0);
+		expect(result.calls).toEqual([]);
+	});
+	it.each(["0.23.0", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
+		"denies seven equal but invalid versions %s",
+		(candidate) => {
+			const result = runWorkflowShell("all-invalid", candidate);
+			expect(result.status).not.toBe(0);
+			expect(result.calls).toEqual([]);
+		},
+	);
+	it("skips matching immutable existing versions and still checks postflight", () => {
+		const result = runWorkflowShell("existing");
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.publications).toEqual([]);
+		expect(result.stdout.match(/Skipping immutable existing/g)).toHaveLength(7);
+		expect(result.calls).toHaveLength(28);
+	});
+	it.each([
+		"E403",
+		"E500",
+		"unknown",
+		"network",
+		"malformed",
+		"unstructured-404",
+		"wrong-existing-name",
+		"wrong-existing-version",
+	])("stops on %s rather than assuming absence", (scenario) => {
+		const result = runWorkflowShell(scenario);
+		expect(result.status).not.toBe(0);
+		expect(result.publications).toEqual([]);
+		expect(result.calls).toHaveLength(8);
+	});
+	it("does not retry a failed PUT or attempt later packages", () => {
+		const result = runWorkflowShell("publish-failure");
+		expect(result.status).toBe(17);
+		expect(result.publications.map((call) => call.cwd)).toEqual(["expressions", "core"]);
+		expect(result.stderr).toContain("normal npm publish stderr");
+	});
+	it.each(["wrong-rc", "moved-latest", "wrong-post-name", "wrong-post-version"])(
+		"fails postflight %s without repair",
 		(scenario) => {
-			if (!publish?.trimEnd().endsWith(entry)) throw new Error("publish entrypoint changed");
-			const directory = mkdtempSync(join(tmpdir(), "formbar-rc-npm-workflow-"));
-			const runner = join(directory, "runner");
-			const home = join(directory, "home");
-			const checkout = join(directory, "checkout");
-			const probe = join(directory, "probe.json");
-			try {
-				for (const name of [runner, home, checkout]) mkdirSync(name);
-				if (scenario === "project-config")
-					writeFileSync(join(checkout, ".npmrc"), "//registry.npmjs.org/:_authToken=bad\n");
-				if (scenario === "home-config") writeFileSync(join(home, ".npmrc"), "//registry.npmjs.org/:_authToken=bad\n");
-				const source = scenario === "same-config" ? publish.replace("global.npmrc", "user.npmrc") : publish;
-				const script = `${source.trimEnd().slice(0, -entry.length)}node ${JSON.stringify(join(resolve("."), "scripts/release/__tests__/rc-npm-probe.cjs"))}`;
-				const env = {
-					...process.env,
-					HOME: home,
-					RUNNER_TEMP: runner,
-					TEST_PROBE_FILE: probe,
-					TEST_FAIL_ENTRY: scenario === "failed-entry" ? "true" : "false",
-					NPM_TOKEN: scenario === "token" ? "bad" : "",
-					NODE_AUTH_TOKEN: "",
-				};
-				env.npm_config_userconfig = undefined;
-				env.npm_config_globalconfig = undefined;
-				const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script], {
-					cwd: checkout,
-					env,
-					encoding: "utf8",
-				});
-				expect(result.status, result.stderr).toBe(
-					["clean", "home-config"].includes(scenario) ? 0 : scenario === "failed-entry" ? 17 : 1,
-				);
-				expect(existsSync(probe)).toBe(["clean", "home-config", "failed-entry"].includes(scenario));
-				if (existsSync(probe)) {
-					const data = JSON.parse(readFileSync(probe, "utf8"));
-					if (process.env.RC_TEST_PINNED_NPM === "1") expect(data.version).toBe("11.20.0");
-					expect(data.user).not.toBe(data.global);
-					expect(data.list).not.toMatch(/_authToken|bad/);
-				}
-				expect(readdirSync(runner)).toEqual([]);
-			} finally {
-				rmSync(directory, { recursive: true, force: true });
-			}
+			const result = runWorkflowShell(scenario);
+			expect(result.status).not.toBe(0);
+			expect(result.publications).toHaveLength(7);
+			expect(result.calls.every((call) => ["view", "publish"].includes(call.args[0]))).toBe(true);
 		},
 	);
 });

@@ -1,5 +1,9 @@
 # #406 protected RC operator policy
 
+> **Archived research — superseded by #442 and #250 comment 5913830240.**
+> The historical policy below is not active release authority or a prerequisite.
+> Use [the manual RC procedure](../../docs/npm-trusted-publishing.md).
+
 Only `spralle` (GitHub user 806157) may manually dispatch `release.yml` for
 the reviewed seven-package `0.23.0-rc.0` candidate. No #250 run-bound GO or
 independent environment review is required. This is the owner's explicit policy
