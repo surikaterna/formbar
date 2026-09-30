@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { withIsolatedSignedAudit } from "./rc-isolated-install";
+import { type NpmDiagnostic, credentialValues, npmDiagnostics } from "./rc-npm-diagnostics";
 import { assertPinnedPublishTools } from "./rc-publish-toolchain";
 import { rcPackages, rcVersion } from "./rc-reviewed-plan";
 import { type ApprovedVersion, verifyExistingSignedVersion, verifyPrepackedSignedVersion } from "./rc-signed-existing";
@@ -28,10 +29,18 @@ type PublishCategory =
 	| "NPM_UNKNOWN";
 
 export class SafePublishFailure extends Error {
-	constructor(category: PublishCategory, name: string, elapsedMs: number, npmMs = 0, stdoutBytes = 0, stderrBytes = 0) {
+	constructor(
+		category: PublishCategory,
+		name: string,
+		elapsedMs: number,
+		npmMs = 0,
+		stdoutBytes = 0,
+		stderrBytes = 0,
+		diagnostics: NpmDiagnostic | "" = "",
+	) {
 		// The name and version come only from the reviewed plan, never from subprocess output.
 		super(
-			`npm publish ${category} ${name}@${rcVersion} preflightMs=${boundedNumber(elapsedMs - npmMs, 120_000)} npmMs=${boundedNumber(npmMs, 120_000)} stdoutBytes=${boundedNumber(stdoutBytes, 100_000)} stderrBytes=${boundedNumber(stderrBytes, 100_000)}`,
+			`npm publish ${category} ${safeName(name)}@${rcVersion} preflightMs=${boundedNumber(elapsedMs - npmMs, 120_000)} npmMs=${boundedNumber(npmMs, 120_000)} stdoutBytes=${boundedNumber(stdoutBytes, 100_000)} stderrBytes=${boundedNumber(stderrBytes, 100_000)}${diagnostics ? `\n[npm diagnostic] ${diagnostics}` : ""}`,
 		);
 		this.name = "SafePublishFailure";
 	}
@@ -254,6 +263,7 @@ export async function publishProtected(name: string, bytes: Buffer): Promise<voi
 		throw new SafePublishFailure("PRESPAWN_CONFIG", safeName(name), elapsed());
 	}
 	let stage: "prepare" | "npm" = "prepare";
+	const secrets = credentialValues(process.env);
 	let npmStarted = 0;
 	let failure: SafePublishFailure | undefined;
 	try {
@@ -269,12 +279,21 @@ export async function publishProtected(name: string, bytes: Buffer): Promise<voi
 			stage === "npm" ? Date.now() - npmStarted : 0,
 			stage === "npm" && error && typeof error === "object" ? capturedBytes((error as { stdout?: unknown }).stdout) : 0,
 			stage === "npm" && error && typeof error === "object" ? capturedBytes((error as { stderr?: unknown }).stderr) : 0,
+			stage === "npm" ? npmDiagnostics(error, secrets) : "",
 		);
 	} finally {
 		try {
 			await rm(dir, { recursive: true, force: true });
 		} catch {
-			failure ??= new SafePublishFailure("NPM_UNKNOWN", safeName(name), elapsed());
+			failure ??= new SafePublishFailure(
+				"NPM_UNKNOWN",
+				safeName(name),
+				elapsed(),
+				0,
+				0,
+				0,
+				npmDiagnostics({ code: "CLEANUP_FAILED" }, []),
+			);
 		}
 	}
 	if (failure) throw failure;
