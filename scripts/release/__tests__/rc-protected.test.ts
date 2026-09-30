@@ -157,7 +157,7 @@ describe("internal protected RC adapter (mock providers are not release evidence
 			mocks.inspect.mockResolvedValue({ packages: observed(new Set()) });
 			mocks.publish.mockRejectedValueOnce(new SafePublishFailure(category, candidates[0].name, 400));
 			await expect(runProtectedRc()).rejects.toThrow(
-				`npm publish ${category} ${candidates[0].name}@${rcVersion} preflightMs=400 npmMs=0; failed or uncertain; new run required`,
+				`npm publish ${category} ${candidates[0].name}@${rcVersion} preflightMs=400 npmMs=0 stdoutBytes=0 stderrBytes=0; failed or uncertain; new run required`,
 			);
 			expect(mocks.publish).toHaveBeenCalledTimes(1);
 		},

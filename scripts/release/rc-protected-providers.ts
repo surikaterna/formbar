@@ -28,15 +28,21 @@ type PublishCategory =
 	| "NPM_UNKNOWN";
 
 export class SafePublishFailure extends Error {
-	constructor(category: PublishCategory, name: string, elapsedMs: number, npmMs = 0) {
+	constructor(category: PublishCategory, name: string, elapsedMs: number, npmMs = 0, stdoutBytes = 0, stderrBytes = 0) {
 		// The name and version come only from the reviewed plan, never from subprocess output.
 		super(
-			`npm publish ${category} ${name}@${rcVersion} preflightMs=${Math.min(120_000, Math.max(0, Math.floor(elapsedMs - npmMs)))} npmMs=${Math.min(120_000, Math.max(0, Math.floor(npmMs)))}`,
+			`npm publish ${category} ${name}@${rcVersion} preflightMs=${boundedNumber(elapsedMs - npmMs, 120_000)} npmMs=${boundedNumber(npmMs, 120_000)} stdoutBytes=${boundedNumber(stdoutBytes, 100_000)} stderrBytes=${boundedNumber(stderrBytes, 100_000)}`,
 		);
 		this.name = "SafePublishFailure";
 	}
 }
 
+function boundedNumber(value: number, limit: number): number {
+	return Number.isFinite(value) ? Math.min(limit, Math.max(0, Math.floor(value))) : 0;
+}
+
+// #428's npm 11 line-code allowlist; no distinct verified OIDC/trusted-publisher code exists here.
+// JSON is opportunistic captured output only: the publish CLI flags remain unchanged (no --json).
 const npmCodes: Readonly<Record<string, PublishCategory>> = {
 	ENEEDAUTH: "NPM_AUTH_REQUIRED",
 	E401: "NPM_REGISTRY_UNAUTHORIZED",
@@ -49,31 +55,75 @@ const npmCodes: Readonly<Record<string, PublishCategory>> = {
 	EPERM: "NPM_PERMISSION",
 };
 
+function capturedBytes(value: unknown): number {
+	return typeof value === "string" ? Buffer.byteLength(value) : Buffer.isBuffer(value) ? value.byteLength : 0;
+}
+
+function structuredCode(output: string): string | undefined | null {
+	if (Buffer.byteLength(output) > 100_000) return null;
+	// JSON-looking output blocks competing codes even when its envelope is invalid; ordinary notices do not.
+	if (!/^(?:[\[{"\-0-9]|true\b|false\b|null\b)/.test(output.trimStart())) return undefined;
+	// Duplicate JSON keys can mask conflicting codes after JSON.parse; reject rather than trust last-wins parsing.
+	if (
+		output.includes("\\") ||
+		(output.match(/"code"\s*:/g) ?? []).length !== 1 ||
+		(output.match(/"error"\s*:/g) ?? []).length !== 1
+	)
+		return null;
+	try {
+		const parsed: unknown = JSON.parse(output);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+		const record = parsed as Record<string, unknown>;
+		if (!record.error || typeof record.error !== "object" || Array.isArray(record.error)) return null;
+		const detail = record.error as Record<string, unknown>;
+		if (
+			Object.keys(record).some((key) => key !== "error") ||
+			Object.keys(detail).some((key) => key !== "code" && key !== "summary" && key !== "detail")
+		)
+			return null;
+		return typeof detail.code === "string" ? detail.code : null;
+	} catch {
+		return null;
+	}
+}
+
+function diagnosticCodes(output: string): string[] | null {
+	if (Buffer.byteLength(output) > 100_000) return null;
+	const codes: string[] = [];
+	for (const line of output.split("\n")) {
+		const diagnostic = /^npm (?:error|ERR!) code(?:[ \t]+(.*))?\r?$/.exec(line);
+		if (diagnostic) codes.push(diagnostic[1]?.replace(/\r$/, "") ?? "");
+	}
+	return codes;
+}
+
 export function npmCategory(error: unknown): PublishCategory {
 	if (!error || typeof error !== "object") return "NPM_UNKNOWN";
-	const record = error as { code?: unknown; killed?: unknown; stderr?: unknown };
+	const record = error as { code?: unknown; killed?: unknown; signal?: unknown; stdout?: unknown; stderr?: unknown };
 	if (record.code === "ETIMEDOUT" || record.killed === true) return "NPM_TIMEOUT";
 	if (
 		typeof record.code !== "number" ||
 		!Number.isInteger(record.code) ||
 		record.code === 0 ||
-		typeof record.stderr !== "string"
+		record.signal != null ||
+		(record.stdout != null && typeof record.stdout !== "string") ||
+		(record.stderr != null && typeof record.stderr !== "string")
 	)
 		return "NPM_UNKNOWN";
-	let category: PublishCategory | undefined;
-	let seenCode: string | undefined;
-	for (const line of record.stderr.split("\n")) {
-		// Only a complete npm diagnostic line is evidence; prose and URLs are not.
-		const diagnostic = /^npm (?:error|ERR!) code(?:[ \t]+(.*))?\r?$/.exec(line);
-		if (!diagnostic) continue;
-		const code = diagnostic[1]?.replace(/\r$/, "");
-		if (!code || !/^[A-Z0-9_]{1,32}$/.test(code) || !Object.prototype.hasOwnProperty.call(npmCodes, code))
-			return "NPM_UNKNOWN";
-		if (seenCode && seenCode !== code) return "NPM_UNKNOWN";
-		seenCode = code;
-		category = npmCodes[code];
+	const stdout = record.stdout ?? "";
+	const stderr = record.stderr ?? "";
+	const outputs = [stdout, stderr] as string[];
+	const lines = diagnosticCodes(stderr);
+	if (lines === null || Buffer.byteLength(stdout) > 100_000) return "NPM_UNKNOWN";
+	const codes = [...lines];
+	for (const output of outputs) {
+		const code = structuredCode(output);
+		if (code === null) return "NPM_UNKNOWN";
+		if (code !== undefined) codes.push(code);
 	}
-	return category ?? "NPM_UNKNOWN";
+	if (!codes.length || codes.some((code) => !/^[A-Z0-9_]{1,32}$/.test(code) || !Object.hasOwn(npmCodes, code)))
+		return "NPM_UNKNOWN";
+	return codes.every((code) => code === codes[0]) ? npmCodes[codes[0]] : "NPM_UNKNOWN";
 }
 
 function safeName(name: string): string {
@@ -217,6 +267,8 @@ export async function publishProtected(name: string, bytes: Buffer): Promise<voi
 			safeName(name),
 			elapsed(),
 			stage === "npm" ? Date.now() - npmStarted : 0,
+			stage === "npm" && error && typeof error === "object" ? capturedBytes((error as { stdout?: unknown }).stdout) : 0,
+			stage === "npm" && error && typeof error === "object" ? capturedBytes((error as { stderr?: unknown }).stderr) : 0,
 		);
 	} finally {
 		try {
