@@ -65,6 +65,7 @@ describe("production-only npm boundary", () => {
 			"NPM_REGISTRY_UNAUTHORIZED",
 		);
 	});
+	// Modeled npm 11.20.0-shaped failure payloads, not observed CLI --json output: no --json flag was run or added.
 	it.each([
 		[{ error: { code: "ENEEDAUTH", summary: "secret-token" } }, "NPM_AUTH_REQUIRED"],
 		[{ error: { code: "E_STAGE_REQUIRED" } }, "NPM_STAGE_REQUIRED"],
@@ -95,6 +96,26 @@ describe("production-only npm boundary", () => {
 		expect(npmCategory({ code: 1, stdout: '{"error":{"code":"E401","\\u0063ode":"E404"}}' })).toBe("NPM_UNKNOWN");
 		expect(npmCategory({ code: 0, stdout: '{"error":{"code":"E401"}}' })).toBe("NPM_UNKNOWN");
 	});
+	it.each([
+		'[ {"error":{"code":"E404"}} ]',
+		'[ {"error":{"code":"E404"}}',
+		'"E404"',
+		"null",
+		"true",
+		"42",
+		'{"message":"npm notice"}',
+		'{"error":null}',
+		'{"error":{"code":"E404"},"extra":true}',
+		'{"error":{"code":"E404","code":"E401"}}',
+	])("rejects unsupported or malformed structured stdout even with a valid stderr code: %s", (stdout) => {
+		expect(npmCategory({ code: 1, stdout, stderr: "npm error code E401" })).toBe("NPM_UNKNOWN");
+	});
+	it.each(["npm notice", "npm notice Publishing to https://registry.npmjs.org/", "opaque diagnostic prose"])(
+		"allows an anchored stderr code with ordinary non-JSON stdout: %s",
+		(stdout) => {
+			expect(npmCategory({ code: 1, stdout, stderr: "npm error code E401" })).toBe("NPM_REGISTRY_UNAUTHORIZED");
+		},
+	);
 	it.each([
 		["no GitHub OIDC", {}],
 		["injected npm bearer", { NPM_TOKEN: "fake" }],
@@ -183,5 +204,30 @@ describe("production-only npm boundary", () => {
 		expect(spy).not.toHaveBeenCalled();
 		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
 		expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
+	});
+	it("fails closed on competing JSON stdout while reporting exact bytes without exposing captured text", async () => {
+		const stdout = '[{"error":{"code":"E404","detail":"secret-token"}}]';
+		const stderr = "npm error code E401\nnpm error detail secret-oidc";
+		const { calls } = fakeNpm(stderr, 1, stdout);
+		let failure: unknown;
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await publishProtected("@formbar/expressions", Buffer.from("fixture"));
+		} catch (error) {
+			failure = error;
+		} finally {
+			spy.mockRestore();
+		}
+		expect(String(failure)).toMatch(
+			new RegExp(
+				`npm publish NPM_UNKNOWN @formbar/expressions@0\\.23\\.0-rc\\.0 preflightMs=\\d+ npmMs=\\d+ stdoutBytes=${Buffer.byteLength(stdout)} stderrBytes=${Buffer.byteLength(stderr)}`,
+			),
+		);
+		expect(String(failure)).not.toMatch(/secret|E404|E401|oidc/i);
+		expect(JSON.stringify(failure)).not.toMatch(/secret|E404|E401|oidc/i);
+		expect((failure as Error).stack).not.toMatch(/secret|E404|E401|oidc/i);
+		expect(failure).not.toHaveProperty("cause");
+		expect(spy).not.toHaveBeenCalled();
+		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
 	});
 });

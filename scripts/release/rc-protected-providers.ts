@@ -60,7 +60,9 @@ function capturedBytes(value: unknown): number {
 }
 
 function structuredCode(output: string): string | undefined | null {
-	if (Buffer.byteLength(output) > 100_000 || !output.trimStart().startsWith("{")) return undefined;
+	if (Buffer.byteLength(output) > 100_000) return null;
+	// JSON-looking output blocks competing codes even when its envelope is invalid; ordinary notices do not.
+	if (!/^(?:[\[{"\-0-9]|true\b|false\b|null\b)/.test(output.trimStart())) return undefined;
 	// Duplicate JSON keys can mask conflicting codes after JSON.parse; reject rather than trust last-wins parsing.
 	if (
 		output.includes("\\") ||
