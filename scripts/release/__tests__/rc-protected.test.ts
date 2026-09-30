@@ -42,6 +42,7 @@ vi.mock("../rc-protected-providers", async (importActual) => ({
 import { npmDiagnostics } from "../rc-npm-diagnostics";
 import { runProtectedRc } from "../rc-protected";
 import { SafePublishFailure } from "../rc-protected-providers";
+import { assertAuthWithheld, authLeakFixtures } from "./rc-auth-leak-fixtures";
 
 const sha = "a".repeat(40);
 const tree = "b".repeat(40);
@@ -163,6 +164,17 @@ describe("internal protected RC adapter (mock providers are not release evidence
 			expect(mocks.publish).toHaveBeenCalledTimes(1);
 		},
 	);
+
+	it.each(authLeakFixtures)("propagates only fixed suppression through runProtectedRc (%#)", async (stderr) => {
+		mocks.inspect.mockResolvedValue({ packages: observed(new Set()) });
+		mocks.publish.mockRejectedValueOnce(
+			new SafePublishFailure("NPM_UNKNOWN", candidates[0].name, 10, 5, 0, 50, npmDiagnostics({ code: 1, stderr }, [])),
+		);
+		const failure = await runProtectedRc().catch((error) => error);
+		assertAuthWithheld(failure);
+		expect(mocks.publish).toHaveBeenCalledTimes(1);
+		expect(mocks.inspect.mock.calls.length).toBeGreaterThan(1);
+	});
 
 	it("retains redacted human diagnostics through runProtectedRc and stops after read-only reconciliation", async () => {
 		mocks.inspect.mockResolvedValue({ packages: observed(new Set()) });

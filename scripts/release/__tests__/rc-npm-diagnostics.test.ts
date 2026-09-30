@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import { expect, it } from "vitest";
 import { credentialValues, npmDiagnostics } from "../rc-npm-diagnostics";
 import { SafePublishFailure } from "../rc-protected-providers";
+import { assertAuthWithheld, authLeakFixtures } from "./rc-auth-leak-fixtures";
 
 function failure(stderr: unknown, secrets: string[] = [], extra = {}) {
 	const error = { code: 1, stderr, ...extra };
@@ -22,12 +23,15 @@ it("keeps an unknown functional reason, strips known/encoded/overlapping secrets
 	expect(output.message).toContain("npmCode=ENEW redaction=applied");
 	expect(output).not.toHaveProperty("cause");
 });
-it("redacts headers, assignments, URLs, named tokens and JWT; neutralizes GH commands", () => {
+it.each(authLeakFixtures)("withholds entire recognizable auth capture (%#)", (stderr) => {
+	assertAuthWithheld(failure(`npm error safe-before\n${stderr}\nnpm error safe-after`));
+});
+it.each(authLeakFixtures)("withholds stderr when stdout hints at auth (%#)", (stdout) => {
+	assertAuthWithheld(failure("npm error opaque-canary", [], { stdout }));
+});
+it("redacts URLs, named tokens and JWT; neutralizes GH commands", () => {
 	const text = [
 		"npm error configuration rejected",
-		"npm error Authorization: Basic opaque-credential",
-		"npm error Proxy-Authorization: Bearer opaque-bearer",
-		"npm error //registry.invalid/:_authToken=opaque-assignment",
 		"npm error https://user:opaque-userinfo@host.invalid/path?unknown=opaque-query#opaque-fragment",
 		"npm error npm_fakevalue ghp_fakevalue github_pat_fakevalue eyJabc.def.ghi",
 		"::warning::npm error forged",
@@ -51,7 +55,7 @@ it.each([
 	["npm error safe\\u0061", [], "unsupported-encoding"],
 	["npm error %FF", [], "redaction-failed"],
 	["npm error arbitrary short xy", ["xy"], "short-credential"],
-	["npm error Authorization:\nnpm error unknown-continuation", [], "credential-syntax"],
+	["npm error Authorization:\nnpm error unknown-continuation", [], "AUTH_MATERIAL_DETECTED"],
 	[Buffer.from([0xff]), [], "redaction-failed"],
 	["npm error \ufffd", [], "invalid-capture"],
 	["npm error \ud800", [], "invalid-capture"],
@@ -101,7 +105,8 @@ it("never selects raw exception, stack, header dumps, stdout or debug file point
 		{ stdout: "secret stdout", message: "secret command", cause: "secret cause", stack: "secret stack" },
 	);
 	expect(inspect(output)).not.toContain("secret");
-	expect(output.message).toContain("safe explanation");
+	expect(output.message).toContain("suppression=AUTH_MATERIAL_DETECTED");
+	expect(output.message).not.toContain("safe explanation");
 });
 it("reports allowlisted signals/spawn/timeout and safe unavailable values", () => {
 	expect(failure("", [], { code: "ETIMEDOUT", killed: true, signal: "SIGTERM" }).message).toContain(

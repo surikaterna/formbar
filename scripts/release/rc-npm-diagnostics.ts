@@ -52,22 +52,36 @@ function unsafeControls(text: string): boolean {
 	});
 }
 
-function redact(input: string, secrets: string[]): string {
-	if (secrets.some((secret) => secret.length <= 2)) throw new Error("short-credential");
-	let text = replaceKnown(input, secrets);
+function detectAuthMaterial(text: string): void {
+	// A credential-bearing line can introduce unmarked continuations anywhere in either channel.
+	// Withhold the whole capture, not just the recognizable assignment or header.
+	if (
+		/\b(?:authorization|proxy-authorization|bearer|headers?|cookie|auth|_auth\w*)\b|\b[\w.-]*(?:token|password|secret|credential|api[_-]?key)[\w.-]*["'\\\s]*[:=]/i.test(
+			text,
+		)
+	)
+		throw new Error("AUTH_MATERIAL_DETECTED");
+}
+
+function decodePercent(input: string, secrets: string[]): string {
+	let text = input;
+	detectAuthMaterial(text);
 	// Decode percent forms before selection; reject remaining escape syntax rather than guessing.
 	for (let round = 0; round < 3 && /%[0-9a-f]{2}/i.test(text); round++) {
 		text = text.replace(/(?:%[0-9a-f]{2})+/gi, (value) => decodeURIComponent(value));
+		detectAuthMaterial(text);
 		text = replaceKnown(text, secrets);
 	}
+	return text;
+}
+
+function redact(input: string, secrets: string[]): string {
+	// Detect hints before known-value replacement can erase a credential key or header.
+	decodePercent(input, []);
+	if (secrets.some((secret) => secret.length <= 2)) throw new Error("short-credential");
+	let text = decodePercent(replaceKnown(input, secrets), secrets);
 	if (/%[0-9a-f]{2}|\\/i.test(text)) throw new Error("unsupported-encoding");
 	if (unsafeControls(text)) throw new Error("unsafe-controls");
-	if (/(?:authorization|bearer|_auth\w*|token|password|headers?)\s*[:=][ \t]*(?:\n|\{|$)/i.test(text))
-		throw new Error("credential-syntax");
-	text = text.replace(
-		/^.*(?:authorization|bearer|_auth|auth|password|secret|credential|token|api[_-]?key|cookie)\s*[:= ].*$/gim,
-		marker,
-	);
 	text = text.replace(/\b(?:npm_|gh[pousr]_|github_pat_)[A-Za-z0-9_]+/g, marker);
 	text = text.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, marker);
 	// Drop whole URLs, including userinfo/query/fragment and OIDC endpoints, not just their values.
@@ -128,7 +142,7 @@ export function npmDiagnostics(error: unknown, secrets: string[]): NpmDiagnostic
 		metadata = processMetadata(record);
 		if (record.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw new Error("incomplete-capture");
 		// Validate both channels; only human stderr is eligible. Never serialize Error.message/cause/stack.
-		capture(record.stdout);
+		decodePercent(capture(record.stdout), []);
 		const original = capture(record.stderr);
 		return format(redact(original, secrets), original, metadata) as NpmDiagnostic;
 	} catch (error) {
@@ -138,7 +152,7 @@ export function npmDiagnostics(error: unknown, secrets: string[]): NpmDiagnostic
 			"short-credential",
 			"unsupported-encoding",
 			"unsafe-controls",
-			"credential-syntax",
+			"AUTH_MATERIAL_DETECTED",
 		];
 		const reason = error instanceof Error && allowed.includes(error.message) ? error.message : "redaction-failed";
 		return `${metadata} npmCode=unavailable redaction=withheld truncation=unknown omission=yes suppression=${reason}\n[npm diagnostic] Human diagnostics withheld safely` as NpmDiagnostic;

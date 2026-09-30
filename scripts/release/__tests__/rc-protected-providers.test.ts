@@ -16,6 +16,7 @@ vi.mock("node:fs/promises", async (original) => {
 	};
 });
 import { npmCategory, publishProtected } from "../rc-protected-providers";
+import { assertAuthWithheld, authLeakFixtures } from "./rc-auth-leak-fixtures";
 
 const original = { ...process.env };
 const fixtures: string[] = [];
@@ -84,7 +85,8 @@ describe("production-only npm boundary", () => {
 				expect(surface).not.toMatch(/private-|privateprefix|eyJprivate|host\.invalid|::/);
 				expect(surface).not.toContain("\x1b");
 			}
-			expect(String(failure)).toContain(controls ? "suppression=unsafe-controls" : "useful final reason");
+			expect(String(failure)).toContain("suppression=AUTH_MATERIAL_DETECTED");
+			expect(String(failure)).not.toContain("useful final reason");
 			expect(failure).not.toHaveProperty("cause");
 			expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
 		},
@@ -189,6 +191,15 @@ describe("production-only npm boundary", () => {
 		};
 		if (_ === "no GitHub OIDC") process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = "";
 		await expect(publishProtected("@formbar/expressions", Buffer.from("fixture"))).rejects.toThrow();
+	});
+
+	it.each(authLeakFixtures)("withholds actual fake-exec auth capture (%#) and cleans up", async (stderr) => {
+		const { calls } = fakeNpm(`npm error safe-before\n${stderr}\nnpm error safe-after`, 1);
+		const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
+		const failure = await publishProtected("@formbar/expressions", Buffer.from("fixture")).catch((error) => error);
+		assertAuthWithheld(failure);
+		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
+		expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
 	});
 
 	it.each([
