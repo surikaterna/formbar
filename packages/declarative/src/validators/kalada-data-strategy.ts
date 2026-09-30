@@ -84,6 +84,64 @@ export type SubmissionResult = {
 	readonly status: "submitted" | "missing" | "denied" | "stale" | "conflict" | "unsupported";
 };
 
+/** Optional trusted-host lifecycle port. Row tokens are lexical identities, never positions. */
+export interface LifecycleField {
+	readonly path: string;
+	readonly scope: ReadScope;
+}
+
+export interface LifecycleStatus {
+	readonly dirty: boolean;
+	readonly touched: boolean;
+	readonly validating: boolean;
+	readonly submitted: boolean;
+	readonly valid: boolean;
+	readonly issues: Readonly<{ schema: readonly string[]; extension: readonly string[] }>;
+}
+
+export interface LifecycleFrame {
+	readonly instance: object;
+	readonly revision: object;
+	readonly form: LifecycleStatus;
+	readonly initial: JsonValue;
+	field(
+		field: LifecycleField,
+	):
+		| { readonly status: "found"; readonly value: LifecycleStatus }
+		| { readonly status: "missing" | "denied" | "stale" | "conflict" };
+}
+
+export interface LifecycleRequest {
+	readonly contract: "formbar-lifecycle-v1";
+	readonly instance: object;
+	readonly revision: object;
+}
+
+export type LifecycleResult =
+	| { readonly status: "applied"; readonly revision: object }
+	| { readonly status: "invalid" | "missing" | "denied" | "stale" | "conflict" | "unsupported" };
+
+/** Observations are not grants. Host MUST independently check current policy, ownership,
+ * visibility, issue provenance and complete lexical inventory at every operation. */
+export interface OmissionRequest extends LifecycleRequest {
+	readonly hiddenValues: "include" | "omit-inactive";
+	readonly fields: readonly Readonly<{
+		readonly field: LifecycleField;
+		readonly visible: boolean;
+		readonly submitWhenHidden?: "include";
+	}>[];
+}
+
+export type OmissionCapture =
+	| { readonly status: "found"; readonly instance: object; readonly revision: object; readonly candidate: JsonValue }
+	| { readonly status: "missing" | "denied" | "stale" | "conflict" | "unsupported" };
+
+/** Proof is host-issued, one-use, and bound to exact bytes, instance, revision, grant and
+ * original issue identities. Only the original owned hidden issue may be exempted. */
+export type OutgoingValidation =
+	| { readonly status: "applied"; readonly revision: object; readonly proof: object }
+	| { readonly status: "invalid" | "missing" | "denied" | "stale" | "conflict" | "unsupported" };
+
 export interface FormbarDataStrategyV1 {
 	readonly contract: "formbar-data-strategy-v1";
 	identity(context: DataContext): Readonly<{
@@ -105,6 +163,30 @@ export interface FormbarDataStrategyV1 {
 	submitCaptured?(
 		context: DataContext,
 		request: SubmissionRequest,
+		fresh: () => boolean,
+	): Promise<SubmissionResult> | SubmissionResult;
+	/** Atomic host frame: initial baseline and issues must share the returned revision. */
+	captureLifecycle?(context: DataContext): LifecycleFrame | { readonly status: "denied" | "missing" | "stale" };
+	/** Host fences sync and async issue publication against abort, reset, grant and revision. */
+	validateLifecycle?(
+		context: DataContext,
+		request: LifecycleRequest,
+		fresh: () => boolean,
+	): Promise<LifecycleResult> | LifecycleResult;
+	/** Reset uses host-owned initialized defaults; never reconstruct from rendered fields. */
+	resetLifecycle?(context: DataContext, request: LifecycleRequest): LifecycleResult;
+	/** Host copies draft, omitting only independently verified owned inactive values. */
+	captureOmission?(context: DataContext, request: OmissionRequest): OmissionCapture;
+	/** Revalidate FINAL candidate bytes, including independently owned same-path issues. */
+	validateOutgoingCandidate?(
+		context: DataContext,
+		request: OmissionRequest & { readonly candidate: JsonValue },
+		fresh: () => boolean,
+	): Promise<OutgoingValidation> | OutgoingValidation;
+	/** Consume proof once; recheck grant and freshness after every async boundary and at commit. */
+	submitOmission?(
+		context: DataContext,
+		request: OmissionRequest & { readonly candidate: JsonValue; readonly proof: object },
 		fresh: () => boolean,
 	): Promise<SubmissionResult> | SubmissionResult;
 }
