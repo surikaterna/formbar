@@ -7,7 +7,13 @@ fetch. It checks the clean detached HEAD and pinned SHA-256 of the checked-in
 bundle before runner Node executes it, without installing dependencies. The
 bundle uses only Node built-ins and local GET-only source/CI/policy verification;
 no OIDC request or npm operation precedes this gate. The adapter repeats the
-checks before each write. No GO comment or environment approval is consulted.
+checks before each write. No GO comment, deployment environment REST endpoint,
+environment name, branch policy or approval is consulted (#434).
+The default GitHub OIDC subject is `repo:surikaterna/formbar:ref:refs/heads/main`;
+the intended npm trusted-publisher Environment is BLANK. This is distinct from
+the authenticated Fulcio SAN `https://github.com/surikaterna/formbar/.github/workflows/release.yml@refs/heads/main`.
+Production verification still binds certificate OIDs and signed provenance to
+the exact repository, workflow/ref/commit/run/attempt; no signing check is relaxed.
 For the reviewed seven-package `0.23.0-rc.0` only, missing/null bypass actors
 from the installation token are logged **UNVERIFIABLE**, never as empty. This
 owner-approved exception depends on independent Auditor and Diplomat recording
@@ -26,14 +32,14 @@ mise exec bun@1.2.21 -- bunx vitest run scripts/release/__tests__/rc-workflow.te
 ```
 
 Expected bundle SHA-256, also pinned in the workflow:
-`a53e6615c28a52c65a4a58e5f567e652de9aa4e307f7a7b0674424ac299bfc0e`.
+`50bfb5247297d325e94cbd307151004941f017cbe6d1c3805bb7d7b3716c6ae0`.
 CI rebuilds and compares bundle bytes. Source sections in bundle order:
 
 ```text
 62d288331897879f62cb882712845c5b910b55d1a1cf105d67bfa96cf0bcabb6  rc-reviewed-plan.ts
 4a4f20d3f6e1cdb24f5edd04df6b511d22fbe5bc0cf0137d61533e9da0e705fd  live-evidence-shape.ts
 18f00e03812fff53033ed694d16611a941be406ea038c7ffe92b87268c822e28  github-read.ts
-1d67b4e40280dcbf68e8bd5b5ced99611c1667488e8a96120cbcffdd29f33a7a  live-policy.ts
+26a74acccde1091b321927b21bf0b4ed8f68d3855a55f85baebf9045efd7a845  live-policy.ts
 babcdddc96924cd206e0cb00b310c3d19af09ad82d01f1db8b02d79f430cec26  live-evidence.ts
 25c87aef56fbd654e4657520b0e0684eedd1c92b5cf9fa2dfe67ff1070932b94  rc-attempt-fence.ts (tree-shaken initializer)
 cd10695bc0b12392491f250be9ba72de1f600e4e4983c7f61be1c41ad934430c  rc-registry-proof.ts (source check only)

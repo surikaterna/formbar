@@ -45,7 +45,6 @@ jobs:
   protected-rc:
     if: github.event_name == 'workflow_dispatch' && github.repository == 'surikaterna/formbar'
     runs-on: ubuntu-latest
-    environment: formbar-rc
     concurrency:
       group: formbar-rc-${{ github.run_id }}
       cancel-in-progress: false
@@ -80,7 +79,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ -z "$(git status --porcelain --untracked-files=all)" ]]
           # CI pins this bundle to audited source and verifies byte-for-byte reproduction.
-          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "a53e6615c28a52c65a4a58e5f567e652de9aa4e307f7a7b0674424ac299bfc0e" ]]
+          [[ "$(sha256sum scripts/release/rc-preflight.mjs | cut -d ' ' -f1)" == "50bfb5247297d325e94cbd307151004941f017cbe6d1c3805bb7d7b3716c6ae0" ]]
       - name: Live read-only protected-run preflight (runner Node)
         shell: bash
         env:

@@ -56,6 +56,7 @@ printing the final verdict; earlier fake PUTs are not proof of completion.
 policy and seven candidates without a GO comment or reviewer. It performs
 fresh read-only #365/#371 observations before writes and genuine #374
 verification after writes. This fake study never grants authorization;
-public absence cannot prove npm publisher permission. #298 has merged, but
-the live environment still requires self review and blocks dispatch until the
-source is audited/merged and admin removes that rule. No real publish is implied.
+public absence cannot prove npm publisher permission. #434 removes deployment
+environment gates; the existing remote resource remains unused and unchanged.
+Independent audit/merge, fresh readiness/admin readbacks and separate exact-main
+owner GO remain required. No real publish is implied.

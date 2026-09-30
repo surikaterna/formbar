@@ -65,13 +65,6 @@ describe("#406 single-operator read-only exact-run authority", () => {
 		[`${repo}/git/commits/${sha}`, "tree", { sha }],
 		[`${repo}/rulesets/24103769`, "bypass_actors", [{ actor_id: 1 }]],
 		[`${repo}/rulesets/24103769`, "enforcement", "disabled"],
-		[`${repo}/environments/formbar-rc`, "can_admins_bypass", true],
-		[
-			`${repo}/environments/formbar-rc`,
-			"protection_rules",
-			[{ type: "required_reviewers" }, { type: "branch_policy" }],
-		],
-		[`${repo}/environments/formbar-rc/deployment-branch-policies`, "total_count", 0],
 		[`${repo}/commits/${sha}/check-runs?per_page=100&page=1`, "total_count", 0],
 	] as const)("rejects live drift %s %s", async (path, key, value) => {
 		const { api, values } = fixture();

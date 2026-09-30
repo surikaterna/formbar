@@ -158,7 +158,7 @@ describe("#366 read-only rc reconciliation", () => {
 					{
 						repository: "surikaterna/formbar",
 						workflow: "release.yml",
-						environment: "formbar-rc",
+						environment: "",
 						authenticatedNpmRead: true,
 					},
 				]),

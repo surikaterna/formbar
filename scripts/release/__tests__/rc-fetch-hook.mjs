@@ -14,7 +14,7 @@ globalThis.fetch = async (input, options) => {
 	appendFileSync(process.env.RC_TEST_REQUESTS, `${url}\n`);
 	const path = url.slice("https://api.github.com/".length);
 	return new Response(JSON.stringify(config[path] ?? null), {
-		status: path === config.deny ? 403 : path in config ? 200 : 404,
+		status: path === config.deny ? (config.denyStatus ?? 403) : path in config ? 200 : 404,
 		headers: { "Content-Type": "application/json" },
 	});
 };

@@ -1,67 +1,66 @@
-# npm trusted publishing setup
+# npm trusted publishing: protected seven-package RC
 
-Formbar publishes packages from `.github/workflows/release.yml` with GitHub Actions OIDC and npm provenance.
-Do not create or configure an `NPM_TOKEN` secret for this workflow.
+The manual protected RC job in `.github/workflows/release.yml` publishes reviewed
+tarballs using direct `npm publish --provenance --tag rc` through GitHub Actions
+OIDC. No deployment environment is attached. There is no `NPM_TOKEN`,
+`NODE_AUTH_TOKEN`, local bootstrap, Changesets-publish or token fallback path.
+Main pushes update only the version proposal, not publication.
 
-In npm, add a trusted publisher for each public package:
+## Intended existing publisher identity (not verified configuration)
+
+For EACH of these seven public packages:
 
 - `@formbar/core`
+- `@formbar/arbiter`
+- `@formbar/declarative`
+- `@formbar/expressions`
 - `@formbar/from-schema`
 - `@formbar/react`
 - `@formbar/react-schema`
-- `@formbar/arbiter`
-- `@formbar/expressions`
 
-Use these settings for each package:
+A human npm package administrator must inspect Settings -> Trusted publishing
+and Publishing access, read-only, and report sanitized yes/no/unknown categories:
 
-- Provider: GitHub Actions
-- Repository owner/name: `surikaterna/formbar`
-- Workflow filename: `release.yml`
-- Environment: leave blank unless a GitHub environment is added later
+- Provider GitHub Actions; repository owner/name exactly `surikaterna/formbar`.
+- Workflow filename exactly `release.yml` (filename, not path; case sensitive).
+- Environment name **BLANK**, matching the no-environment RC job (#434).
+- Allowed actions include **direct npm publish**, not merely stage publishing.
+- Public visibility and publishing/MFA policy compatible with OIDC.
+- Other relevant connections present: yes/no/unknown, without identifiers.
 
-The workflow grants `id-token: write` and sets `NPM_CONFIG_PROVENANCE=true` for `bunx changeset publish`,
-allowing npm to verify the GitHub Actions run without `NODE_AUTH_TOKEN` or `NPM_TOKEN`.
+Do not create, modify or remove connections, npm settings or credentials. The
+existing GitHub deployment environment may remain unused; do not delete it.
+Readback of expressions alone does not establish settings for the other six.
+If admin access is unavailable, record UNVERIFIED and retain release HOLD.
+Public metadata, dry runs and diagnostic categories cannot establish these
+private settings or prove historical authentication success/failure or no PUT.
 
-## Omitted-event recovery
+## Publication and release fence
 
-An omitted `main` PushEvent may be recovered by directly dispatching the same
-`.github/workflows/release.yml` workflow under the exact-SHA contract in
-[`workflow-recovery.md`](./workflow-recovery.md). The dispatch does not introduce a
-coordinator, reusable publishing workflow, alternate ref, or token fallback. It
-therefore retains the trusted publisher identity: repository
-`surikaterna/formbar`, workflow filename `release.yml`, and no environment.
+The intended default OIDC subject is
+`repo:surikaterna/formbar:ref:refs/heads/main`. This is not the Fulcio certificate
+workflow SAN; production signed verification still requires the exact workflow
+URI/ref, repository, commit, run and attempt, issuer, certificate OIDs and
+transparency verification. Blank environment does not weaken these checks.
 
-The recovery guard runs before checkout and requires the workflow definition, event
-SHA, expected SHA, and live protected `main` tip to agree. After it passes, the
-normal Changesets action still creates or updates the standard release PR while
-changesets remain. Otherwise, the existing preflight, `bunx changeset publish` with
-OIDC provenance, and reconciliation steps run in their normal order. Follow the
-CI-first three-workflow runbook; never recover publication manually.
+The reviewed candidate remains all seven `0.23.0-rc.0` packages and the exact
+23-ID version graph. Before every write, the adapter rechecks current protected
+main SHA/tree, manual spralle identity (806157), attempt1, PR/rules policy and
+unique green exact-SHA ci app15368. The redacted bypass exception requires fresh
+independent authenticated admin `bypass_actors: []` readbacks before dispatch
+and postflight, never an inferred empty list.
 
-## One-time bootstrap for a new package
+Each publication uses explicit `rc`, never `latest`; registry-host bytes and
+signed provenance must verify after publication before the next package.
+Any uncertain or partial failure stops publication and requires reconciliation,
+not a retry. #250 remains RELEASE HOLD and #427 remains unresolved. Source/docs
+delivery is not release authorization: require independent audit, normal merge,
+fresh exact-current-main readiness and all-seven registry/tag reconciliation,
+then separate owner GO for one NEW attempt1 run. Never retry historical failed
+runs. Historical NPM_UNKNOWN has no proven cause; blank environment is intended
+configuration, not a retrospective diagnosis.
 
-`@formbar/expressions` is currently version `0.0.0` and is absent from npm. npm
-requires the package to exist before its trusted publisher can be configured. Before
-merging the feature or creating its version PR, an npm owner must:
-
-1. From the reviewed commit, build, audit, and pack **only**
-   `@formbar/expressions@0.0.0`.
-2. Publish that exact tarball publicly under the non-default `bootstrap` tag using
-   local npm authentication with a short-lived, package-scoped granular token. A
-   local token bootstrap does not provide npm provenance; do not claim that it does.
-3. Configure the new package's npm trusted publisher for repository
-   `surikaterna/formbar`, workflow `release.yml`, no environment (matching the
-   workflow), and allowed direct publishing.
-4. Prove the OIDC configuration works, then revoke the bootstrap token and restrict
-   token-based publishing. Do not remove the fallback before OIDC is proven.
-
-The normal linked Changesets release can then publish all six packages at `0.4.0`.
-Never manually prepublish `@formbar/expressions@0.4.0`: doing so would cause the
-workflow's preflight, npm tag, and GitHub release metadata to skip or disagree with
-the coordinated release. Changesets publishes the package sequence rather than an
-atomic transaction, so monitor the complete six-package run and investigate any
-partial publish before retrying.
-
-If provenance is mandatory for the bootstrap itself, use a temporary npm-supported
-cloud CI bootstrap and remove it after configuring the trusted publisher. Do not add
-a permanent token or token-publishing path to the standard release workflow.
+References: [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/),
+[GitHub OIDC](https://docs.github.com/en/actions/reference/security/oidc),
+[RC policy](../scripts/release/RC-GATE.md),
+[preflight and exception](../scripts/release/RC-PREFLIGHT.md).

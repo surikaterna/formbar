@@ -76,38 +76,8 @@ async function verifyRuleDetails(api: GitHubRead, ruleset: Record<string, unknow
 	);
 }
 
-async function verifyEnvironment(api: GitHubRead): Promise<void> {
-	const environment = object(await api.get(`${repo}/environments/formbar-rc`));
-	const branch = object(environment.deployment_branch_policy);
-	requireThat(
-		environment.id === 22904271021 &&
-			environment.can_admins_bypass === false &&
-			branch.custom_branch_policies === true &&
-			branch.protected_branches === false,
-		"release environment changed",
-	);
-	const protection = array(environment.protection_rules).map(object);
-	requireThat(
-		sameSet(
-			protection.map((rule) => rule.type),
-			["branch_policy"],
-		),
-		"release protection rules changed",
-	);
-	const policies = object(await api.get(`${repo}/environments/formbar-rc/deployment-branch-policies`));
-	const entries = array(policies.branch_policies);
-	requireThat(
-		policies.total_count === 1 &&
-			entries.length === 1 &&
-			object(entries[0]).name === "main" &&
-			object(entries[0]).type === "branch",
-		"main-only deployment policy changed",
-	);
-}
-
 export async function verifyLivePolicy(api: GitHubRead): Promise<void> {
 	await verifyMainRules(api);
-	await verifyEnvironment(api);
 }
 
 export async function verifyEligibleActors(api: GitHubRead): Promise<void> {

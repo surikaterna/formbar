@@ -276,16 +276,6 @@ function policyResponses(sha: string): Record<string, unknown> {
 			type,
 			parameters: type === "pull_request" ? pr : type === "required_status_checks" ? checks : null,
 		})),
-		[`${repo}/environments/formbar-rc`]: {
-			id: 22904271021,
-			can_admins_bypass: false,
-			deployment_branch_policy: { custom_branch_policies: true, protected_branches: false },
-			protection_rules: [{ type: "branch_policy" }],
-		},
-		[`${repo}/environments/formbar-rc/deployment-branch-policies`]: {
-			total_count: 1,
-			branch_policies: [{ name: "main", type: "branch" }],
-		},
 		[`${repo}/commits/${sha}/check-runs?per_page=100&page=1`]: {
 			total_count: 1,
 			check_runs: [{ name: "ci", head_sha: sha, status: "completed", conclusion: "success", app: { id: 15368 } }],
