@@ -1,5 +1,14 @@
 export const productionBase = "d6de555a024053d835827bb4501c63d5cca50da2";
 export const productionInventory = [
+	"apps/demos/src/App.tsx",
+	"apps/demos/src/playground/route.ts",
+	"apps/demos/src/fsx/FsxEditor.tsx",
+	"apps/demos/src/fsx/FsxPage.tsx",
+	"apps/demos/src/fsx/FsxPreview.tsx",
+	"apps/demos/src/fsx/array-controls.ts",
+	"apps/demos/src/fsx/compile.ts",
+	"apps/demos/src/fsx/registry.ts",
+	"apps/demos/src/fsx/use-fsx-session.ts",
 	"packages/declarative/src/validators/kalada-installation-identity.ts",
 	"packages/fsx-authoring/src/attributes.ts",
 	"packages/fsx-authoring/src/custom.ts",

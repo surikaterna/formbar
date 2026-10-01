@@ -5,9 +5,16 @@ import type { SchemaFormRuntimeProps } from "./SchemaFormRuntime";
 
 type Installed = { host?: KaladaV1Host; error?: string };
 type Submit = NonNullable<SchemaFormRuntimeProps["onSubmit"]>;
+export type DemoInstaller = (props: SchemaFormRuntimeProps, submit: Submit) => KaladaV1Host;
 
-function install(props: SchemaFormRuntimeProps, submit: Submit, previous?: KaladaV1Host): Installed {
+function install(
+	props: SchemaFormRuntimeProps,
+	submit: Submit,
+	previous?: KaladaV1Host,
+	installer?: DemoInstaller,
+): Installed {
 	try {
+		if (installer) return { host: installer(props, submit) };
 		return {
 			host: previous
 				? installDemoSession(
@@ -37,7 +44,11 @@ function useRetirement(installed: Installed) {
 }
 
 /** Rule plugins are allocated after commit; StrictMode replay shares the pending installation. */
-export function useDemoInstallation(props: SchemaFormRuntimeProps, submit: Submit): Installed {
+export function useDemoInstallation(
+	props: SchemaFormRuntimeProps,
+	submit: Submit,
+	installer?: DemoInstaller,
+): Installed {
 	const key = JSON.stringify([
 		props.profileIds ?? ["formbar.standard.v1"],
 		props.document,
@@ -47,17 +58,19 @@ export function useDemoInstallation(props: SchemaFormRuntimeProps, submit: Submi
 	const documentKey = JSON.stringify([props.document, props.initialUiState ?? {}, props.arbiterRules ?? null]);
 	const applied = useRef({ key, documentKey });
 	const pending = useRef<Installed | undefined>(undefined);
-	const [installed, setInstalled] = useState<Installed>(() => (props.arbiterRules ? {} : install(props, submit)));
+	const [installed, setInstalled] = useState<Installed>(() =>
+		props.arbiterRules ? {} : install(props, submit, undefined, installer),
+	);
 	useEffect(() => {
 		if (applied.current.key === key && (installed.host || installed.error || pending.current)) return;
 		const sameDocument = applied.current.documentKey === documentKey;
 		applied.current = { key, documentKey };
 		const old = installed.host;
 		if (old) disposeDemoSession(old);
-		const next = install(props, submit, sameDocument ? old : undefined);
+		const next = install(props, submit, sameDocument ? old : undefined, installer);
 		pending.current = next;
 		setInstalled(next);
-	}, [key, documentKey, installed.host, installed.error, props, submit]);
+	}, [key, documentKey, installed.host, installed.error, props, submit, installer]);
 	useRetirement(installed);
 	return installed;
 }
