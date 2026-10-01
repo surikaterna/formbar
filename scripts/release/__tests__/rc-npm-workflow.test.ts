@@ -121,6 +121,7 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(job.permissions).toEqual({ contents: "read", "id-token": "write" });
 		expect(job.concurrency).toEqual({ group: "formbar-manual-rc", "cancel-in-progress": false });
 		expect(job.environment).toBeUndefined();
+		expect(job.steps[0]).toEqual({ name: "Checkout", uses: "actions/checkout@v5", with: { "fetch-depth": 0 } });
 		expect(job.steps.slice(0, 3)).toMatchObject([
 			{ uses: "actions/checkout@v5" },
 			{ uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.2.21" } },
