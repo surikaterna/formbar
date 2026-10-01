@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
+import type { WorkflowStep } from "./fixtures";
 import { expectedWorkflowRef, guardStep, loadWorkflow, loadWorkflowSource, workflowCases } from "./fixtures";
 
 const recoveryInputs = ["expected_main_sha", "recovery_issue"];
+
+function expectCheckout(file: string, checkout: WorkflowStep | undefined) {
+	expect(checkout).toEqual({
+		name: "Checkout",
+		uses: "actions/checkout@v5",
+		...(file === "ci.yml" ? { with: { "fetch-depth": 0 } } : {}),
+	});
+	expect(JSON.stringify(checkout)).not.toContain("inputs.");
+}
 
 describe("recovery workflow contract", () => {
 	it.each(workflowCases)("preserves $name triggers and requires typed recovery inputs", async ({ file, name }) => {
@@ -44,7 +54,9 @@ describe("recovery workflow contract", () => {
 		);
 		expect(guards[1]).toEqual(guards[0]);
 	});
+});
 
+describe("recovery workflow permissions contract", () => {
 	it("preserves least-privilege workflow permissions and concurrency", async () => {
 		const [ci, pages] = await Promise.all(workflowCases.map(({ file }) => loadWorkflow(file)));
 		expect(ci.permissions).toEqual({ contents: "read", issues: "read" });
@@ -52,14 +64,38 @@ describe("recovery workflow contract", () => {
 		expect(pages.permissions).toEqual({ contents: "read", issues: "read", pages: "write", "id-token": "write" });
 		expect(pages.concurrency).toEqual({ group: "pages", "cancel-in-progress": true });
 	});
+});
 
-	it.each(workflowCases)("does not allow input-derived or explicit checkout refs in $file", async ({ file, job }) => {
+describe("checkout history contract", () => {
+	it.each(workflowCases)("requires only CI full history and forbids checkout refs in $file", async ({ file, job }) => {
 		const workflow = await loadWorkflow(file);
 		const checkout = workflow.jobs[job].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
-		expect(checkout).toEqual({ name: "Checkout", uses: "actions/checkout@v5" });
-		expect(JSON.stringify(checkout)).not.toContain("inputs.");
+		expectCheckout(file, checkout);
 	});
 
+	it.each([
+		{ name: "missing full history", options: undefined },
+		{ name: "empty options", options: {} },
+		{ name: "default shallow history", options: { "fetch-depth": 1 } },
+		{ name: "nonzero depth", options: { "fetch-depth": 2 } },
+		{ name: "string depth", options: { "fetch-depth": "0" } },
+		{ name: "extra option", options: { "fetch-depth": 0, "fetch-tags": true } },
+		{ name: "explicit ref", options: { "fetch-depth": 0, ref: "main" } },
+		{ name: "input-derived ref", options: { "fetch-depth": 0, ref: "${{ inputs.expected_main_sha }}" } },
+	])("rejects CI checkout with $name", async ({ options }) => {
+		const workflow = await loadWorkflow("ci.yml");
+		const checkout = workflow.jobs.ci.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+		expect(() => expectCheckout("ci.yml", { ...checkout, with: options })).toThrow();
+	});
+
+	it("does not extend the CI history exception to Pages", async () => {
+		const workflow = await loadWorkflow("pages.yml");
+		const checkout = workflow.jobs.build.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+		expect(() => expectCheckout("pages.yml", { ...checkout, with: { "fetch-depth": 0 } })).toThrow();
+	});
+});
+
+describe("recovery workflow publication contract", () => {
 	it("contains no token publishing, manual fallback, or reusable coordinator", async () => {
 		const sources = await Promise.all(workflowCases.map(({ file }) => loadWorkflowSource(file)));
 		const combined = sources.join("\n");
