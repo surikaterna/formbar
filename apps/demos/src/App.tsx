@@ -3,6 +3,7 @@ import "./globals.css";
 import "./demo17.css";
 import "./repeater-actions.css";
 import { demos } from "./demos/index";
+import { FsxPage } from "./fsx/FsxPage";
 import { PlaygroundPage } from "./playground/PlaygroundPage";
 import { getPlaygroundCompatibility } from "./playground/examples";
 import { type AppRoute, readRoute, resolveRoute, routeUrl } from "./playground/route";
@@ -36,6 +37,14 @@ function playgroundRoute(demoId: string): AppRoute {
 
 export function App() {
 	const { route, navigate } = useAppRoute();
+	if (route.mode === "fsx")
+		return (
+			<FsxPage
+				demoId={route.demoId}
+				onSelect={(demoId) => navigate({ mode: "fsx", demoId })}
+				onClose={() => navigate({ mode: "demo", demoId: demoIds[0] })}
+			/>
+		);
 	const hasPlayground = compatibility.some((entry) => entry.demoId === route.demoId && entry.support === "full");
 	if (route.mode === "playground" && hasPlayground) {
 		return (
@@ -54,6 +63,9 @@ export function App() {
 		<div className="flex h-screen min-w-0 flex-col md:flex-row">
 			<DemoNavigation activeDemo={activeDemo} onSelect={(demoId) => navigate({ mode: "demo", demoId })} />
 			<main className="min-h-0 min-w-0 flex-1 overflow-auto">
+				<div className="flex justify-end border-b p-2">
+					<Button onClick={() => navigate({ mode: "fsx", demoId: "quote" })}>Experimental FSX playground</Button>
+				</div>
 				{hasPlayground ? (
 					<div className="sticky top-0 z-10 flex justify-end border-b border-border bg-background/95 px-4 py-2">
 						<Button

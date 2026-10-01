@@ -1,5 +1,7 @@
+import { fsxIds } from "../fsx/registry";
+
 export interface AppRoute {
-	readonly mode: "demo" | "playground";
+	readonly mode: "demo" | "playground" | "fsx";
 	readonly demoId: string;
 	readonly preset?: string;
 }
@@ -16,6 +18,8 @@ export function readRoute(
 	compatibility: readonly RouteCompatibility[],
 ): AppRoute {
 	const requestedDemo = url.searchParams.get("demo");
+	if (url.searchParams.get("mode") === "fsx")
+		return { mode: "fsx", demoId: requestedDemo && fsxIds.includes(requestedDemo) ? requestedDemo : fsxIds[0] };
 	const demoId = requestedDemo && demoIds.includes(requestedDemo) ? requestedDemo : (demoIds[0] ?? "");
 	const requestedPlayground = url.searchParams.get("mode") === "playground";
 	const entry = compatibility.find((candidate) => candidate.demoId === demoId && candidate.support === "full");

@@ -14,6 +14,7 @@ export type Authority = {
 	uiPaths?: readonly (readonly string[])[];
 	arrayBounds?: Readonly<Record<string, { minItems?: number; maxItems?: number }>>;
 	schemaValidator?: Validators[number];
+	initialDraftAllowed?: (value: JsonValue) => boolean;
 };
 
 export class DemoSession {

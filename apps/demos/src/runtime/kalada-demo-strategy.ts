@@ -50,7 +50,10 @@ export function createDemoStrategy(
 	onSubmit?: DemoSession["submit"],
 	ui: Readonly<Record<string, unknown>> = {},
 	rules?: ArbiterPluginOptions["rules"],
-	configuration: Pick<Authority, "definition" | "uiPaths" | "arrayBounds" | "schemaValidator" | "schema"> = {},
+	configuration: Pick<
+		Authority,
+		"definition" | "uiPaths" | "arrayBounds" | "schemaValidator" | "schema" | "initialDraftAllowed"
+	> = {},
 ) {
 	const store = new DemoStore();
 	let previous: DemoSession | undefined;
@@ -81,5 +84,10 @@ export function createDemoStrategy(
 			revoke: () => session.revoke(),
 		};
 	};
-	return { ...reinstall(), reinstall };
+	const captureDraft = (expected: object) => {
+		if (!previous?.active || !previous.instance || store.revision !== expected)
+			throw new TypeError("Stale owned draft capture");
+		return structuredClone(store.data);
+	};
+	return { ...reinstall(), reinstall, captureDraft };
 }

@@ -5,8 +5,10 @@ import {
 	createKaladaV1Host,
 } from "@formbar/declarative";
 import { compileDefaultKaladaV1Definition, jsonSchemaProvider, projectSchema } from "@formbar/from-schema";
+import { fsxExamples } from "../fsx/registry";
 import type { PlaygroundDocument, PlaygroundExample } from "../playground/contracts";
 import { schemaDefaults } from "./kalada-demo-defaults";
+import { DemoDraftPort } from "./kalada-demo-initialize";
 import { type ManagedFieldPolicies, managedFieldPolicies, managedPolicyUi } from "./kalada-demo-managed-policy";
 import { addNativeEvidence } from "./kalada-demo-native-evidence";
 import { demoActions, demoPolicy } from "./kalada-demo-policy";
@@ -28,22 +30,26 @@ type Ref = { namespace: "data"; segments: readonly string[]; scope?: string };
 let generation = 0;
 export type DemoLifecycle = Pick<CreateKaladaV1HostOptions, "validators" | "scopedValidators">;
 const sessions = new WeakMap<KaladaV1Host, ReturnType<typeof createDemoStrategy>>();
-const native = new Set([
-	"text",
-	"number",
-	"checkbox",
-	"textarea",
-	"select",
-	"radio",
-	"date",
-	"time",
-	"email",
-	"url",
-	"tel",
-	"password",
-	"search",
-]);
+const hostSchemas = new WeakMap<KaladaV1Host, Node>();
+const drafts = new DemoDraftPort(
+	(host, schema) => sessions.has(host) && hostSchemas.get(host) === schema,
+	(schema) => fsxExamples.find((example) => example.schema === schema)?.id,
+);
+export const bindDemoDraft = drafts.bindCapture.bind(drafts);
+export const acceptDemoDraft = drafts.accept.bind(drafts);
+export const invokeDemoDraft = drafts.invocation.bind(drafts);
+export const retireDemoDraft = drafts.retire.bind(drafts);
+const native = new Set("text number checkbox textarea select radio date time email url tel password search".split(" "));
 const object = (value: unknown): value is Node => !!value && typeof value === "object" && !Array.isArray(value);
+
+/** An opaque application capability, never serialized into user JSON or FormDefinition. */
+export function captureDemoDraft(host: KaladaV1Host, schema: Node) {
+	if (!sessions.has(host) || hostSchemas.get(host) !== schema) throw new TypeError("Foreign draft installation");
+	const revision = host.currentRevision();
+	const session = sessions.get(host);
+	if (!revision || !session) throw new TypeError("Stale draft installation");
+	return drafts.capture(host, schema, revision, session.captureDraft(revision));
+}
 
 function valueAuthority(schema: Node, path: Parameters<typeof schemaNode>[1], value: JsonValue): boolean {
 	const node = schemaNode(schema, path);
@@ -233,6 +239,7 @@ function prepareInstallation(
 	profileIds: readonly string[],
 	arbiterRules?: PlaygroundExample["runtime"]["arbiterRules"],
 	lifecycle: DemoLifecycle = {},
+	initialDraftAllowed?: (value: JsonValue) => boolean,
 ) {
 	const profiles = resolveTrustedRuntimeProfiles(profileIds);
 	if (!profiles.ok) throw new TypeError(`Trusted runtime profile rejected: ${JSON.stringify(profiles.diagnostics)}`);
@@ -257,7 +264,10 @@ function prepareInstallation(
 		if (!native.has(widget) && !trustedWidgets.has(widget))
 			throw new TypeError(`widget ${widget}: MISSING_TRUSTED_RENDERER_RE-AUTHOR`);
 	const owned = schemaValidators(schema);
-	const configuration = initialAuthority(schema, definition, uiPaths, authorizedPaths, owned[0]);
+	const configuration = {
+		...initialAuthority(schema, definition, uiPaths, authorizedPaths, owned[0]),
+		initialDraftAllowed,
+	};
 	return {
 		profiles,
 		fields,
@@ -322,6 +332,17 @@ function acquireSession(
 	return { store, session };
 }
 
+function rememberHost(
+	host: KaladaV1Host,
+	document: PlaygroundDocument,
+	store: ReturnType<typeof createDemoStrategy>,
+	use?: object,
+) {
+	sessions.set(host, store);
+	hostSchemas.set(host, document.schema);
+	drafts.installed(use, host, () => disposeDemoSession(host));
+}
+
 export function installDemoSession(
 	document: PlaygroundDocument,
 	onSubmit?: (payload: Readonly<Record<string, unknown>>) => void,
@@ -330,8 +351,15 @@ export function installDemoSession(
 	initialUiState: Readonly<Record<string, unknown>> = {},
 	arbiterRules?: PlaygroundExample["runtime"]["arbiterRules"],
 	lifecycle: DemoLifecycle = {},
+	ownedDraft?: object,
 ) {
-	const setup = prepareInstallation(document, profileIds, arbiterRules, lifecycle);
+	const setup = prepareInstallation(
+		document,
+		profileIds,
+		arbiterRules,
+		lifecycle,
+		drafts.authorization(document, ownedDraft),
+	);
 	const { store, session } = acquireSession(
 		setup,
 		document.schema,
@@ -360,6 +388,6 @@ export function installDemoSession(
 		validators: setup.validators,
 		scopedValidators: setup.scopedValidators,
 	});
-	sessions.set(host, store);
+	rememberHost(host, document, store, ownedDraft);
 	return host;
 }
