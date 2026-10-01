@@ -1,13 +1,8 @@
-import type { Expression, FormDefinition, FormNode } from "@formbar/declarative";
+import type { FormDefinition, FormNode } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+import { dataRef, equality, literal, present } from "./kalada-fixture-programs";
 
-const ref = (path: string): Expression => ({ kind: "ref", ref: { namespace: "data", segments: [path] } });
-const literal = (value: string): Expression => ({ kind: "literal", value });
-const equals = (path: string, value: string): Expression => ({
-	kind: "op",
-	op: "eq",
-	args: [ref(path), literal(value)],
-});
+const equals = (path: string, value: string) => equality("equal", dataRef(path), literal(value));
 const binding = (path: string) => ({ namespace: "data" as const, segments: [path] });
 
 function field(id: string, path: string, widget: string, label: string, description?: string): FormNode {
@@ -102,7 +97,7 @@ export const conditionalFieldsDefinition = {
 			{
 				type: "conditional",
 				id: "when-status-selected",
-				condition: { kind: "op", op: "exists", args: [ref("employmentStatus")] },
+				condition: present(dataRef("employmentStatus")),
 				// biome-ignore lint/suspicious/noThenProperty: This is serialized FormDefinition branch data.
 				then: [
 					branch(

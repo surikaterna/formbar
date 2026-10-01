@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import host from "../renderers/SchemaDemoHost.tsx?raw";
 import runtime from "../renderers/SchemaFormRuntime.tsx?raw";
+import installation from "../renderers/use-demo-installation.ts?raw";
+import installer from "../runtime/kalada-demo-install.ts?raw";
+import strategy from "../runtime/kalada-demo-strategy.ts?raw";
 
 const fixtureModules = import.meta.glob(
 	"../demos/{01-basic-contact,02-user-profile,03-nested-address,04-settings-panel,05-product-entry,09-custom-layout,10-multi-section-responsive,13-multi-schema-sources,15-kitchen-sink}.ts",
@@ -19,13 +22,16 @@ describe("baseline demo architecture", () => {
 		expect(fixtures).not.toMatch(/<(?:input|select|textarea|form)\b/);
 	});
 
-	it("uses one released host path with only keyed source-selection chrome", () => {
+	it("uses one installed V1 host path with keyed source-selection chrome", () => {
 		expect(host).not.toContain("useSchemaForm");
-		expect(runtime.match(/useSchemaForm/g)).toHaveLength(2);
-		expect(runtime.match(/<FormRenderer/g)).toHaveLength(1);
+		expect(installation).toMatch(/installDemo\(\s*props\.document/);
+		expect(runtime).toContain("<FormRenderer host={installed.host}");
+		expect(installer).toContain("createKaladaV1Host({");
+		expect(installer).toContain("strategy: session.strategy");
+		expect(strategy).toContain("writeDirect:");
+		expect(strategy).not.toMatch(/setFieldValue|setValueAtPath/);
 		expect(host).toContain("key={`${fixture.id}:${source.key}`}");
-		expect(runtime).not.toContain("createJsonSchemaValidators");
-		expect(runtime).not.toContain("validators:");
+		expect(runtime).not.toContain("createForm(");
 		expect(host).not.toMatch(/useFormSelector|useField|fieldDynamic|<(?:input|textarea)\b/);
 		expect(host.match(/<select\b/g)).toHaveLength(2);
 	});

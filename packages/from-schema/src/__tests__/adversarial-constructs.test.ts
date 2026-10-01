@@ -2,7 +2,7 @@ import type { DocumentContext, Side } from "@scheman/core";
 import { describe, expect, it } from "vitest";
 import { z as z4 } from "zod4-current";
 import {
-	compileDefaultFormDefinition,
+	compileDefaultKaladaV1Definition,
 	jsonSchemaProvider,
 	projectSchema,
 	standardSchemaProvider,
@@ -11,62 +11,51 @@ import {
 
 function projectAndCompile(schema: unknown, provider = jsonSchemaProvider()) {
 	const descriptors = projectSchema(schema, { provider, side: "input" }).descriptors;
-	const compiled = compileDefaultFormDefinition(descriptors);
-	if (!compiled.definition) throw new Error(JSON.stringify(compiled.definitionDiagnostics));
-	return { descriptors, compiled };
+	return { descriptors, compile: () => compileDefaultKaladaV1Definition(descriptors) };
 }
 
 describe("adversarial schema constructs", () => {
-	it("retains unresolved refs and compiles an explicit fallback", () => {
-		const { descriptors, compiled } = projectAndCompile({ $ref: "https://example.test/remote.json" });
+	it("retains unresolved refs but refuses to generate an unbound fallback", () => {
+		const { descriptors, compile } = projectAndCompile({ $ref: "https://example.test/remote.json" });
 		const root = descriptors.nodes[descriptors.occurrences[descriptors.rootOccurrenceId].nodeId];
 		expect(root).toMatchObject({ kind: "ref", reference: "https://example.test/remote.json" });
 		if (root.kind === "ref") expect(root.unresolved).toBeTruthy();
-		expect(compiled.definition.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(compiled.diagnostics).toEqual([expect.objectContaining({ code: "unsupported-schema" })]);
+		expect(compile).toThrow("Kalada V1 generation requires a complete input-side schema projection.");
 	});
 
 	it("follows supported wrappers without losing the binding", () => {
-		const { descriptors, compiled } = projectAndCompile(z4.string().optional(), zod4Provider());
+		const { descriptors, compile } = projectAndCompile(z4.string().optional(), zod4Provider());
 		expect(
 			Object.values(descriptors.nodes).some((node) => node.kind === "wrapper" && node.wrapper === "optional"),
 		).toBe(true);
-		expect(compiled.definition.root).toMatchObject({
+		expect(compile().root).toMatchObject({
 			type: "field",
 			widget: "text",
 			binding: { namespace: "data", segments: [] },
 		});
 	});
 
-	it("retains tuple items/rest and renders rest as an explicit fallback", () => {
-		const { descriptors, compiled } = projectAndCompile({
+	it("retains tuple items/rest but rejects non-repeater projection", () => {
+		const { descriptors, compile } = projectAndCompile({
 			type: "array",
 			prefixItems: [{ type: "string" }],
 			items: { type: "number" },
 		});
 		const relations = Object.values(descriptors.occurrences).map((item) => item.relation);
 		expect(relations).toEqual(expect.arrayContaining(["tuple-item", "tuple-rest"]));
-		expect(compiled.definition.root).toMatchObject({
-			type: "group",
-			children: [
-				expect.objectContaining({ type: "field", widget: "text" }),
-				expect.objectContaining({ type: "field", widget: "unsupported" }),
-			],
-		});
-		expect(compiled.diagnostics.some((item) => item.message.includes("Tuple rest"))).toBe(true);
+		expect(compile).toThrow("root: tuple requires authored Kalada V1 presentation.");
 	});
 
 	it("retains records and refuses to invent a dynamic-key presentation", () => {
 		const provider = recordProvider();
-		const { descriptors, compiled } = projectAndCompile({}, provider);
+		const { descriptors, compile } = projectAndCompile({}, provider);
 		const root = descriptors.nodes[descriptors.occurrences[descriptors.rootOccurrenceId].nodeId];
 		expect(root).toMatchObject({ kind: "record", exhaustive: "unknown" });
-		expect(compiled.definition.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(compiled.diagnostics).toEqual([expect.objectContaining({ code: "unsupported-schema" })]);
+		expect(compile).toThrow("root: record requires authored Kalada V1 presentation.");
 	});
 
-	it("retains applicator branches and emits fallback presentation nodes", () => {
-		const { descriptors, compiled } = projectAndCompile({
+	it("retains applicator branches but rejects inferred presentation", () => {
+		const { descriptors, compile } = projectAndCompile({
 			type: "object",
 			properties: { enabled: { type: "boolean" } },
 			if: { properties: { enabled: { const: true } } },
@@ -74,23 +63,16 @@ describe("adversarial schema constructs", () => {
 		});
 		const applicators = Object.values(descriptors.occurrences).filter((item) => item.relation === "applicator");
 		expect(applicators).toHaveLength(2);
-		expect(compiled.definition.root).toMatchObject({
-			type: "group",
-			children: expect.arrayContaining([
-				expect.objectContaining({ type: "field", widget: "checkbox" }),
-				expect.objectContaining({ type: "field", widget: "unsupported" }),
-			]),
-		});
-		expect(compiled.diagnostics.filter((item) => item.message.includes("Applicator branch"))).toHaveLength(2);
+		expect(compile).toThrow("root: schema applicators require authored Kalada presentation.");
 	});
 
-	it("distinguishes unavailable and opaque evidence while compiling both visibly", () => {
+	it("distinguishes unavailable and opaque evidence while refusing both", () => {
 		const standard = {
 			"~standard": { version: 1 as const, vendor: "opaque", validate: (value: unknown) => ({ value }) },
 		};
 		const unavailable = projectAndCompile(standard, standardSchemaProvider());
 		expect(unavailable.descriptors.source.availability).toBe("unavailable");
-		expect(unavailable.compiled.definition.root).toMatchObject({ widget: "unsupported" });
+		expect(unavailable.compile).toThrow("Kalada V1 generation requires a complete input-side schema projection.");
 
 		const opaque = projectAndCompile({}, opaqueProvider());
 		expect(
@@ -99,7 +81,7 @@ describe("adversarial schema constructs", () => {
 			kind: "opaque",
 			reason: "vendor-internals",
 		});
-		expect(opaque.compiled.diagnostics).toEqual([expect.objectContaining({ code: "opaque-schema" })]);
+		expect(opaque.compile).toThrow("Kalada V1 generation requires a complete input-side schema projection.");
 	});
 
 	it.each([
@@ -109,10 +91,9 @@ describe("adversarial schema constructs", () => {
 		["bigint", z4.bigint()],
 		["symbol", z4.symbol()],
 		["NaN", z4.nan()],
-	])("compiles unsupported %s primitives to diagnosed fallback nodes", (_name, schema) => {
-		const { compiled } = projectAndCompile(schema, zod4Provider());
-		expect(compiled.definition.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(compiled.diagnostics).toEqual([expect.objectContaining({ code: "unsupported-schema" })]);
+	])("rejects unsupported %s primitives at the generated root", (_name, schema) => {
+		const { compile } = projectAndCompile(schema, zod4Provider());
+		expect(compile).toThrow("root: non-JSON primitive requires an authored field.");
 	});
 });
 

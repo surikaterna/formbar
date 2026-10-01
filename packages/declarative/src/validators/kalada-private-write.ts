@@ -62,7 +62,7 @@ export function directWrite(options: WriteOptions): DirectWriteResult {
 		const request: DirectWriteRequest = row
 			? {
 					...base,
-					targetKind: "row",
+					targetKind: typeof reference.path.at(-1) === "object" ? "row-value" : "row",
 					scope: Object.freeze({
 						rows: Object.freeze(row.scope.rows.map(({ name, token }) => Object.freeze({ name, token }))),
 					}),

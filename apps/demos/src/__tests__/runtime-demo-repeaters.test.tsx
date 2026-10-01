@@ -1,271 +1,192 @@
 // @vitest-environment jsdom
+import type { FormNode } from "@formbar/declarative";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { arrayItemsDemo, arrayItemsSchema } from "../demos/08-array-items";
+import { arrayItemsDemo } from "../demos/08-array-items";
 import { orderEntryDemo } from "../demos/14-order-entry";
 import type { SchemaDemoFixture } from "../demos/baseline-contracts";
-import { createJsonSchemaValidator } from "../validation/json-schema-validator";
-import {
-	button,
-	cleanupDemos,
-	click,
-	labelled,
-	mountDemo,
-	resultJson,
-	setInput,
-	setSelect,
-} from "./extension-demo-test-utils";
+import { literal } from "../demos/kalada-fixture-programs";
+import { installDemo } from "../runtime/kalada-demo-install";
+import { button, cleanupDemos, click, labelled, mountDemo, setInput, setSelect } from "./extension-demo-test-utils";
+import { formSubmit, required } from "./kalada-demo-c-test-utils";
 
 afterEach(cleanupDemos);
 
-function inputs(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTMLInputElement[] {
-	return [...view.container.querySelectorAll("label")]
-		.filter((candidate) => candidate.textContent?.trim() === label)
-		.map((candidate) => document.getElementById(candidate.htmlFor))
-		.filter((candidate): candidate is HTMLInputElement => candidate instanceof HTMLInputElement);
+type View = Awaited<ReturnType<typeof mountDemo>>;
+function rows(view: View, id: string): HTMLLIElement[] {
+	return [...view.container.querySelectorAll<HTMLLIElement>(`[data-formbar-node="${id}"] > ol > li`)];
+}
+function rowValues(view: View): string[] {
+	return rows(view, "line-items").map((row) => row.querySelector<HTMLInputElement>("input")?.value ?? "");
+}
+function destination(view: View, id: string, token: string, parent: ParentNode = view.container): void {
+	const select = parent.querySelector<HTMLSelectElement>(`[data-kalada-action="${id}"] select`);
+	if (!select) throw new Error(`Missing destination for ${id}`);
+	act(() => {
+		select.value = token;
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+	});
 }
 
-function selects(view: Awaited<ReturnType<typeof mountDemo>>, label: string): HTMLSelectElement[] {
-	return [...view.container.querySelectorAll("label")]
-		.filter((candidate) => candidate.textContent?.trim() === label)
-		.map((candidate) => document.getElementById(candidate.htmlFor))
-		.filter((candidate): candidate is HTMLSelectElement => candidate instanceof HTMLSelectElement);
-}
-
-function repeaterButton(view: Awaited<ReturnType<typeof mountDemo>>, id: string, label: string): HTMLButtonElement {
-	const found = view.container.querySelector<HTMLButtonElement>(
-		`[data-formbar-node="${id}"] button[aria-label="${label}"]`,
+function extendedOrderFixture(): SchemaDemoFixture {
+	const source = orderEntryDemo.sources[0];
+	const definition = source.definition;
+	const target = { namespace: "data" as const, segments: ["lineItems"] };
+	const swap: FormNode = {
+		type: "action",
+		id: "swap-line",
+		label: "Swap Line Items",
+		action: "array.swap",
+		target,
+		payload: literal({}),
+	};
+	const insert: FormNode = {
+		type: "action",
+		id: "insert-line",
+		label: "Insert Line Item",
+		action: "array.insert",
+		target,
+		payload: literal({ description: "Inserted", amount: 3 }),
+	};
+	const children: FormNode[] = definition.root.children.map((node) =>
+		node.type === "section" && node.id === "payment"
+			? {
+					...node,
+					children: node.children.map((child) =>
+						child.type === "repeater" ? { ...child, children: [...child.children, swap] } : child,
+					),
+				}
+			: node,
 	);
-	if (!found) throw new Error(`Missing ${id} ${label}`);
-	return found;
-}
-
-function rowActions(view: Awaited<ReturnType<typeof mountDemo>>, id: string): HTMLButtonElement[][] {
-	return [...view.container.querySelectorAll(`fieldset[data-formbar-node="${id}"] > ol > li > fieldset`)].map((row) => [
-		...row.querySelectorAll<HTMLButtonElement>(":scope > [data-formbar-action] > button"),
-	]);
-}
-
-const arrayRepeaters = [
-	["tags", "tag", "Add Tags"],
-	["team-members", "member", "Add Team Members"],
-	["addresses", "address", "Add Office Locations"],
-	["milestones", "milestone", "Add Milestones"],
-] as const;
-
-describe("array demo repeaters", () => {
-	it("keeps exact row move IDs and preflight states for every demo 8 repeater", async () => {
-		const view = await mountDemo(arrayItemsDemo);
-		for (const [id, prefix, add] of arrayRepeaters) {
-			expect(rowActions(view, id)).toHaveLength(0);
-			await click(button(view, add));
-			expect(rowActions(view, id)).toHaveLength(1);
-			for (const direction of ["up", "down"]) {
-				expect(
-					rowActions(view, id)[0].some((control) => control.dataset.formbarActionNode === `${prefix}-${direction}`),
-				).toBe(true);
-				expect(repeaterButton(view, id, `Move ${direction}, item 1`).getAttribute("aria-disabled")).toBe("true");
-			}
-			await click(button(view, add));
-			expect(rowActions(view, id)).toHaveLength(2);
-			expect(repeaterButton(view, id, "Move up, item 1").getAttribute("aria-disabled")).toBe("true");
-			expect(repeaterButton(view, id, "Move down, item 1").getAttribute("aria-disabled")).toBeNull();
-			expect(repeaterButton(view, id, "Move up, item 2").getAttribute("aria-disabled")).toBeNull();
-			expect(repeaterButton(view, id, "Move down, item 2").getAttribute("aria-disabled")).toBe("true");
-			await click(repeaterButton(view, id, "Move up, item 2"));
-			expect(document.activeElement).toBe(repeaterButton(view, id, "Move up, item 1"));
-			await click(repeaterButton(view, id, "Remove, item 2"));
-			expect(rowActions(view, id)).toHaveLength(1);
-			expect(document.activeElement?.closest('[data-formbar-node^="f-"]')).not.toBeNull();
-			await click(repeaterButton(view, id, "Remove, item 1"));
-			expect(rowActions(view, id)).toHaveLength(0);
-			expect(document.activeElement).toBe(button(view, add));
-		}
-	});
-	it("adds, edits, moves, removes, enforces tag constraints, and submits core arrays", async () => {
-		const submitted = vi.fn();
-		const view = await mountDemo(arrayItemsDemo, submitted, true);
-		setInput(labelled(view, "Project Name") as HTMLInputElement, "Runtime migration");
-		await click(button(view, "Add Tags"));
-		await click(button(view, "Add Tags"));
-		const tagControls = [...view.container.querySelectorAll('[data-formbar-node="f-tag"] [data-widget]')];
-		expect(tagControls).toHaveLength(2);
-		const tags = selects(view, "Tag");
-		for (const select of tags) {
-			expect([...select.options].map((option) => option.textContent)).toEqual(["(empty tag)", "frontend", "Back end"]);
-			expect(select.options[2].disabled).toBe(true);
-			expect(select.selectedOptions[0].value).toBe("option-0");
-			expect(select.getAttribute("aria-labelledby")).toBeTruthy();
-		}
-		expect(document.activeElement).toBe(tags[1]);
-		expect(button(view, "Add Tags").disabled).toBe(true);
-		setSelect(tags[0], "option-1");
-		setSelect(tags[1], "option-1");
-		await click(button(view, "Submit"));
-		expect(submitted).not.toHaveBeenCalled();
-		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain("uniqueItems");
-		await click(repeaterButton(view, "tags", "Remove, item 2"));
-		await click(button(view, "Add Team Members"));
-		await click(button(view, "Add Team Members"));
-		expect(document.activeElement).toBe(inputs(view, "Name")[1]);
-		for (const [index, name] of ["Ada", "Grace"].entries()) setInput(inputs(view, "Name")[index], name);
-		const roleControls = [...view.container.querySelectorAll('[data-formbar-node="f-member-role"] [data-widget]')];
-		expect(roleControls).toHaveLength(2);
-		for (const role of selects(view, "Role")) {
-			expect(role.options[0].value).toBe("");
-			expect([...role.options].map((option) => option.textContent)).toEqual([
-				"",
-				"Team lead",
-				"Developer",
-				"Designer",
-				"Quality assurance",
-			]);
-		}
-		setSelect(selects(view, "Role")[0], "option-1");
-		setSelect(selects(view, "Role")[1], "option-3");
-		await click(repeaterButton(view, "team-members", "Move up, item 2"));
-		expect(inputs(view, "Name").map((control) => control.value)).toEqual(["Grace", "Ada"]);
-		await click(repeaterButton(view, "team-members", "Remove, item 2"));
-		expect(inputs(view, "Name").map((control) => control.value)).toEqual(["Grace"]);
-		await click(button(view, "Submit"));
-		expect(submitted).toHaveBeenCalledOnce();
-		expect(JSON.parse(resultJson(view) ?? "")).toMatchObject({
-			projectName: "Runtime migration",
-			tags: ["frontend"],
-			teamMembers: [{ name: "Grace", role: "qa" }],
-		});
-		const successful = resultJson(view);
-		await click(button(view, "Reset"));
-		expect((labelled(view, "Project Name") as HTMLInputElement).value).toBe("");
-		expect(view.container.querySelectorAll('[data-formbar-node="f-tag"]')).toHaveLength(0);
-		expect(inputs(view, "Name")).toHaveLength(0);
-		expect(resultJson(view)).toBe(successful);
-	});
-
-	it("submits the schema-valid empty tag seed and restores the empty array on reset", async () => {
-		const submitted = vi.fn();
-		const view = await mountDemo(arrayItemsDemo, submitted);
-		setInput(labelled(view, "Project Name") as HTMLInputElement, "Seed project");
-		await click(button(view, "Add Tags"));
-		expect(selects(view, "Tag")[0].value).toBe("option-0");
-		await click(button(view, "Submit"));
-		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ projectName: "Seed project", tags: [""] }));
-		const successful = resultJson(view);
-		await click(button(view, "Reset"));
-		expect(view.container.querySelectorAll('[data-formbar-node="f-tag"]')).toHaveLength(0);
-		expect(resultJson(view)).toBe(successful);
-	});
-
-	it("returns from frontend to the sole labeled empty-string tag choice without changing its schema type", async () => {
-		const submitted = vi.fn();
-		const view = await mountDemo(arrayItemsDemo, submitted);
-		setInput(labelled(view, "Project Name") as HTMLInputElement, "Blank tag");
-		await click(button(view, "Add Tags"));
-		const tag = selects(view, "Tag")[0];
-		setSelect(tag, "option-1");
-		expect(selects(view, "Tag")[0].value).toBe("option-1");
-		await act(async () => {
-			await Promise.resolve();
-		});
-		setSelect(selects(view, "Tag")[0], "option-0");
-		expect([...selects(view, "Tag")[0].options].map((option) => option.textContent)).toEqual([
-			"(empty tag)",
-			"frontend",
-			"Back end",
-		]);
-		await click(button(view, "Submit"));
-		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ tags: [""] }));
-		expect(view.container.querySelector("[data-formbar-error-summary]")).toBeNull();
-		await click(button(view, "Reset"));
-		expect(selects(view, "Tag")).toHaveLength(0);
-		await click(button(view, "Add Tags"));
-		expect(selects(view, "Tag")[0].value).toBe("option-0");
-	});
-
-	it("preserves an unlisted schema-valid tag without silently replacing it with a presented option", async () => {
-		const fixture: SchemaDemoFixture = {
-			...arrayItemsDemo,
-			sources: [
-				{
-					...arrayItemsDemo.sources[0],
-					initialData: { ...arrayItemsDemo.sources[0].initialData, tags: ["outside-ui-domain"] },
+	return {
+		...orderEntryDemo,
+		sources: [
+			{
+				...source,
+				definition: { ...definition, root: { ...definition.root, children: [...children, insert] } },
+				initialData: {
+					lineItems: [
+						{ description: "First", amount: 1 },
+						{ description: "Second", amount: 2 },
+					],
 				},
-			],
-		};
-		const submitted = vi.fn();
-		const view = await mountDemo(fixture, submitted);
-		const tag = selects(view, "Tag")[0];
-		expect(tag.selectedOptions[0].textContent).toBe("outside-ui-domain");
-		setInput(labelled(view, "Project Name") as HTMLInputElement, "Outside UI");
-		await click(button(view, "Submit"));
-		expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ tags: ["outside-ui-domain"] }));
-		expect(tag.selectedOptions[0].textContent).toBe("outside-ui-domain");
-	});
+			},
+		],
+	};
+}
 
-	it("keeps empty and non-presented tag strings schema-valid while enforcing array constraints", () => {
-		const validate = createJsonSchemaValidator(arrayItemsSchema);
-		expect(validate({ data: { projectName: "Project", tags: [""] }, uiState: {} })).toEqual([]);
-		expect(validate({ data: { projectName: "Project", tags: ["outside-ui-domain"] }, uiState: {} })).toEqual([]);
-		expect(validate({ data: { projectName: "Project", tags: ["frontend", "frontend"] }, uiState: {} })).toMatchObject([
-			{ code: "json-schema.uniqueItems", path: { segments: ["tags"] } },
-		]);
-		expect(
-			validate({ data: { projectName: "Project", tags: ["", "frontend", "backend"] }, uiState: {} }),
-		).toMatchObject([{ code: "json-schema.maxItems", path: { segments: ["tags"] } }]);
-	});
-});
-
-describe("order line-item repeater", () => {
-	it("retains the minimum, singleton action IDs, move focus and reset semantics", async () => {
-		const view = await mountDemo(orderEntryDemo);
-		expect(rowActions(view, "line-items")).toHaveLength(0);
-		await click(button(view, "Add Line Item"));
-		expect(rowActions(view, "line-items")[0].map((control) => control.dataset.formbarActionNode)).toEqual([
-			"line-up",
-			"line-down",
-			"line-remove",
-		]);
-		expect(button(view, "Move up, item 1").getAttribute("aria-disabled")).toBe("true");
-		expect(button(view, "Move down, item 1").getAttribute("aria-disabled")).toBe("true");
-		expect(button(view, "Remove, item 1").disabled).toBe(true);
-		await click(button(view, "Add Line Item"));
-		await click(button(view, "Move down, item 1"));
-		expect(document.activeElement).toBe(button(view, "Move down, item 2"));
-		await click(button(view, "Remove, item 2"));
-		expect(rowActions(view, "line-items")).toHaveLength(1);
-		expect(document.activeElement).toBe(inputs(view, "Description")[0]);
-		await click(button(view, "Reset"));
-		expect(rowActions(view, "line-items")).toHaveLength(0);
-	});
-	it("uses date controls, nested validation, focus-safe operations, and payloads without totals", async () => {
+describe("app-installed Kalada row actions", () => {
+	it("appends, moves and removes native rows by stable identity with minItems and outgoing order", async () => {
 		const submitted = vi.fn();
 		const view = await mountDemo(orderEntryDemo, submitted);
-		expect((labelled(view, "Order Date") as HTMLInputElement).type).toBe("date");
-		expect((labelled(view, "Requested Delivery Date") as HTMLInputElement).type).toBe("date");
+		expect(view.container.querySelector("form[data-kalada-v1]"), view.container.textContent).not.toBeNull();
 		await click(button(view, "Add Line Item"));
-		expect(document.activeElement).toBe(inputs(view, "Description")[0]);
-		expect(button(view, "Remove, item 1").disabled).toBe(true);
-		await click(button(view, "Submit"));
-		expect(submitted).not.toHaveBeenCalled();
-		expect(view.container.querySelector("[data-formbar-error-summary]")?.textContent).toContain("Required property");
+		expect(rows(view, "line-items")).toHaveLength(1);
+		const first = rows(view, "line-items")[0].dataset.kaladaRowKey;
+		setInput(labelled(view, "Description") as HTMLInputElement, "First");
+		await click(button(view, "Add Line Item"));
+		const second = rows(view, "line-items")[1].dataset.kaladaRowKey;
+		expect(second).not.toBe(first);
+		setInput(
+			required(rows(view, "line-items")[1].querySelector<HTMLInputElement>('input[type="text"]'), "second description"),
+			"Second",
+		);
+		if (!first) throw new Error("Missing first row identity");
+		destination(view, "line-up", first, rows(view, "line-items")[1]);
+		await click(
+			required(
+				rows(view, "line-items")[1].querySelector<HTMLButtonElement>('[data-kalada-action="line-up"] button'),
+				"move action",
+			),
+		);
+		expect(rows(view, "line-items").map((row) => row.dataset.kaladaRowKey)).toEqual([second, first]);
+		expect(rowValues(view)).toEqual(["Second", "First"]);
+		await click(
+			required(
+				rows(view, "line-items")[1].querySelector<HTMLButtonElement>('[data-kalada-action="line-remove"] button'),
+				"remove action",
+			),
+		);
+		expect(rows(view, "line-items").map((row) => row.dataset.kaladaRowKey)).toEqual([second]);
+		await click(
+			required(
+				rows(view, "line-items")[0].querySelector<HTMLButtonElement>('[data-kalada-action="line-remove"] button'),
+				"minimum remove action",
+			),
+		);
+		expect(rows(view, "line-items")).toHaveLength(1);
 		setInput(labelled(view, "Customer Name") as HTMLInputElement, "Customer");
 		setInput(labelled(view, "Order Date") as HTMLInputElement, "2026-09-23");
-		setSelect(labelled(view, "Payment Method") as HTMLSelectElement, "option-0");
-		setInput(inputs(view, "Description")[0], "Consulting");
-		setInput(inputs(view, "Amount")[0], "100");
+		setInput(labelled(view, "Amount") as HTMLInputElement, "50");
+		const payment = labelled(view, "Payment Method") as HTMLSelectElement;
+		setSelect(payment, [...payment.options].find((option) => option.textContent === "Credit Card")?.value ?? "");
+		await click(formSubmit(view));
+		expect(submitted.mock.calls[0]?.[0]).toMatchObject({ lineItems: [{ description: "Second", amount: 50 }] });
+	});
+
+	it("installs custom row widgets or fails explicitly rather than silently dropping writable repeaters", async () => {
+		const view = await mountDemo(arrayItemsDemo);
+		expect(view.container.querySelector("form[data-kalada-v1]"), view.container.textContent).not.toBeNull();
+		await click(button(view, "Add Tags"));
+		expect(rows(view, "tags")).toHaveLength(1);
+		expect(rows(view, "tags")[0].querySelector("select")).not.toBeNull();
+	});
+
+	it("cannot replay an old array action after its revision changes", async () => {
+		const source = orderEntryDemo.sources[0];
+		const host = installDemo({
+			version: 2,
+			schema: source.schema,
+			definition: source.definition,
+			initialData: source.initialData,
+		});
+		try {
+			const action = (id: string) => {
+				const node = host
+					.snapshot()
+					.tree.children?.flatMap((child) => child.children ?? [])
+					.find((child) => child.nodeId === id);
+				if (!node?.action) throw new Error(`Missing ${id} action`);
+				return node.action.invoke;
+			};
+			const append = action("line-add");
+			expect((await append()).status).toBe("applied");
+			const data = host.snapshot().data;
+			expect((await append()).status).toBe("stale");
+			expect(host.snapshot().data).toEqual(data);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("denies maxItems overflow, inserts and swaps using live destination row keys", async () => {
+		const view = await mountDemo(extendedOrderFixture());
+		expect(view.container.querySelector("form[data-kalada-v1]"), view.container.textContent).not.toBeNull();
+		const first = rows(view, "line-items")[0].dataset.kaladaRowKey;
+		const second = rows(view, "line-items")[1].dataset.kaladaRowKey;
+		expect(first).not.toBe(second);
+		for (let index = 2; index < 20; index++) await click(button(view, "Add Line Item"));
+		expect(rows(view, "line-items")).toHaveLength(20);
 		await click(button(view, "Add Line Item"));
-		setInput(inputs(view, "Description")[1], "Support");
-		setInput(inputs(view, "Amount")[1], "50");
-		await click(button(view, "Move up, item 2"));
-		expect(inputs(view, "Description").map((control) => control.value)).toEqual(["Support", "Consulting"]);
-		await click(button(view, "Submit"));
-		expect(submitted).toHaveBeenCalledOnce();
-		const payload = JSON.parse(resultJson(view) ?? "");
-		expect(payload.lineItems).toEqual([
-			{ description: "Support", amount: 50 },
-			{ description: "Consulting", amount: 100 },
-		]);
-		for (const key of ["subtotal", "taxAmount", "discountAmount", "total"]) expect(payload).not.toHaveProperty(key);
-		expect(Object.keys(payload).some((key) => key.includes("formbar"))).toBe(false);
+		expect(rows(view, "line-items")).toHaveLength(20);
+		await click(
+			required(
+				rows(view, "line-items")[19].querySelector<HTMLButtonElement>('[data-kalada-action="line-remove"] button'),
+				"remove",
+			),
+		);
+		expect(rows(view, "line-items")).toHaveLength(19);
+		destination(view, "insert-line", first ?? "");
+		await click(button(view, "Insert Line Item"));
+		expect(rows(view, "line-items")[0].querySelector<HTMLInputElement>("input")?.value).toBe("Inserted");
+		expect(rows(view, "line-items")[1].dataset.kaladaRowKey).toBe(first);
+		destination(view, "swap-line", second ?? "", rows(view, "line-items")[0]);
+		await click(
+			required(
+				rows(view, "line-items")[0].querySelector<HTMLButtonElement>('[data-kalada-action="swap-line"] button'),
+				"swap",
+			),
+		);
+		expect(rows(view, "line-items")[0].dataset.kaladaRowKey).toBe(second);
 	});
 });

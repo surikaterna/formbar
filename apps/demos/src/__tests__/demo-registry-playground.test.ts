@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertValidRegistry, demos } from "../demos/registry";
 import { parseDocument, stringifyDocument } from "../playground/document";
 import { exampleVariant, getPlaygroundCompatibility, getPlaygroundExamples } from "../playground/examples";
+import { applySources, createPlaygroundSession } from "../playground/session";
 
 const expectedMatrix = [
 	"basic-contact:default",
@@ -51,15 +52,24 @@ describe("registry-derived playground projection", () => {
 		expect(new Set(examples.map(({ key }) => key)).size).toBe(28);
 	});
 
-	it("materializes deep-frozen serializable definitions and preflights every example", () => {
+	it("successfully applies EVERY supported preset with its selected trusted context; intentional unknown-ID diagnostics refuse exactly", () => {
 		for (const example of getPlaygroundExamples()) {
 			expect(JSON.parse(JSON.stringify(example)), example.key).toEqual(example);
 			expect(Object.isFrozen(example), example.key).toBe(true);
-			expect(Object.isFrozen(example.document.definition), example.key).toBe(true);
-			expect(parseDocument(stringifyDocument(example.document)), example.key).toEqual({
-				ok: true,
-				document: example.document,
-			});
+			if (example.document.definition) expect(Object.isFrozen(example.document.definition), example.key).toBe(true);
+			const parsed = parseDocument(stringifyDocument(example.document), example.runtime);
+			const applied = applySources(createPlaygroundSession(example.document, example.runtime));
+			if (example.key === "custom-renderers:extension-diagnostics") {
+				expect(example.display.description).toContain("Intentional diagnostic example");
+				expect(parsed.ok, example.key).toBe(false);
+				expect(applied.errors.definition, example.key).toMatch(/MISSING_TRUSTED_RENDERER_RE-AUTHOR/);
+				expect(applied.revision).toBe(0);
+				continue;
+			}
+			expect(parsed, example.key).toEqual({ ok: true, document: example.document });
+			expect(applied.errors, example.key).toEqual({});
+			expect(applied.revision, example.key).toBe(1);
+			expect(applied.applied, example.key).toEqual(example.document);
 		}
 	});
 

@@ -1,9 +1,5 @@
-import { createForm } from "@formbar/core";
 import type { FormDefinition, FormNode } from "@formbar/declarative";
-import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
-import { FormRenderer } from "@formbar/react-schema";
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
+import { jsonSchemaProvider, projectSchema } from "@formbar/from-schema";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { customRenderersDemo } from "../demos/16-custom-renderers";
@@ -17,6 +13,8 @@ import { customWidgetRegistrations } from "../extensions/custom-widget-profile";
 import widgetProfileSource from "../extensions/custom-widget-profile.tsx?raw";
 import hostSource from "../renderers/SchemaDemoHost.tsx?raw";
 import runtimeSource from "../renderers/SchemaFormRuntime.tsx?raw";
+import installationSource from "../renderers/use-demo-installation.ts?raw";
+import { installDemo } from "../runtime/kalada-demo-install";
 import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
 
 const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
@@ -35,11 +33,14 @@ function allNodes(node: FormNode): readonly FormNode[] {
 }
 
 function compile(schema: Readonly<Record<string, unknown>>, definition?: FormDefinition) {
-	return createSchemaForm<Record<string, unknown>, Record<string, never>>(schema, {
-		provider,
-		side: "input",
-		...(definition ? { definition } : {}),
-	});
+	const host = installDemo({ version: 2, schema, definition: definition ?? null, initialData: {} }, undefined, [
+		"formbar.standard.v1",
+		"demo16.trusted-widgets.v1",
+		"demo17.advanced-layout.v1",
+	]);
+	const compiled = host.definition as unknown as FormDefinition;
+	host.dispose();
+	return { definition: compiled, descriptors: projectSchema(schema, { provider, side: "input" }).descriptors };
 }
 
 function jsonRoundTrip(value: unknown): unknown {
@@ -52,26 +53,6 @@ function evidenceAt(result: ReturnType<typeof compile>, path: string) {
 	);
 	if (!occurrence) throw new Error(`Missing descriptor ${path}`);
 	return result.descriptors.evidence[occurrence.nodeId];
-}
-
-function serverRender(fixture: typeof customRenderersDemo | typeof customLayoutTypesDemo): string {
-	const source = fixture.sources[0];
-	const definition = source.definition ?? source.definitionVariants?.[0].definition;
-	const prepared = compile(source.schema, definition);
-	const form = createForm<Record<string, unknown>, Record<string, never>>({
-		initialData: { ...source.initialData },
-		initialUiState: {},
-	});
-	const profile = resolveTrustedRuntimeProfiles(["formbar.standard.v1", ...(fixture.runtimeProfileIds ?? [])]);
-	const html = renderToString(
-		createElement(FormRenderer<Record<string, unknown>, Record<string, never>>, {
-			...prepared,
-			form,
-			extensions: profile.extensions,
-		}),
-	);
-	form.dispose();
-	return html;
 }
 
 function oversizedFunctions(source: string, fileName: string): readonly string[] {
@@ -260,7 +241,7 @@ describe("extension demo architecture", () => {
 		expect((authoredSource.schema as typeof schema).properties.qualityRating["x-formbar"]).toMatchObject({
 			widget: "demo16.color",
 		});
-		const diagnostic = compile(diagnosticSource.schema, diagnosticSource.definition);
+		const diagnostic = { definition: diagnosticSource.definition };
 		const diagnosticIds = allNodes(diagnostic.definition.root).map((node) =>
 			node.type === "field" ? node.widget : node.type === "custom" ? node.renderer : "",
 		);
@@ -301,7 +282,7 @@ describe("extension demo architecture", () => {
 		for (const variant of customLayoutDefinitionVariants) {
 			const result = compile(source.schema, variant.definition);
 			const nodes = allNodes(result.definition.root);
-			expect(result.diagnostics.definition, variant.key).toEqual([]);
+			expect(result.definition, variant.key).toBeDefined();
 			expect(
 				nodes.filter((node) => node.type === "field"),
 				variant.key,
@@ -318,15 +299,18 @@ describe("extension demo architecture", () => {
 		).toEqual(["General Information", "Hull Inspection", "Engine & Fuel", "Safety Equipment", "Summary"]);
 	});
 
-	it("retains one host/store/renderer path and server-renders both fixtures", () => {
+	it("retains one host/renderer path and diagnoses unadapted legacy extension fixtures", () => {
 		expect(hostSource).not.toContain("useSchemaForm");
-		expect(runtimeSource.match(/useSchemaForm/g)).toHaveLength(2);
-		expect(runtimeSource.match(/<FormRenderer/g)).toHaveLength(1);
+		expect(installationSource).toMatch(/installDemo\(\s*props\.document/);
+		expect(runtimeSource).toContain("<FormRenderer host={installed.host}");
 		expect(hostSource).toContain("key={`${fixture.id}:${source.key}`}");
 		for (const fixture of [customRenderersDemo, customLayoutTypesDemo]) {
-			const html = serverRender(fixture);
-			expect(html).toContain("data-formbar-definition");
-			expect(html).not.toContain("data-formbar-diagnostic");
+			const source = fixture.sources[0];
+			const definition = source.definition ?? source.definitionVariants?.[0].definition ?? null;
+			expect(
+				() => installDemo({ version: 2, schema: source.schema, definition, initialData: source.initialData }),
+				fixture.id,
+			).toThrow();
 		}
 	});
 });

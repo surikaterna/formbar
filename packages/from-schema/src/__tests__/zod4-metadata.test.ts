@@ -4,14 +4,18 @@ import { z as z4min } from "zod4-min";
 import { compileDefaultFormDefinition, projectSchema, zod4Provider } from "../index.js";
 
 const metadataCases = [
-	["4.0.0 describe", () => z4min.object({ name: z4min.string() }).describe("Person section"), false],
-	["4.5.4 describe", () => z4.object({ name: z4.string() }).describe("Person section"), false],
+	["4.0.0 describe", () => z4min.strictObject({ name: z4min.string() }).describe("Person section"), false],
+	["4.5.4 describe", () => z4.strictObject({ name: z4.string() }).describe("Person section"), false],
 	[
 		"4.0.0 meta",
-		() => z4min.object({ name: z4min.string() }).meta({ title: "Person", description: "Person section" }),
+		() => z4min.strictObject({ name: z4min.string() }).meta({ title: "Person", description: "Person section" }),
 		true,
 	],
-	["4.5.4 meta", () => z4.object({ name: z4.string() }).meta({ title: "Person", description: "Person section" }), true],
+	[
+		"4.5.4 meta",
+		() => z4.strictObject({ name: z4.string() }).meta({ title: "Person", description: "Person section" }),
+		true,
+	],
 ] as const;
 
 describe("Zod 4 public metadata adaptation", () => {
@@ -36,7 +40,7 @@ describe("Zod 4 public metadata adaptation", () => {
 	});
 
 	it("adapts unprimed metadata for nested Zod 4.5 schemas", () => {
-		const schema = z4.object({ child: z4.object({ name: z4.string() }).describe("Nested section") });
+		const schema = z4.strictObject({ child: z4.strictObject({ name: z4.string() }).describe("Nested section") });
 		const descriptors = projectSchema(schema, {
 			provider: zod4Provider({ execution: { shape: "allow", metadata: "allow" } }),
 			side: "input",

@@ -42,6 +42,7 @@ export function privateProjections(options: {
 			context,
 			live,
 			validScope,
+			evaluate,
 			bindDirect: writes.bindDirectWrite,
 			bindRow: writes.bindRowWrite,
 		}),

@@ -1,11 +1,15 @@
-import type { Expression, FormDefinition, FormNode, JsonValue, ResponsiveSpan } from "@formbar/declarative";
+import type {
+	DefinitionProgram as Expression,
+	FormDefinition,
+	FormNode,
+	JsonValue,
+	ResponsiveSpan,
+} from "@formbar/declarative";
+import { dataRef, jsonDefault, literal, numeric, uiRef } from "./kalada-fixture-programs";
 
 const half = { base: "full", md: 6 } as const;
 const lineItems = { namespace: "data" as const, segments: ["lineItems"] };
-const literal = (value: JsonValue): Expression => ({ kind: "literal", value });
-const ref = (path: string): Expression => ({ kind: "ref", ref: { namespace: "data", segments: [path] } });
-const valueOrZero = (path: string): Expression => operation("coalesce", ref(path), literal(0));
-const operation = (op: string, ...args: Expression[]): Expression => ({ kind: "op", op, args });
+const valueOrZero = (path: string) => jsonDefault(dataRef(path), literal(0));
 
 function field(id: string, path: string, widget: string, label: string, span?: ResponsiveSpan): FormNode {
 	return {
@@ -39,16 +43,16 @@ function lineAction(id: string, action: string, label: string, payload?: JsonVal
 	};
 }
 
-const subtotalExpression = operation("sumBy", { kind: "ref", ref: lineItems }, literal(["amount"]));
-const taxExpression = operation("mul", subtotalExpression, operation("div", valueOrZero("taxRate"), literal(100)));
-const discountExpression = operation(
-	"mul",
+const subtotalExpression = uiRef("lineSubtotal");
+const taxExpression = numeric("multiply", subtotalExpression, numeric("divide", valueOrZero("taxRate"), literal(100)));
+const discountExpression = numeric(
+	"multiply",
 	subtotalExpression,
-	operation("div", valueOrZero("discount"), literal(100)),
+	numeric("divide", valueOrZero("discount"), literal(100)),
 );
-const totalExpression = operation(
-	"sub",
-	operation("add", operation("add", subtotalExpression, taxExpression), valueOrZero("shippingCost")),
+const totalExpression = numeric(
+	"subtract",
+	numeric("add", numeric("add", subtotalExpression, taxExpression), valueOrZero("shippingCost")),
 	discountExpression,
 );
 

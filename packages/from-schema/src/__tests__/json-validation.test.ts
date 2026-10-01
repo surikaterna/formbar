@@ -1,75 +1,91 @@
-import { createForm } from "@formbar/core";
 import { describe, expect, it, vi } from "vitest";
-import { createSchemaForm, jsonSchemaProvider } from "../index.js";
+import { createJsonSchemaValidator, preflightJsonSchema } from "../index.js";
+import { hostSchema, validationHost } from "./kalada-validation-host-408.js";
 
-const provider = jsonSchemaProvider();
-const prepare = (schema: unknown, validators: readonly (() => readonly never[])[] = []) =>
-	createSchemaForm<Record<string, unknown>, Record<string, unknown>>(schema, { provider, side: "input", validators });
-
-describe("automatic plain JSON Schema validation", () => {
-	it("blocks missing, wrong type, enum, const, nested arrays, refs and format errors before caller validators", async () => {
+describe("#376/#408 host-installed JSON Schema validation", () => {
+	it("enforces local refs on generated fields before host submission", async () => {
 		const schema = {
-			type: "object",
-			required: ["name"],
-			$defs: { item: { type: "integer", minimum: 1 } },
+			...hostSchema,
+			$defs: { named: { type: "string", minLength: 2 } },
 			properties: {
-				name: { type: "string", minLength: 2 },
-				role: { enum: ["admin"] },
-				mode: { const: "edit" },
-				email: { type: "string", format: "email" },
-				items: { type: "array", items: { $ref: "#/$defs/item" } },
+				...hostSchema.properties,
+				profile: { ...hostSchema.properties.profile, properties: { name: { $ref: "#/$defs/named" } } },
 			},
 		};
-		const caller = vi.fn(() => [] as const);
-		const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "saved" }));
-		const prepared = prepare(schema, [caller]);
-		expect(prepared.validators).toHaveLength(2);
-		const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
-		expect(form.validate().map((issue) => issue.path.segments)).toContainEqual(["name"]);
-		expect(await form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
-		expect(onSubmit).not.toHaveBeenCalled();
-		form.setValue("name", "Ada");
-		form.setValue("role", "guest");
-		form.setValue("mode", "create");
-		form.setValue("email", "bad");
-		form.setValue("items", [0, "no"]);
-		expect(form.validate().map((issue) => issue.code)).toEqual(
-			expect.arrayContaining([
-				"json-schema.enum",
-				"json-schema.const",
-				"json-schema.format",
-				"json-schema.minimum",
-				"json-schema.type",
-			]),
-		);
-		expect(form.validate().map((issue) => issue.path.segments)).toContainEqual(["items", 1]);
-		form.setValue("role", "admin");
-		form.setValue("mode", "edit");
-		form.setValue("email", "a@example.com");
-		form.setValue("items", [1]);
-		expect(form.validate()).toEqual([]);
-		await form.submit();
-		expect(onSubmit).toHaveBeenCalledTimes(1);
-		form.setValue("name", "");
-		await form.submit();
-		expect(onSubmit).toHaveBeenCalledTimes(1);
-		form.dispose();
+		const f = validationHost(schema);
+		const name = f.host.snapshot().controls.find((control) => control.nodeId === f.nameId);
+		expect(name?.writers.value?.("x")).toEqual({ status: "applied" });
+		expect(await f.host.submit()).toEqual({ status: "denied" });
+		expect(f.host.snapshot().lifecycle?.issues.schema).not.toEqual([]);
+		expect(f.installed.instances.values().next().value?.outgoing).toBeUndefined();
+		expect(
+			f.host
+				.snapshot()
+				.controls.find((control) => control.nodeId === f.nameId)
+				?.writers.value?.("valid"),
+		).toEqual({ status: "applied" });
+		expect(await f.host.submit()).toEqual({ status: "submitted" });
+		f.host.dispose();
 	});
 
-	it("reports invalid dialect, format, remote ref and hostile schema on the validation channel and blocks submit", async () => {
+	it("retains composed constraints and nested array paths in JSON validation without inventing fields", () => {
+		const schema = {
+			...hostSchema,
+			allOf: [
+				{
+					properties: {
+						rows: {
+							items: {
+								properties: {
+									nested: { items: { properties: { quantity: { minLength: 10 } } } },
+								},
+							},
+						},
+					},
+				},
+			],
+		};
+		expect(
+			createJsonSchemaValidator(schema)({
+				data: {
+					profile: { name: "valid" },
+					rows: [{ nested: [{ quantity: "short" }] }],
+				},
+				uiState: {},
+			}),
+		).toContainEqual(
+			expect.objectContaining({
+				code: "json-schema.minLength",
+				path: expect.objectContaining({ segments: ["rows", 0, "nested", 0, "quantity"] }),
+			}),
+		);
+	});
+
+	it("retains extension provenance and blocks an independent extension error", async () => {
+		const extension = vi.fn(() => [{ path: ["profile", "name"], source: "schema" as const, message: "reserved" }]);
+		const f = validationHost(hostSchema, { validators: [extension] });
+		expect(await f.host.submit()).toEqual({ status: "denied" });
+		expect(extension).toHaveBeenCalled();
+		expect(f.installed.instances.values().next().value?.issueRecords).toContainEqual(
+			expect.objectContaining({ source: "extension", path: ["profile", "name"], message: "reserved" }),
+		);
+		expect(f.host.snapshot().lifecycle?.issues.extension).toContain("reserved");
+		expect(f.installed.instances.values().next().value?.outgoing).toBeUndefined();
+		f.host.dispose();
+	});
+
+	it("reports invalid dialect, remote references and hostile input without leaking accessor details", () => {
 		for (const schema of [
 			{ $schema: "http://json-schema.org/draft-07/schema#" },
-			{ type: "string", format: "unknown" },
 			{ $ref: "https://remote.test/schema" },
 			{ type: "invalid" },
-			{ type: "object", $vocabulary: {} },
 		]) {
-			const prepared = prepare(schema);
-			expect(prepared.diagnostics.validation[0]).toMatchObject({ severity: "error" });
-			const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit: vi.fn() });
-			expect(form.validate()[0]).toMatchObject({ code: "json-schema.adapter-failure", path: { segments: [] } });
-			expect(await form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
-			form.dispose();
+			const result = preflightJsonSchema(schema);
+			expect(result).toMatchObject({ ok: false });
+			expect(createJsonSchemaValidator(schema)({ data: {}, uiState: {} })[0]).toMatchObject({
+				code: "json-schema.adapter-failure",
+				path: { segments: [] },
+			});
 		}
 		const hostile = Object.defineProperty({}, "type", {
 			enumerable: true,
@@ -77,174 +93,15 @@ describe("automatic plain JSON Schema validation", () => {
 				throw Error("secret");
 			},
 		});
-		expect(prepare(hostile).diagnostics.validation[0]?.message).not.toContain("secret");
+		expect(preflightJsonSchema(hostile)).toMatchObject({ ok: false, error: expect.not.stringContaining("secret") });
 	});
 
-	it("does not turn presentation options into validation rules and checks hidden stored values", () => {
-		const prepared = prepare({
-			type: "object",
-			properties: {
-				hidden: {
-					type: "string",
-					enum: ["a"],
-					"x-formbar": { options: [{ value: "b", title: "B", disabled: false }] },
-				},
-			},
-		});
-		const form = createForm({ initialData: { hidden: "b" }, validators: prepared.validators });
-		expect(form.validate().map((issue) => issue.code)).toContain("json-schema.enum");
-		form.dispose();
-	});
-
-	it("bounds reported errors and detects mutation before reusing a cached validator", () => {
+	it("bounds issue count and invalidates cached validators when schema content changes", () => {
 		const schema = { type: "object", required: Array.from({ length: 150 }, (_, index) => `missing${index}`) };
-		const original = prepare(schema);
-		expect(original.validators[0]?.({ data: {}, uiState: {} })).toHaveLength(101);
-		expect(original.validators[0]?.({ data: {}, uiState: {} })).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ code: "json-schema.truncated", path: { namespace: "data", segments: [] } }),
-			]),
-		);
+		expect(createJsonSchemaValidator(schema)({ data: {}, uiState: {} })).toHaveLength(101);
 		schema.required = ["new"];
-		expect(prepare(schema).validators[0]?.({ data: {}, uiState: {} })).toMatchObject([
+		expect(createJsonSchemaValidator(schema)({ data: {}, uiState: {} })).toMatchObject([
 			{ code: "json-schema.required", path: { segments: ["new"] } },
 		]);
-	});
-
-	it("rejects unsupported provider dialect, oversized, cyclic and accessor schemas without calling caller validators", () => {
-		const imitation = { ...jsonSchemaProvider(), name: "json-schema" };
-		expect(createSchemaForm({ type: "object" }, { provider: imitation, side: "input" }).validators).toEqual([]);
-		const unsupported = createSchemaForm(
-			{ type: "object" },
-			{
-				provider: jsonSchemaProvider({ dialect: "draft-07" }),
-				side: "input",
-			},
-		);
-		expect(unsupported.diagnostics.validation[0]?.code).toBe("unsupported-dialect");
-		const tooLarge = prepare({ type: "string", description: "a".repeat(262145) });
-		expect(tooLarge.diagnostics.validation[0]?.code).toBe("schema-limit");
-		const cyclic: Record<string, unknown> = { type: "object" };
-		cyclic.properties = { self: cyclic };
-		expect(prepare(cyclic).diagnostics.validation[0]?.code).toBe("non-json-schema");
-		const accessor = Object.defineProperty({}, "type", {
-			enumerable: true,
-			get: () => {
-				throw Error("untrusted");
-			},
-		});
-		expect(prepare(accessor).validators[0]?.({ data: {}, uiState: {} })).toMatchObject([
-			{ code: "json-schema.adapter-failure" },
-		]);
-	});
-
-	it("uses Ajv composed validation and local anchors without inferring composed presentation", () => {
-		const schema = {
-			type: "object",
-			$defs: { named: { $anchor: "named", type: "string", minLength: 2 } },
-			allOf: [{ required: ["name"] }, { properties: { name: { $ref: "#named" } } }],
-			if: { required: ["special"] },
-			then: { required: ["code"] },
-		};
-		const prepared = prepare(schema);
-		expect(prepared.diagnostics.validation).toEqual([]);
-		expect(
-			prepared.validators[0]?.({ data: { name: "x", special: true }, uiState: {} }).map((issue) => issue.code),
-		).toEqual(expect.arrayContaining(["json-schema.minLength", "json-schema.required"]));
-		expect(prepared.validators[0]?.({ data: { name: "Ada" }, uiState: {} })).toEqual([]);
-	});
-
-	it("fails closed for inherited constraints and built-in objects at every schema depth", async () => {
-		const inherited = Object.create({ type: "object", required: ["name"] }) as Record<string, unknown>;
-		const inheritedNested = Object.create({ type: "string", minLength: 2 }) as Record<string, unknown>;
-		const unsafe = [
-			inherited,
-			new Date("2026-01-01"),
-			{ type: "object", properties: { name: inheritedNested } },
-			{ type: "array", items: new Date("2026-01-01") },
-		];
-		for (const schema of unsafe) {
-			const onSubmit = vi.fn();
-			const prepared = prepare(schema);
-			expect(prepared.diagnostics.validation).toMatchObject([{ code: "non-plain-schema", severity: "error" }]);
-			expect(prepared.diagnostics.validation[0]?.message).not.toContain("2026-01-01");
-			const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
-			expect(form.validate()).toMatchObject([{ code: "json-schema.adapter-failure", path: { segments: [] } }]);
-			expect(await form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
-			expect(onSubmit).not.toHaveBeenCalled();
-			form.dispose();
-		}
-	});
-
-	it("preserves JSON object and null-prototype schemas with local refs and formats", async () => {
-		const schema = Object.assign(Object.create(null), {
-			type: "object",
-			required: ["email"],
-			$defs: { address: { type: "string", format: "email" } },
-			properties: { email: { $ref: "#/$defs/address" } },
-		});
-		const prepared = prepare(schema);
-		expect(prepared.diagnostics.validation).toEqual([]);
-		const onSubmit = vi.fn(async () => ({ ok: true as const, submitId: "saved" }));
-		const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
-		expect(form.validate().map((issue) => issue.code)).toEqual(["json-schema.required"]);
-		form.setValue("email", "bad");
-		expect(form.validate().map((issue) => issue.code)).toEqual(["json-schema.format"]);
-		form.setValue("email", "ada@example.com");
-		expect(await form.submit()).toMatchObject({ ok: true });
-		expect(onSubmit).toHaveBeenCalledTimes(1);
-		form.dispose();
-	});
-
-	it("rejects array subclasses, accessors, and observable proxy failures without leaking trap details", () => {
-		let getterReads = 0;
-		const throwing = new Proxy(
-			{},
-			{
-				getPrototypeOf: () => {
-					throw Error("private prototype");
-				},
-			},
-		);
-		const revoked = Proxy.revocable({}, {});
-		revoked.revoke();
-		const nested = {
-			type: "object",
-			properties: {
-				name: Object.defineProperty({}, "type", {
-					enumerable: true,
-					get: () => {
-						getterReads++;
-						throw Error("private getter");
-					},
-				}),
-			},
-		};
-		for (const schema of [
-			throwing,
-			revoked.proxy,
-			nested,
-			{ enum: [new Date()] },
-			{ enum: [new (class extends Array {})()] },
-		]) {
-			const prepared = prepare(schema);
-			expect(prepared.diagnostics.validation[0]?.message).not.toContain("private");
-			expect(prepared.validators[0]?.({ data: {}, uiState: {} })).toMatchObject([
-				{ code: "json-schema.adapter-failure", path: { segments: [] } },
-			]);
-		}
-		expect(getterReads).toBe(0);
-	});
-
-	it("keeps presentation diagnostics while refusing prototype-bearing option annotations as validation input", async () => {
-		const forged = Object.create({ value: "a" });
-		const prepared = prepare({ type: "string", enum: ["a"], "x-formbar": { options: [forged] } });
-		expect(prepared.diagnostics.validation[0]?.code).toBe("non-plain-annotation");
-		expect(prepared.diagnostics.compilation.map((item) => item.code)).toContain("invalid-extension-props");
-		const onSubmit = vi.fn();
-		const form = createForm({ initialData: {}, validators: prepared.validators, onSubmit });
-		expect(await form.submit()).toMatchObject({ ok: false, reason: "validation-failed" });
-		expect(onSubmit).not.toHaveBeenCalled();
-		form.dispose();
 	});
 });

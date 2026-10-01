@@ -1,12 +1,13 @@
 import type { ArbiterPluginOptions } from "@formbar/arbiter";
-import type { Expression, FormDefinition, FormNode } from "@formbar/declarative";
+import type { FormDefinition, FormNode } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+import { not, uiRef } from "./kalada-fixture-programs";
 
 function field(id: string, path: string, widget: string, label: string): FormNode {
 	return { type: "field", id, binding: { namespace: "data", segments: [path] }, widget, label };
 }
 
-const canSubmit: Expression = { kind: "ref", ref: { namespace: "ui", segments: ["canSubmit"] } };
+const canSubmit = uiRef("canSubmit");
 
 export const arbiterValidationRules = [
 	{
@@ -54,7 +55,7 @@ export const arbiterValidationDefinition = {
 				id: "submit",
 				action: "submit",
 				label: "Submit",
-				disabled: { kind: "op", op: "not", args: [canSubmit] },
+				disabled: not(canSubmit),
 			},
 			{ type: "action", id: "reset", action: "reset", label: "Reset" },
 		],

@@ -1,6 +1,7 @@
 import { type JsonValue, copyJson } from "@formbar/expressions";
 import { object } from "./kalada-definition-shape.js";
 import { type AdmittedDefinition, admitKaladaDefinition } from "./kalada-definition.js";
+import { checkNativeConstraints } from "./kalada-native-constraints.js";
 import { checkAttestedPath } from "./kalada-path-authority.js";
 import {
 	type AdmissionPolicy,
@@ -33,6 +34,8 @@ function policyNode(
 	const type = source.type;
 	const key = type === "field" ? "widget" : type === "custom" ? "renderer" : type === "action" ? "action" : undefined;
 	const name = key ? source[key] : undefined;
+	if (type === "field" && typeof name === "string" && nativeWidgets.has(name))
+		checkNativeConstraints(name, source.props, `${path}.props`);
 	if (
 		key &&
 		(typeof name !== "string" ||

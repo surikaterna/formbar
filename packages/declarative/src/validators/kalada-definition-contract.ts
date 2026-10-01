@@ -5,7 +5,7 @@ import type { ActionConcurrency, OutputFormat } from "../nodes.js";
 import type { NodePresentation } from "../presentation.js";
 import type { KaladaReference } from "./kalada-program.js";
 
-// Future private definition shape; admission does not yet change the public Kuery definition.
+// Prepared V1 shape; public entry points are switched only with runtime and renderer consumers.
 export type KaladaSlot = KaladaV1Program<KaladaReference>;
 export type KaladaProps = Readonly<
 	Record<

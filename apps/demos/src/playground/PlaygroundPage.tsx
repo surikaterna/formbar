@@ -12,9 +12,11 @@ import {
 	type createPlaygroundSession,
 	resetSession,
 	restorePlaygroundSession,
+	updateCurrentSource,
 	updateSource,
 } from "./session";
 import { discardDraft, saveDraft } from "./storage";
+import { usePlaygroundSession } from "./use-playground-session";
 
 interface PlaygroundPageProps {
 	readonly demoId: string;
@@ -33,27 +35,20 @@ export function PlaygroundPage(props: PlaygroundPageProps) {
 }
 
 function Playground(props: PlaygroundPageProps & { readonly example: PlaygroundExample }) {
-	const [session, setSession] = useState(() =>
-		restorePlaygroundSession(props.example.document, props.example.key, window.localStorage),
-	);
+	const {
+		session,
+		setSession,
+		status,
+		setStatus,
+		apply: applySession,
+		reset,
+		onHost,
+	} = usePlaygroundSession(props.example);
 	const [active, setActive] = useState<SourceKey>("schema");
-	const [status, setStatus] = useState("Interactive playground loaded.");
-	const baseline = useMemo(() => stringifyDocument(props.example.document), [props.example]);
-	const dirty = SOURCE_KEYS.some((key) => session.sources[key] !== baseline[key]);
-	useDraft(props.example, session.sources, dirty);
+	const baseline = useBaseline(props.example, session.sources);
 	const apply = () => {
-		const next = applySources(session);
-		setSession(next);
-		if (next.revision === session.revision) {
-			const firstError = SOURCE_KEYS.find((key) => next.errors[key]);
-			if (firstError) setActive(firstError);
-		}
-		setStatus(next.revision === session.revision ? "Apply failed; review source errors." : "Document applied.");
-	};
-	const reset = () => {
-		discardDraft(window.localStorage, props.example.key);
-		setSession(resetSession(session, props.example.document));
-		setStatus("Registry example restored.");
+		const error = applySession();
+		if (error) setActive(error);
 	};
 	return (
 		<main className="flex min-h-screen flex-col bg-background">
@@ -82,6 +77,7 @@ function Playground(props: PlaygroundPageProps & { readonly example: PlaygroundE
 				setActive={setActive}
 				setSession={setSession}
 				apply={apply}
+				onHost={onHost}
 			/>
 		</main>
 	);
@@ -93,7 +89,8 @@ function Workspace(props: {
 	readonly baseline: ReturnType<typeof stringifyDocument>;
 	readonly active: SourceKey;
 	readonly setActive: (key: SourceKey) => void;
-	readonly setSession: (session: ReturnType<typeof createPlaygroundSession>) => void;
+	readonly setSession: ReturnType<typeof usePlaygroundSession>["setSession"];
+	readonly onHost: ReturnType<typeof usePlaygroundSession>["onHost"];
 	readonly apply: () => void;
 }) {
 	return (
@@ -105,7 +102,9 @@ function Workspace(props: {
 					baseline={props.baseline}
 					errors={props.session.errors}
 					onActiveChange={props.setActive}
-					onChange={(value) => props.setSession(updateSource(props.session, props.active, value))}
+					onChange={(value) =>
+						props.setSession((current) => updateCurrentSource(current, props.session, props.active, value))
+					}
 					onApply={props.apply}
 				/>
 			</section>
@@ -114,7 +113,9 @@ function Workspace(props: {
 					<PlaygroundRunner
 						key={props.session.revision}
 						document={props.session.applied}
-						runtime={props.example.runtime}
+						runtime={props.session.runtime}
+						previewData={props.session.previewData}
+						onHost={props.onHost}
 					/>
 				</PreviewErrorBoundary>
 			</section>
@@ -228,6 +229,16 @@ function useDraft(example: PlaygroundExample, sources: ReturnType<typeof stringi
 		const timer = window.setTimeout(() => saveDraft(window.localStorage, example.key, sources), 500);
 		return () => window.clearTimeout(timer);
 	}, [dirty, example.key, sources]);
+}
+
+function useBaseline(example: PlaygroundExample, sources: ReturnType<typeof stringifyDocument>) {
+	const baseline = useMemo(() => stringifyDocument(example.document), [example]);
+	useDraft(
+		example,
+		sources,
+		SOURCE_KEYS.some((key) => sources[key] !== baseline[key]),
+	);
+	return baseline;
 }
 
 function formatActive(

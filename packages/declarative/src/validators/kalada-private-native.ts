@@ -2,7 +2,24 @@ import { copyJson } from "@formbar/expressions";
 import type { DataContext, EnumeratedRow, FormbarDataStrategyV1, ReadScope } from "./kalada-data-strategy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import { sameRowScope } from "./kalada-private-components.js";
+import type { PrivateEvaluation } from "./kalada-private-runtime.js";
 import { ProgramAdmissionError } from "./kalada-program.js";
+
+function permitted(
+	path: string,
+	scope: ReadScope,
+	admitted: AdmittedDefinition,
+	evaluate: (path: string, scope: ReadScope) => PrivateEvaluation,
+): boolean {
+	const nodePath = path.slice(0, -".binding".length);
+	for (const property of ["visible", "disabled", "readOnly"]) {
+		const slot = `${nodePath}.${property}`;
+		if (!admitted.slots.some((entry) => entry.path === slot)) continue;
+		const result = evaluate(slot, scope);
+		if (!result.ok || result.value !== (property === "visible")) return false;
+	}
+	return true;
+}
 
 export function privateNative(options: {
 	readonly admitted: AdmittedDefinition;
@@ -10,6 +27,7 @@ export function privateNative(options: {
 	readonly context: DataContext;
 	readonly live: () => boolean;
 	readonly validScope: (scope: ReadScope, enclosing?: string) => boolean;
+	readonly evaluate: (path: string, scope: ReadScope) => PrivateEvaluation;
 	readonly bindDirect: (path: string, source: string) => ((value: unknown) => { status: string }) | undefined;
 	readonly bindRow: (
 		path: string,
@@ -33,8 +51,22 @@ export function privateNative(options: {
 		if (read.status !== "found") throw new ProgramAdmissionError(path, `TARGET_${read.status.toUpperCase()}`);
 		const value = copyJson(read.value);
 		if (!live() || frame.token !== strategy.current(context)) throw new ProgramAdmissionError(path, "STALE_CAPTURE");
+		if (!permitted(path, scope, admitted, options.evaluate))
+			throw new ProgramAdmissionError(path, "FIELD_NOT_EDITABLE");
 		const callback = row ? options.bindRow(path, source, row) : options.bindDirect(path, source);
 		if (!callback) throw new ProgramAdmissionError(path, "INVALID_WRITE_TARGET");
-		return Object.freeze({ value, onChange: callback });
+		return Object.freeze({
+			value,
+			onChange(next: unknown) {
+				try {
+					if (!live() || frame.token !== strategy.current(context)) return { status: "stale" };
+					if (!permitted(path, scope, admitted, options.evaluate)) return { status: "denied" };
+					if (!live() || frame.token !== strategy.current(context)) return { status: "stale" };
+					return callback(next);
+				} catch {
+					return { status: "denied" };
+				}
+			},
+		});
 	};
 }

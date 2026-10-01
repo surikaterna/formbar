@@ -45,7 +45,7 @@ const publicExtensionTypesCompile: PublicExtensionTypes | undefined = undefined;
 describe("react-schema public API", () => {
 	it("exports only the lean renderer surface without registry or legacy aliases", () => {
 		expect(publicExtensionTypesCompile).toBeUndefined();
-		expect(Object.keys(api).sort()).toEqual(["FormRenderer", "useSchemaForm"]);
+		expect(Object.keys(api).sort()).toEqual(["FormRenderer", "KaladaFormRenderer", "useSchemaForm"]);
 		for (const forbidden of [
 			"renderLayoutTree",
 			"FieldRenderer",
@@ -54,5 +54,8 @@ describe("react-schema public API", () => {
 			"pruneHiddenFields",
 		])
 			expect(api).not.toHaveProperty(forbidden);
+	});
+	it("rejects the legacy FormApi hook rather than installing a positional runtime", () => {
+		expect(() => api.useSchemaForm({}, {})).toThrow(/useSchemaForm is no longer supported/);
 	});
 });

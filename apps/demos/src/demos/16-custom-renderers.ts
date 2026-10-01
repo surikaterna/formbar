@@ -192,7 +192,7 @@ export const customRenderersDemo: SchemaDemoFixture = Object.freeze({
 			key: "extension-diagnostics",
 			label: "Extension diagnostics (intentional missing IDs)",
 			description:
-				"Intentional diagnostic example: demo16.missing-widget and demo16.missing-node are not registered by the trusted host profile. Both show inline renderer fallbacks, not preparation or core validation issues; there are no inputs here. The stored empty string for missingWidget can still submit. Choose Schema hints or Authored overrides for working widgets. Editing JSON cannot register extensions.",
+				"Intentional diagnostic example: demo16.missing-widget and demo16.missing-node are not registered by the trusted host profile. Canonical candidate admission rejects these unknown IDs; there are no interactive inputs or successful submission in this diagnostic preset. Choose Schema hints or Authored overrides for working widgets. Editing JSON cannot register extensions.",
 			schema: Object.freeze({
 				type: "object",
 				properties: { missingWidget: { type: "string", title: "Missing widget" } },

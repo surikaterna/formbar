@@ -273,3 +273,104 @@ it("nonrow native requires installed static WRITE evidence at bind and invoke, i
 	expect(positiveHost.requests).toHaveLength(1);
 	permitted.dispose();
 });
+
+it("native binding denies expression-derived disabled/readOnly and non-Boolean gates before host mutation", () => {
+	const nativePolicy = snapshotAdmissionPolicy({
+		...identity,
+		widgets: {},
+		renderers: {},
+		actions: {},
+		namespaces: { data: "available" },
+		schema: { side: "input", availability: "complete", paths: [{ path: target.segments, kind: "value" }] },
+		ui: { availability: "complete", paths: [] },
+	});
+	for (const property of ["disabled", "readOnly", "visible"] as const) {
+		const host = directWriteServer();
+		const runtime = createPrivateKaladaRuntime({
+			definition: {
+				version: 1,
+				id: "native",
+				root: {
+					type: "field",
+					id: "native",
+					widget: "text",
+					binding: target,
+					[property]: { ...program, expression: { kind: "literal", value: property !== "visible" } },
+				},
+			},
+			policy: nativePolicy,
+			identity,
+			strategy: host.strategy,
+			directLocations: { "root.binding": location },
+		});
+		expect(() => runtime.projectNative("root.binding", { rows: [] }, undefined, "order.total")).toThrow(
+			/FIELD_NOT_EDITABLE/,
+		);
+		expect(host.requests).toHaveLength(0);
+		runtime.dispose();
+	}
+});
+
+it("retained native callbacks recheck current Boolean state before contacting an otherwise writable host", () => {
+	const host = directWriteServer();
+	let gate: unknown = false;
+	const strategy = {
+		...host.strategy,
+		capture(context: Parameters<typeof host.strategy.capture>[0]) {
+			const frame = host.strategy.capture(context);
+			return {
+				...frame,
+				read(reference: Parameters<typeof frame.read>[0], scope: Parameters<typeof frame.read>[1]) {
+					return reference.path.join(".") === "order.lock"
+						? { status: "found" as const, value: gate as never }
+						: frame.read(reference, scope);
+				},
+			};
+		},
+	};
+	const runtime = createPrivateKaladaRuntime({
+		definition: {
+			version: 1,
+			id: "native",
+			root: {
+				type: "field",
+				id: "native",
+				widget: "text",
+				binding: target,
+				disabled: {
+					...program,
+					expression: { kind: "ref", ref: { namespace: "data", segments: ["order", "lock"] } },
+				},
+			},
+		},
+		policy: snapshotAdmissionPolicy({
+			...identity,
+			widgets: {},
+			renderers: {},
+			actions: {},
+			namespaces: { data: "available" },
+			schema: {
+				side: "input",
+				availability: "complete",
+				paths: [
+					{ path: target.segments, kind: "value" },
+					{ path: ["order", "lock"], kind: "value" },
+				],
+			},
+			ui: { availability: "complete", paths: [] },
+		}),
+		identity,
+		strategy,
+		directLocations: { "root.binding": location },
+	});
+	const binding = runtime.projectNative("root.binding", { rows: [] }, undefined, "order.total");
+	for (const rejected of [true, null, { tag: "some", value: false }]) {
+		gate = rejected;
+		expect(binding.onChange(20)).not.toEqual({ status: "applied" });
+		expect(host.requests).toHaveLength(0);
+	}
+	gate = false;
+	expect(binding.onChange(12)).toEqual({ status: "applied" });
+	expect(host.requests).toHaveLength(1);
+	runtime.dispose();
+});

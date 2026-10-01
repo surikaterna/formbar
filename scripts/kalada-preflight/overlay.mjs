@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBaselineTest } from "./baseline-test.mjs";
+import { runFormbarPackedConsumer } from "./formbar-packed-consumer.mjs";
 import { startRegistry } from "./local-registry.mjs";
 import { runPackedConsumer } from "./packed-consumer.mjs";
 
@@ -36,6 +37,7 @@ const logPath = join(logBase, `formbar-316-overlay-${Date.now()}-${process.pid}.
 const originalLog = console.log.bind(console);
 const originalError = console.error.bind(console);
 let fullLog = "";
+let baselineFailure;
 for (const [level, original] of [
 	["log", originalLog],
 	["error", originalError],
@@ -107,15 +109,21 @@ function testLane(lane, command, args) {
 			stderr: result.stderr,
 		}),
 	);
-	if (lane === "candidate-FOCUSED" && result.status === 0) {
+	if (lane === "candidate-FOCUSED" && result.status === 0 && process.env.KALADA_376_PRIMITIVE_FOCUSED !== "1") {
 		assert.match(
 			result.stdout,
 			/scripts\/kalada-preflight\/fixtures\/kalada-policy-integration\.test\.ts \(10 tests\)/,
 		);
 		assert.match(result.stdout, /kalada-private-runtime\.test\.ts/);
+		assert.match(result.stdout, /prepared-definition\.test\.ts \(5 tests\)/);
+		assert.match(result.stdout, /prepared-runtime\.test\.ts \(7 tests\)/);
+		assert.match(result.stdout, /kalada-generated-react\.test\.tsx \(3 tests\)/);
+		assert.match(result.stdout, /kalada-public-react\.test\.tsx \(3 tests\)/);
 		assert.match(result.stdout, /repeater-write-proof\.test\.ts \(18 tests\)/);
 	}
 	if (result.status !== 0 || result.error) {
+		if (lane === "baseline-unfiltered")
+			baselineFailure = { status: result.status, output: `${result.stdout}\n${result.stderr}` };
 		const logBase = join(source, "dist/kalada-preflight-logs");
 		assert.match(
 			execFileSync("git", ["check-ignore", "-v", "dist/kalada-preflight-logs/probe"], {
@@ -378,8 +386,8 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/291-strategy-component-bridge");
-	assert.equal(run("git", ["rev-parse", "HEAD^"], source), "8998ab4a8f3d3b7a6438322f14e7fae94dc5887e");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/376-public-kalada-v1");
+	assert.equal(run("git", ["rev-parse", "HEAD"], source), "d6de555a024053d835827bb4501c63d5cca50da2");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -388,7 +396,7 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/291-strategy-component-bridge");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/376-public-kalada-v1");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
@@ -474,31 +482,103 @@ try {
 		"unknown registry request",
 	);
 	const excludedPolicy = "packages/declarative/src/__tests__/public-api.test.ts";
+	assert.equal(
+		testLane("candidate-public-4A", "bun", [
+			"x",
+			"vitest",
+			"run",
+			"--config",
+			"scripts/kalada-preflight/overlay.vitest.config.ts",
+			"scripts/kalada-preflight/fixtures/public-admission.test.ts",
+		]),
+		0,
+		"public 4A validation and runtime boundary failed",
+	);
 	console.log(
 		JSON.stringify({ lane: "candidate", excludedPolicy, reason: "asserts no production @kalada/core dependency" }),
 	);
-	for (const [command, args] of [
+	const failedCandidateLanes = [];
+	const candidateCommands = [
 		["bun", ["run", "--filter", "@formbar/expressions", "build:dist"]],
 		["bun", ["run", "--filter", "@formbar/core", "build:dist"]],
 		["bun", ["run", "--filter", "@formbar/declarative", "build"]],
 		["bun", ["x", "tsc", "-p", "scripts/kalada-preflight/fixtures/kalada-contract.tsconfig.json"]],
-		["bun", ["x", "tsc", "-p", "scripts/kalada-preflight/fixtures/component-bridge.tsconfig.json"]],
 		["bun", ["run", "--filter", "@formbar/declarative", "build:dist"]],
+		["bun", ["run", "--filter", "@formbar/from-schema", "build:dist"]],
+		["bun", ["run", "--filter", "@formbar/react", "build:dist"]],
+		["bun", ["run", "--filter", "@formbar/react-schema", "build"]],
+		["bun", ["run", "--filter", "@formbar/react-schema", "build:dist"]],
+		["bun", ["x", "tsc", "-p", "scripts/kalada-preflight/fixtures/component-bridge.tsconfig.json"]],
 		["bun", ["x", "vitest", "run", "--config", "scripts/kalada-preflight/overlay.vitest.config.ts"]],
 		["bun", ["x", "vitest", "run", "packages/declarative/src/__tests__", "--exclude", excludedPolicy]],
+		[
+			"bun",
+			[
+				"x",
+				"vitest",
+				"run",
+				"packages/from-schema/src/__tests__/create-schema-form.test.ts",
+				"packages/react-schema/src/__tests__/form-renderer.test.tsx",
+				"packages/from-schema/src/__tests__/public-api.test.ts",
+				"packages/react-schema/src/__tests__/public-api.test.ts",
+			],
+		],
 		["bun", ["x", "vitest", "run", "--exclude", excludedPolicy]],
 		["bun", ["run", "lint"]],
 		["bun", ["run", "build"]],
-	]) {
-		const focused = args.includes("scripts/kalada-preflight/overlay.vitest.config.ts");
-		if (focused) console.log(JSON.stringify({ lane: "candidate-FOCUSED", fixture: "component-bridge.test.tsx" }));
-		assert.equal(
-			testLane(focused ? "candidate-FOCUSED" : "candidate", command, args),
-			0,
-			`candidate lane failed: ${command} ${args.join(" ")}`,
-		);
+		["bun", ["run", "--filter", "@formbar/demos", "build"]],
+	];
+	if (process.env.KALADA_376_PRIMITIVE_FOCUSED === "1") {
+		const focused = [
+			...candidateCommands.slice(0, 3),
+			candidateCommands[4],
+			candidateCommands[5],
+			candidateCommands[6],
+			candidateCommands[8],
+			[
+				"bun",
+				[
+					"x",
+					"vitest",
+					"run",
+					"--config",
+					"scripts/kalada-preflight/overlay.vitest.config.ts",
+					"scripts/kalada-preflight/fixtures/primitive-row-location.test.ts",
+					"apps/demos/src/__tests__/kalada-demo-host.test.tsx",
+					"-t",
+					"primitive row|primitive Field",
+				],
+			],
+		];
+		candidateCommands.splice(0, candidateCommands.length, ...focused);
 	}
-	runPackedConsumer(archives, temp, source, runEnv);
+	for (const [command, args] of candidateCommands) {
+		const focused = args.includes("scripts/kalada-preflight/overlay.vitest.config.ts");
+		if (focused)
+			console.log(
+				JSON.stringify({
+					lane: "candidate-FOCUSED",
+					fixtures: ["component-bridge.test.tsx", "prepared-runtime.test.ts"],
+				}),
+			);
+		const status = testLane(focused ? "candidate-FOCUSED" : "candidate", command, args);
+		if (status !== 0) failedCandidateLanes.push({ command: [command, ...args], status });
+		if (args.includes("packages/react-schema/src/__tests__/public-api.test.ts")) {
+			const scopedStatus = testLane("candidate-schema-packages", "bun", [
+				"x",
+				"vitest",
+				"run",
+				"packages/from-schema/src/__tests__",
+				"packages/react-schema/src/__tests__",
+			]);
+			console.log(JSON.stringify({ lane: "candidate-schema-packages", status: scopedStatus }));
+			if (scopedStatus !== 0) failedCandidateLanes.push({ lane: "candidate-schema-packages", status: scopedStatus });
+		}
+	}
+	if (failedCandidateLanes.length === 0 && process.env.KALADA_376_PRIMITIVE_FOCUSED !== "1") {
+		runPackedConsumer(archives, temp, source, runEnv);
+		await runFormbarPackedConsumer(archives, temp, source, runEnv);
+	} else console.error(JSON.stringify({ failedCandidateLanes, packedConsumer: "blocked by candidate failures" }));
 	assert.deepEqual(
 		snapshot(source).filter(([path]) => !inputs.includes(path)),
 		before.filter(([path]) => !inputs.includes(path)),
@@ -506,12 +586,14 @@ try {
 	);
 	console.log(
 		JSON.stringify({
-			issue: 291,
+			issue: 376,
+			stage: "public-v1-candidate-ready-for-audit",
 			candidate: commit,
 			sourceSha256: createHash("sha256").update(JSON.stringify(before)).digest("hex"),
 			candidateInstalled: "passed",
 		}),
 	);
+	assert.deepEqual(failedCandidateLanes, [], "candidate lanes failed; inspect retained lane logs");
 } catch (error) {
 	failure = error;
 } finally {
@@ -562,7 +644,7 @@ try {
 					formbarHeadAfter: run("git", ["rev-parse", "HEAD"], source),
 					sourceBefore: digest(before),
 					sourceAfter: digest(after),
-					changeset: hash(join(source, ".changeset/private-kalada-runtime.md")),
+					changeset: hash(join(source, ".changeset/public-kalada-v1.md")),
 				}),
 			);
 			assert.deepEqual(after, before, "worktree source or Changeset changed");
@@ -584,7 +666,27 @@ try {
 				original.get("bun.lock"),
 				"baseline reinstall changed lock",
 			);
-			runBaselineTest(testLane);
+			try {
+				runBaselineTest(testLane);
+			} catch (error) {
+				if (failure) cleanupError(error);
+				else {
+					assert.equal(baselineFailure?.status, 1, "baseline failure was not captured");
+					assert.match(
+						baselineFailure.output,
+						/The requested module '@kalada\/core' does not provide an export named 'KaladaV1'/,
+					);
+					assert.match(baselineFailure.output, /No matching export.*compileKaladaV1Program/);
+					console.error(
+						JSON.stringify({
+							issue: 317,
+							lane: "baseline-unfiltered",
+							result: "FAILED",
+							reason: "published core 0.1 lacks the candidate V1 exports; production merge HOLD",
+						}),
+					);
+				}
+			}
 		} catch (error) {
 			cleanupError(error);
 		}

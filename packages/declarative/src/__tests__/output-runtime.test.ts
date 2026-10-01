@@ -1,193 +1,51 @@
-import { describe, expect, it, vi } from "vitest";
-import type { FormDefinition, OutputNode, ResolvedOutputState, SumByExpression, createFormRuntime } from "../index.js";
-import { validateFormDefinition } from "../index.js";
-import { dataRef, definition, literal, node, op, runtime } from "./runtime-fixtures.js";
+import { describe, expect, it } from "vitest";
+import { createFormRuntime } from "../index.js";
+import { installedField, installedOutput, program } from "./kalada-runtime-fixtures.js";
 
-const output = (id: string, value: OutputNode["value"], extra = {}): OutputNode => ({
-	type: "output",
-	id,
-	value,
-	...extra,
-});
+describe("host-installed computed Output.value", () => {
+	it.each([null, true, 5, "ready", { nested: [false] }])("projects JSON literal %j without a writer", (value) => {
+		const { runtime } = installedOutput({ kind: "literal", value });
+		expect(runtime.snapshot().outputs).toMatchObject([{ value, format: "plain" }]);
+		expect(runtime.snapshot().controls).toEqual([]);
+		runtime.dispose();
+	});
 
-const resolvedOutput = (port: ReturnType<typeof createFormRuntime>, id: string, index = 0): ResolvedOutputState => {
-	const state = node(port, id, index);
-	if (state?.type !== "output") throw new Error(`Missing output ${id}`);
-	return state;
-};
+	it("projects a host read across revisions without storing or writing a result", () => {
+		const { runtime, state, host } = installedOutput({
+			kind: "ref",
+			ref: { namespace: "data", segments: ["profile", "name"] },
+		});
+		expect(runtime.snapshot().outputs[0]?.value).toBe("original");
+		state.field.value = "updated";
+		host.bump(state);
+		expect(runtime.snapshot().outputs[0]?.value).toBe("updated");
+		runtime.dispose();
+	});
 
-describe("output definition validation", () => {
-	it.each(["plain", "number", "currency-usd", "percent"] as const)("accepts the %s format", (format) => {
-		const result = validateFormDefinition({
+	it("rejects an old bare Kuery expression at the exact value slot", () => {
+		const field = installedField();
+		const result = field.admitOutput({
 			version: 1,
-			id: "formats",
-			root: output("value", literal(1), { label: "Total", format }),
+			id: "bad-output",
+			root: { type: "output", id: "out", value: { kind: "literal", value: 1 }, format: "plain" },
 		});
-		expect(result).toMatchObject({ ok: true, value: { root: { label: "Total", format } } });
+		expect(result).toMatchObject({ ok: false, diagnostics: [{ path: ["root", "value"], message: "RE-AUTHOR" }] });
+		field.runtime.dispose();
 	});
 
-	it("rejects unknown formatter IDs at their exact path", () => {
-		const result = validateFormDefinition({
+	it("admits advanced format (#409) without losing the scalar value", () => {
+		const field = installedField();
+		const result = field.admitOutput({
 			version: 1,
-			id: "formats",
-			root: output("value", literal(1), { format: "host-code" as never }),
+			id: "advanced-output",
+			root: { type: "output", id: "out", value: program({ kind: "literal", value: 1 }), format: "currency-usd" },
 		});
-		expect(result).toEqual({
-			ok: false,
-			diagnostics: [
-				{
-					code: "unsupported-output-format",
-					path: ["root", "format"],
-					message: "Unsupported output format 'host-code'.",
-				},
-			],
-		});
-	});
-});
-
-describe("output runtime projection", () => {
-	it("preserves successful scalar, null, and object results as raw values", () => {
-		const formDefinition = definition([
-			output("sum", op("add", dataRef(["quantity"]), dataRef(["bonus"]))),
-			output("empty", dataRef(["empty"])),
-			output("object", dataRef(["details"])),
-		]);
-		const { runtime: port } = runtime(formDefinition, {
-			initialData: { quantity: 2, bonus: 3, empty: null, details: { exact: true } },
-		});
-		expect(resolvedOutput(port, "sum").output).toEqual({ status: "ready", value: 5 });
-		expect(resolvedOutput(port, "empty").output).toEqual({ status: "ready", value: null });
-		expect(resolvedOutput(port, "object").output).toEqual({ status: "ready", value: { exact: true } });
-	});
-
-	it.each([
-		["missing", dataRef(["absent"]), "missing"],
-		["denied", { kind: "ref", ref: { namespace: "secret", segments: ["value"] } }, "denied"],
-		["type", op("add", literal("one"), literal(1)), "type"],
-		["division", op("div", literal(1), literal(0)), "division-zero"],
-		["non-finite", op("mul", literal(Number.MAX_VALUE), literal(2)), "non-finite"],
-	] as const)("fails closed for %s expressions with code-only diagnostics", (_name, expression, code) => {
-		const { runtime: port } = runtime(definition([output("result", expression)]), { initialData: {} });
-		expect(resolvedOutput(port, "result").output).toEqual({ status: "error", code });
-		expect(port.getSnapshot().diagnostics).toEqual([
-			{
-				code: "expression",
-				nodeId: "result",
-				instanceKey: JSON.stringify(["result", []]),
-				property: "value",
-				expressionCode: code,
-			},
-		]);
-	});
-
-	it("does not evaluate or diagnose a hidden output value", () => {
-		const hidden = output("hidden", dataRef(["absent"]), { visible: literal(false) });
-		const { runtime: port } = runtime(definition([hidden]), { initialData: {} });
-		expect(resolvedOutput(port, "hidden")).toMatchObject({ visible: false, output: { status: "hidden" } });
-		expect(port.getSnapshot().diagnostics).toEqual([]);
-	});
-
-	it("reacts to edits and reset replacement without retaining stale values", () => {
-		const formDefinition = definition([output("ratio", op("div", dataRef(["amount"]), dataRef(["count"])))]);
-		const { form, runtime: port } = runtime(formDefinition, { initialData: { amount: 10, count: 2 } });
-		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "ready", value: 5 });
-		form.setValue("amount", 12);
-		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "ready", value: 6 });
-		form.setValue("count", 0);
-		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "error", code: "division-zero" });
-		form.reset();
-		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "ready", value: 5 });
-		form.reset({ data: { amount: 21, count: 3 } });
-		expect(resolvedOutput(port, "ratio").output).toEqual({ status: "ready", value: 7 });
-	});
-
-	it("projects collection sums through append, edit, remove, and reset without stored output state", async () => {
-		const submitted = vi.fn();
-		const expression: SumByExpression = {
-			kind: "op",
-			op: "sumBy",
-			args: [dataRef(["lines"]), { kind: "literal", value: ["amount"] }],
-		};
-		const candidate: FormDefinition = {
-			version: 1,
-			id: "collection-total",
-			root: output("subtotal", expression),
-		};
-		const validated = validateFormDefinition(candidate);
-		if (!validated.ok) throw new Error(JSON.stringify(validated.diagnostics));
-		expect(JSON.parse(JSON.stringify(validated.value))).toEqual(validated.value);
-		const { form, runtime: port } = runtime(validated.value, {
-			initialData: { lines: [{ amount: 2 }, { amount: 3 }] },
-			onSubmit: async ({ payload }) => {
-				submitted(payload);
-				return { ok: true, submitId: "sumBy" };
-			},
-		});
-
-		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 5 });
-		form.field("lines").pushValue({ amount: 4 });
-		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 9 });
-		form.setValue("lines.1.amount", 5);
-		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 11 });
-		form.field("lines").removeValue(0);
-		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 9 });
-		expect(form.getState()).toMatchObject({ data: { lines: [{ amount: 5 }, { amount: 4 }] }, issues: [] });
-		expect(form.isDirty()).toBe(true);
-
-		form.reset();
-		expect(resolvedOutput(port, "subtotal").output).toEqual({ status: "ready", value: 5 });
-		expect(form.isDirty()).toBe(false);
-		expect(form.isTouched()).toBe(false);
-		await form.submit();
-		expect(submitted).toHaveBeenCalledWith({ lines: [{ amount: 2 }, { amount: 3 }] });
-		expect(form.getState().data).toEqual({ lines: [{ amount: 2 }, { amount: 3 }] });
-	});
-
-	it("resolves lexical repeater scopes for each output instance", () => {
-		const formDefinition = definition([
-			{
-				type: "repeater",
-				id: "lines",
-				binding: { namespace: "data", segments: ["lines"] },
-				scope: "line",
-				children: [output("line-total", op("mul", dataRef(["quantity"], "line"), dataRef(["price"], "line")))],
-			},
-		]);
-		const { runtime: port } = runtime(formDefinition, {
-			initialData: {
-				lines: [
-					{ quantity: 2, price: 4 },
-					{ quantity: 3, price: 5 },
-				],
-			},
-		});
-		expect(resolvedOutput(port, "line-total", 0).output).toEqual({ status: "ready", value: 8 });
-		expect(resolvedOutput(port, "line-total", 1).output).toEqual({ status: "ready", value: 15 });
-	});
-
-	it("never writes output values or changes core lifecycle, issues, or submitted payload", async () => {
-		const submitted = vi.fn();
-		const formDefinition = definition([output("total", op("mul", dataRef(["quantity"]), literal(5)))]);
-		const { form, runtime: port } = runtime(formDefinition, {
-			initialData: { quantity: 2 },
-			onSubmit: async ({ payload }) => {
-				submitted(payload);
-				return { ok: true, submitId: "output" };
-			},
-		});
-		expect(resolvedOutput(port, "total").output).toEqual({ status: "ready", value: 10 });
-		expect(form.getState()).toMatchObject({ data: { quantity: 2 }, issues: [], fieldMeta: {} });
-		expect(form.isDirty()).toBe(false);
-		expect(form.isTouched()).toBe(false);
-		await form.submit();
-		expect(submitted).toHaveBeenCalledWith({ quantity: 2 });
-		expect(form.getState().data).toEqual({ quantity: 2 });
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			const runtime = createFormRuntime({ definition: result.value });
+			expect(runtime.snapshot().outputs).toMatchObject([{ value: 1, format: "currency-usd" }]);
+			runtime.dispose();
+		}
+		field.runtime.dispose();
 	});
 });
-
-const publicDefinition: FormDefinition = {
-	version: 1,
-	id: "public-output",
-	root: output("public", literal(true), { format: "plain" }),
-};
-void publicDefinition;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileDefaultFormDefinition, jsonSchemaProvider, projectSchema } from "../index.js";
+import { compileDefaultKaladaV1Definition, jsonSchemaProvider, projectSchema } from "../index.js";
 
 describe("descriptor document projection", () => {
 	it("retains recursive references, sharing, definitions, metadata, and selected-side provenance", () => {
@@ -100,14 +100,9 @@ describe("descriptor document projection", () => {
 			"occurrence-limit",
 			"occurrence-limit",
 		]);
-		const compiled = compileDefaultFormDefinition(first);
-		expect(compiled.definition?.root).toMatchObject({
-			type: "group",
-			children: [
-				expect.objectContaining({ type: "field", widget: "unsupported" }),
-				expect.objectContaining({ type: "field", widget: "unsupported" }),
-			],
-		});
+		expect(() => compileDefaultKaladaV1Definition(first)).toThrow(
+			"Kalada V1 generation requires a complete input-side schema projection.",
+		);
 	});
 
 	it("creates explicit deterministic fallback occurrences when definition expansion is exhausted", () => {

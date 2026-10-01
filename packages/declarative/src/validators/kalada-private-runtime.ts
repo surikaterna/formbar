@@ -1,6 +1,7 @@
-import { type JsonValue, copyJson } from "@formbar/expressions";
-import { compileKaladaV1Program, isDuration, isInstant, isOption, isResult } from "@kalada/core";
+import { copyJson } from "@formbar/expressions";
+import { compileKaladaV1Program } from "@kalada/core";
 import type { CompiledKaladaV1Program, KaladaValue } from "@kalada/core";
+import { KALADA_RUNTIME_ARTIFACT } from "./kalada-artifact.js";
 import type {
 	DataContext,
 	DataFrame,
@@ -12,14 +13,18 @@ import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import type { TrustedDirectLocations } from "./kalada-direct-location.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
+import type { PreparedKaladaV1Definition } from "./kalada-prepared-definition.js";
+import { privateLifecycle } from "./kalada-private-lifecycle.js";
+import { privateOmission } from "./kalada-private-omission.js";
 import { privateProjections } from "./kalada-private-projections.js";
+import { cancelScoped408, privateScoped408 } from "./kalada-private-scoped-408.js";
 import { privateSubmission } from "./kalada-private-submission.js";
 import { type KaladaReference, ProgramAdmissionError } from "./kalada-program.js";
+import { checkedRows } from "./kalada-row-check.js";
+import { type Evaluation, safeResult, validScope } from "./kalada-runtime-gates.js";
 import { resolveStaticReference } from "./static-references.js";
 
-// Audited #302 source-built @kalada/core@0.6.0 pack, not a production dependency.
-export const KALADA_RUNTIME_ARTIFACT =
-	"@kalada/core@0.6.0:44c8bd208fa4b1d0588821345a5b84eb521619acf7ecaf6eddabd1a79e63c0be";
+export { KALADA_RUNTIME_ARTIFACT } from "./kalada-artifact.js";
 
 type Gate = "boolean" | "json";
 interface PreparedSlot {
@@ -27,9 +32,7 @@ interface PreparedSlot {
 	readonly gate: Gate;
 	readonly enclosingScope?: string;
 }
-export type PrivateEvaluation =
-	| { readonly ok: true; readonly value: JsonValue }
-	| { readonly ok: false; readonly path: string; readonly code: string };
+export type PrivateEvaluation = Evaluation;
 
 interface RuntimeOptions {
 	readonly definition: unknown;
@@ -37,7 +40,7 @@ interface RuntimeOptions {
 	readonly identity: PolicyIdentity;
 	readonly strategy: FormbarDataStrategyV1;
 	/** Supplied by the installing host, never by a definition or browser expression. */
-	readonly directLocations?: TrustedDirectLocations;
+	readonly directLocations?: TrustedDirectLocations | undefined;
 }
 
 export type PrivateRows =
@@ -75,33 +78,6 @@ function prepare(admitted: AdmittedDefinition): Map<string, PreparedSlot> {
 	return prepared;
 }
 
-function validScope(scope: ReadScope, enclosing: string | undefined, admitted: AdmittedDefinition): boolean {
-	const expected: string[] = [];
-	let name = enclosing;
-	while (name !== undefined) {
-		expected.unshift(name);
-		name = admitted.scopes[name]?.parent;
-		if (expected.length > 32) return false;
-	}
-	return (
-		scope.rows.length === expected.length &&
-		scope.rows.every(
-			(row, index) => row.name === expected[index] && typeof row.token === "object" && row.token !== null,
-		)
-	);
-}
-
-function safeResult(value: unknown, kind: Gate, path: string): PrivateEvaluation {
-	if (isOption(value) || isResult(value) || isInstant(value) || isDuration(value))
-		return { ok: false, path, code: "INVALID_RESULT_TYPE" };
-	if (kind === "boolean" && typeof value !== "boolean") return { ok: false, path, code: "BOOLEAN_REQUIRED" };
-	try {
-		return { ok: true, value: copyJson(value) };
-	} catch {
-		return { ok: false, path, code: "NON_JSON_RESULT" };
-	}
-}
-
 function evaluateFrame(args: {
 	readonly slot: PreparedSlot;
 	readonly path: string;
@@ -134,50 +110,6 @@ function evaluateFrame(args: {
 	} catch {
 		return { ok: false, path, code: "STRATEGY_ERROR" };
 	}
-}
-
-function checkedRows(
-	raw: readonly EnumeratedRow[],
-	parent: ReadScope,
-	name: string,
-	formRevision: object,
-): readonly EnumeratedRow[] | undefined {
-	const seen = new Set<object>();
-	const rows: EnumeratedRow[] = [];
-	for (const [order, row] of raw.entries()) {
-		if (
-			!row ||
-			typeof row.token !== "object" ||
-			row.token === null ||
-			seen.has(row.token) ||
-			row.order !== order ||
-			!row.scope ||
-			!Array.isArray(row.scope.rows) ||
-			row.scope.rows.length !== parent.rows.length + 1 ||
-			parent.rows.some(
-				(ancestor, index) =>
-					row.scope.rows[index]?.name !== ancestor.name || row.scope.rows[index]?.token !== ancestor.token,
-			) ||
-			row.scope.rows[parent.rows.length]?.name !== name ||
-			row.scope.rows[parent.rows.length]?.token !== row.token
-		)
-			return undefined;
-		seen.add(row.token);
-		rows.push(
-			Object.freeze({
-				token: row.token,
-				order,
-				formRevision,
-				...(typeof row.writeRevision === "object" && row.writeRevision !== null
-					? { writeRevision: row.writeRevision }
-					: {}),
-				scope: Object.freeze({
-					rows: Object.freeze(row.scope.rows.map(({ name, token }) => Object.freeze({ name, token }))),
-				}),
-			}),
-		);
-	}
-	return Object.freeze(rows);
 }
 
 function enumerateFrame(args: {
@@ -234,6 +166,62 @@ function installationMatches(
 		installed.policyFingerprint === identity.fingerprint
 	);
 }
+function capturedTarget(args: {
+	readonly path: string;
+	readonly scope: ReadScope;
+	readonly frame: DataFrame | undefined;
+	readonly admitted: AdmittedDefinition;
+	readonly context: DataContext;
+	readonly fresh: () => boolean;
+}): PrivateEvaluation {
+	const { path, scope, frame, admitted, context, fresh } = args;
+	try {
+		if (!fresh() || frame?.instance !== context.instance) return { ok: false, path, code: "STALE_CAPTURE" };
+		const target = admitted.targets.get(path);
+		const owner = [...admitted.nodes.values()]
+			.filter((node) => path.startsWith(`${node.path}.`))
+			.sort((left, right) => right.path.length - left.path.length)[0];
+		if (!target || !owner || !validScope(scope, owner.enclosingScope, admitted))
+			return { ok: false, path, code: "INVALID_TARGET" };
+		const read = frame.read(target, scope);
+		if (!fresh() || read.status === "stale") return { ok: false, path, code: "STALE_CAPTURE" };
+		if (read.status !== "found") return { ok: false, path, code: `TARGET_${read.status.toUpperCase()}` };
+		const result = safeResult(read.value, "json", path);
+		return fresh() ? result : { ok: false, path, code: "STALE_CAPTURE" };
+	} catch {
+		return { ok: false, path, code: "STRATEGY_ERROR" };
+	}
+}
+
+function frameRevision(frame: DataFrame | undefined, context: DataContext, fresh: () => boolean): object | undefined {
+	try {
+		return fresh() && frame?.instance === context.instance ? frame.token : undefined;
+	} catch {
+		return undefined;
+	}
+}
+function capturedRows(args: {
+	readonly path: string;
+	readonly parent: ReadScope;
+	readonly capacity: number;
+	readonly frame: DataFrame | undefined;
+	readonly context: DataContext;
+	readonly admitted: AdmittedDefinition;
+	readonly valid: () => boolean;
+	readonly disposed: () => boolean;
+	readonly fresh: () => boolean;
+}): PrivateRows {
+	const { path, parent, capacity, frame, context, admitted, valid, disposed, fresh } = args;
+	const bindingPath = `${path}.binding`;
+	try {
+		if (!valid()) return { ok: false, path: bindingPath, code: disposed() ? "STALE_INSTALLATION" : "STALE_CAPTURE" };
+		if (!frame) return { ok: false, path: bindingPath, code: "STRATEGY_ERROR" };
+		if (frame.instance !== context.instance) return { ok: false, path: bindingPath, code: "STALE_CAPTURE" };
+		return enumerateFrame({ path, parent, capacity, admitted, frame, fresh });
+	} catch {
+		return { ok: false, path: bindingPath, code: "STRATEGY_ERROR" };
+	}
+}
 
 function capturedSession(args: {
 	readonly context: DataContext;
@@ -252,17 +240,12 @@ function capturedSession(args: {
 	}
 	const fresh = () => valid() && !!frame && frame.token === strategy.current(context);
 	return {
+		revision: () => frameRevision(frame, context, fresh),
+		readTarget(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
+			return capturedTarget({ path, scope, frame, admitted, context, fresh });
+		},
 		enumerateRows(path: string, parent: ReadScope = { rows: [] }, capacity = 1024): PrivateRows {
-			const bindingPath = `${path}.binding`;
-			try {
-				if (!valid())
-					return { ok: false, path: bindingPath, code: disposed() ? "STALE_INSTALLATION" : "STALE_CAPTURE" };
-				if (!frame) return { ok: false, path: bindingPath, code: "STRATEGY_ERROR" };
-				if (frame.instance !== context.instance) return { ok: false, path: bindingPath, code: "STALE_CAPTURE" };
-				return enumerateFrame({ path, parent, capacity, admitted, frame, fresh });
-			} catch {
-				return { ok: false, path: bindingPath, code: "STRATEGY_ERROR" };
-			}
+			return capturedRows({ path, parent, capacity, frame, context, admitted, valid, disposed, fresh });
 		},
 		evaluate(path: string, scope: ReadScope = { rows: [] }): PrivateEvaluation {
 			const slot = slots.get(path);
@@ -307,16 +290,18 @@ function standaloneRead(args: {
 	return evaluateFrame({ frame, slot, path, scope, admitted, strategy, context, valid });
 }
 
-function install(options: RuntimeOptions) {
+function install(options: RuntimeOptions, prepared?: PreparedKaladaV1Definition) {
 	const { strategy, policy, identity } = options;
-	const context: DataContext = Object.freeze({
-		instance: Object.freeze({}),
-		policyGeneration: identity.generation,
-		policyFingerprint: identity.fingerprint,
-	});
+	const context: DataContext =
+		prepared?.context ??
+		Object.freeze({
+			instance: Object.freeze({}),
+			policyGeneration: identity.generation,
+			policyFingerprint: identity.fingerprint,
+		});
 	const matches = () => installationMatches(strategy, context, policy, identity);
 	if (!matches()) throw new ProgramAdmissionError("root", "STALE_INSTALLATION");
-	const admitted = admitKaladaDefinitionWithPolicy(options.definition, policy, identity);
+	const admitted = prepared?.admitted ?? admitKaladaDefinitionWithPolicy(options.definition, policy, identity);
 	const slots = prepare(admitted);
 	return {
 		context,
@@ -329,7 +314,6 @@ function install(options: RuntimeOptions) {
 		directLocations: options.directLocations,
 	};
 }
-
 function captureRuntime(installed: ReturnType<typeof install>, valid: () => boolean, disposed: () => boolean) {
 	const { context, strategy, admitted, slots } = installed;
 	return capturedSession({ context, strategy, admitted, slots, valid, disposed });
@@ -345,17 +329,9 @@ function liveRead(
 	return standaloneRead({ path, scope, slots, admitted, strategy, context, valid });
 }
 
-/** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
-export function createPrivateKaladaRuntime(options: RuntimeOptions) {
-	const installed = install(options);
-	const { context, strategy, admitted, slots, matches } = installed;
-	let disposed = false;
-	let revision = 0;
-	const unsubscribe = strategy.subscribe(context, () => {
-		revision++;
-	});
-	const live = () => !disposed && matches();
-	const ports = privateProjections({
+function projectionPorts(installed: ReturnType<typeof install>, live: () => boolean, revision: () => number) {
+	const { admitted, strategy, context, slots } = installed;
+	return privateProjections({
 		admitted,
 		definition: installed.definition,
 		policy: installed.policy,
@@ -363,12 +339,27 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 		strategy,
 		context,
 		live,
-		revision: () => revision,
+		revision,
 		validScope: (scope, enclosing) => validScope(scope, enclosing, admitted),
 		evaluate: (path, scope) => standaloneRead({ path, scope, slots, admitted, strategy, context, valid: live }),
 	});
+}
+
+function createRuntime(installed: ReturnType<typeof install>) {
+	const { context, strategy, matches } = installed;
+	let disposed = false;
+	let revision = 0;
+	const unsubscribe = strategy.subscribe(context, () => {
+		revision++;
+	});
+	const live = () => !disposed && matches();
+	const lifecycle = privateLifecycle(strategy, context, live);
+	const ports = projectionPorts(installed, live, () => revision);
 	return {
 		...privateSubmission(strategy, context, live),
+		lifecycle,
+		notifyScoped: privateScoped408(strategy, context, live),
+		omission: privateOmission(strategy, context, live),
 		currentRevision: () => (live() ? strategy.current(context) : undefined),
 		subscribe: (invalidate: () => void) => strategy.subscribe(context, invalidate),
 		capture() {
@@ -388,7 +379,16 @@ export function createPrivateKaladaRuntime(options: RuntimeOptions) {
 			if (disposed) return;
 			disposed = true;
 			revision++;
+			cancelScoped408(strategy, context);
 			unsubscribe();
 		},
 	};
+}
+/** Private per-form proof. Neither static admission nor public Kuery runtime installs an adapter. */
+export function createPrivateKaladaRuntime(options: RuntimeOptions) {
+	return createRuntime(install(options));
+}
+/** The prepared boundary owns this instance and admission; it cannot silently mint a second form. */
+export function createPrivateKaladaRuntimeFromPrepared(prepared: PreparedKaladaV1Definition) {
+	return createRuntime(install(prepared, prepared));
 }

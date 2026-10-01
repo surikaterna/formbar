@@ -1,297 +1,112 @@
-import type { FormNode } from "@formbar/declarative";
-import { validateFormDefinition } from "@formbar/declarative";
-import { describe, expect, it, vi } from "vitest";
-import { z as z3 } from "zod3-current";
-import { z as z4 } from "zod4-current";
+import { describe, expect, it } from "vitest";
+import { compileKaladaDefaults } from "../compiler/compile-kalada-defaults.js";
 import {
 	compileDefaultFormDefinition,
+	compileDefaultKaladaV1Definition,
 	jsonSchemaProvider,
 	projectSchema,
-	standardJsonSchemaProvider,
-	zod3Provider,
-	zod4Provider,
 } from "../index.js";
+import { hostSchema, validationHost } from "./kalada-validation-host-408.js";
 
-function compile(schema: unknown, provider: Parameters<typeof projectSchema>[1]["provider"] = jsonSchemaProvider()) {
-	const { descriptors } = projectSchema(schema, { provider, side: "input" });
-	const result = compileDefaultFormDefinition(descriptors);
-	if (!result.definition) throw new Error(JSON.stringify(result.definitionDiagnostics));
-	expect(validateFormDefinition(result.definition).ok).toBe(true);
-	return { ...result, descriptors };
-}
+const provider = jsonSchemaProvider();
+const generated = (schema: unknown) =>
+	compileDefaultFormDefinition(projectSchema(schema, { provider, side: "input" }).descriptors).definition;
 
-function nodes(root: FormNode): FormNode[] {
-	const output = [root];
-	if (root.type === "group" || root.type === "section" || root.type === "repeater") {
-		for (const child of root.children) output.push(...nodes(child));
-	}
-	return output;
-}
-
-describe("default FormDefinition compilation", () => {
-	it("compiles root scalars and object properties with stable structured bindings", () => {
-		const scalar = compile({ type: "string" }).definition;
-		expect(scalar?.root).toMatchObject({ type: "field", binding: { namespace: "data", segments: [] }, widget: "text" });
-		const first = compile({ type: "object", properties: { count: { type: "integer" } } }).definition;
-		const second = compile({ type: "object", properties: { count: { type: "integer" } } }).definition;
-		expect(first).toEqual(second);
-		expect(nodes(first?.root as FormNode).find((node) => node.type === "field")).toMatchObject({
-			binding: { namespace: "data", segments: ["count"] },
-			widget: "number",
-		});
-	});
-
-	it("uses lexical scopes for primitive, object, and nested arrays", () => {
-		const result = compile({
+describe("direct Kalada V1 schema generation", () => {
+	it("generates canonical scalar, object and nested array bindings without legacy operations", () => {
+		const scalar = generated({ type: "string" });
+		expect(scalar.root).toMatchObject({ type: "field", binding: { namespace: "data", segments: [] }, widget: "text" });
+		const schema = {
 			type: "object",
-			properties: {
-				tags: { type: "array", items: { type: "string" } },
-				rows: { type: "array", items: { type: "object", properties: { name: { type: "string" } } } },
-				matrix: { type: "array", items: { type: "array", items: { type: "number" } } },
-			},
-		}).definition;
-		const all = nodes(result?.root as FormNode);
-		const repeaters = all.filter((node) => node.type === "repeater");
-		expect(repeaters).toHaveLength(4);
-		const fields = all.filter((node) => node.type === "field");
-		expect(fields).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ binding: expect.objectContaining({ segments: [], scope: expect.any(String) }) }),
-				expect.objectContaining({
-					binding: expect.objectContaining({ segments: ["name"], scope: expect.any(String) }),
-				}),
-			]),
-		);
-		const nested = repeaters.find((node) => node.type === "repeater" && node.binding.scope);
-		expect(nested).toMatchObject({
-			binding: { namespace: "data", segments: [], scope: expect.any(String) },
-			scope: expect.any(String),
-		});
-		if (nested?.type === "repeater") expect(nested.scope).not.toBe(nested.binding.scope);
-	});
-
-	it("compiles labeled constrained arrays with explicit seeded structural actions", () => {
-		const result = compile({
-			type: "object",
+			additionalProperties: false,
+			required: ["rows"],
 			properties: {
 				rows: {
 					type: "array",
-					title: "People",
-					minItems: 1,
-					maxItems: 3,
-					items: { type: "object", default: { name: "New" }, properties: { name: { type: "string" } } },
+					items: {
+						type: "object",
+						additionalProperties: false,
+						properties: { cells: { type: "array", items: { type: "string" } } },
+					},
 				},
 			},
+		};
+		const nested = generated(schema);
+		const outer = (
+			nested.root as {
+				children: Array<{
+					scope: string;
+					children: Array<{ children: Array<{ scope: string; children: unknown[] }> }>;
+				}>;
+			}
+		).children[0];
+		const inner = outer.children[0].children[0];
+		expect(outer).toMatchObject({ type: "repeater", binding: { namespace: "data", segments: ["rows"] } });
+		expect(inner).toMatchObject({
+			type: "repeater",
+			binding: { namespace: "data", scope: outer.scope, segments: ["cells"] },
 		});
-		const all = nodes(result.definition?.root as FormNode);
-		const repeater = all.find((node) => node.type === "repeater");
-		expect(repeater).toMatchObject({ label: "People", minItems: 1, maxItems: 3 });
-		expect(repeater && "children" in repeater ? repeater.children.slice(-3) : []).toMatchObject([
-			{ type: "action", action: "array.move", label: "Move up", payload: { kind: "literal", value: { offset: -1 } } },
-			{ type: "action", action: "array.move", label: "Move down", payload: { kind: "literal", value: { offset: 1 } } },
-			{ type: "action", action: "array.remove", label: "Remove" },
-		]);
-		expect(all.find((node) => node.type === "action" && node.action === "array.append")).toMatchObject({
-			label: "Add item",
-			payload: { kind: "literal", value: { name: "New" } },
+		expect(inner.children[0]).toMatchObject({
+			type: "field",
+			binding: { namespace: "data", scope: inner.scope, segments: [] },
 		});
-		expect(result.repeaterBaseline).toEqual([
-			expect.objectContaining({ nodeId: repeater?.id, label: "People", minItems: 1, maxItems: 3 }),
-		]);
+		expect(inner.scope).not.toBe(outer.scope);
+		expect(JSON.stringify(nested)).not.toContain('"format":"kalada-program"');
+		expect(JSON.stringify(nested)).not.toContain('"kind":"op"');
+		expect(nested).toEqual(generated(schema));
 	});
 
-	it("omits append when no safe item seed exists and never materializes minItems", () => {
-		const result = compile({ type: "array", minItems: 2, items: {} });
-		const all = nodes(result.definition?.root as FormNode);
-		expect(all.some((node) => node.type === "action" && node.action === "array.append")).toBe(false);
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "unsupported-schema", message: expect.stringContaining("safe append seed") }),
+	it("rejects unsupported types, malformed defaults, partial projection and wrong side", () => {
+		const property = (value: unknown) =>
+			generated({ type: "object", additionalProperties: false, properties: { bad: value } });
+		expect(() => property({})).toThrow(/root\.children\[0\]:/);
+		expect(() =>
+			compileKaladaDefaults(
+				projectSchema(
+					{ type: "object", additionalProperties: false, properties: { bad: { type: "string", default: 4 } } },
+					{ provider, side: "input" },
+				).descriptors,
+			),
+		).toThrow(/Invalid schema default/);
+		expect(() => property({ type: "null" })).toThrow(
+			"root.children[0]: non-JSON primitive requires an authored field.",
 		);
-	});
-
-	it("retains composed alternatives as evidence and diagnostics without branch selection", () => {
-		const result = compile({ oneOf: [{ type: "string" }, { type: "number" }] });
-		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(result.diagnostics).toEqual([
-			expect.objectContaining({ code: "composed-schema", message: expect.stringContaining("without selecting") }),
-		]);
-	});
-
-	it("reads presentation only from the exact JSON Formbar extension", () => {
-		const result = compile({
-			type: "string",
-			title: "Schema title",
-			formbar: { widget: "ignored" },
-			"x-formbar": { widget: "textarea", label: "Exact label", placeholder: "Write", span: 6 },
-		});
-		expect(result.definition?.root).toMatchObject({
-			type: "field",
-			widget: "textarea",
-			label: "Exact label",
-			presentation: { span: 6 },
-			props: { placeholder: { mode: "literal", value: "Write" } },
-		});
-	});
-
-	it("compiles exact extension widgets and finite JSON props as literals", () => {
-		const result = compile({
-			type: "integer",
-			description: "Choose quality",
-			minimum: 1,
-			maximum: 5,
-			multipleOf: 1,
-			"x-formbar": { widget: "demo.rating", props: { icon: "star", nested: { enabled: true } } },
-		});
-		expect(result.definition?.root).toMatchObject({
-			type: "field",
-			widget: "demo.rating",
-			props: {
-				icon: { mode: "literal", value: "star" },
-				nested: { mode: "literal", value: { enabled: true } },
-				description: { mode: "literal", value: "Choose quality" },
+		expect(() => property({ oneOf: [{ type: "string" }, { type: "number" }] })).toThrow(/root\.children\[0\]:/);
+		expect(() => generated({ type: "object", properties: { dynamic: { type: "string" } } })).toThrow(/root:/);
+		const output = projectSchema({ type: "string" }, { provider, side: "output" });
+		expect(() => compileDefaultKaladaV1Definition(output.descriptors)).toThrow(/input-side/);
+		const limited = projectSchema(
+			{ type: "object", properties: { child: { type: "string" } } },
+			{
+				provider,
+				side: "input",
+				projectionLimits: { maxOccurrenceDepth: 1 },
 			},
-		});
-		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
-		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ minimum: 1, maximum: 5, multipleOf: 1 });
-	});
-
-	it("treats explicitly widgeted arrays as structural fields with item-enum evidence", () => {
-		const result = compile({
-			type: "array",
-			items: { type: "string", enum: ["red", "blue"] },
-			minItems: 1,
-			"x-formbar": { widget: "demo.checkbox-group", props: { columns: 2 } },
-		});
-		expect(result.definition?.root).toMatchObject({
-			type: "field",
-			binding: { namespace: "data", segments: [] },
-			widget: "demo.checkbox-group",
-			props: { columns: { mode: "literal", value: 2 } },
-		});
-		const root = result.descriptors.occurrences[result.descriptors.rootOccurrenceId];
-		expect(result.descriptors.evidence[root.nodeId]).toMatchObject({ enum: ["red", "blue"], minItems: 1 });
-	});
-
-	it("fails malformed extension props closed with a deterministic diagnostic", () => {
-		const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: ["invalid"] } });
-		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(result.definition?.root).not.toHaveProperty("props");
-		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
-	});
-
-	it("rejects raw non-JSON generated props before provider sanitization without invoking accessors", () => {
-		const getter = vi.fn(() => "secret");
-		const accessor = Object.defineProperty({}, "secret", { enumerable: true, get: getter });
-		const arrayAccessor = Object.defineProperty(["safe"], "0", { enumerable: true, get: getter });
-		const inherited = Object.assign(Object.create({ inherited: true }), { value: true });
-		const proxied = new Proxy({ value: true }, { getPrototypeOf: () => Date.prototype });
-		const cyclic: Record<string, unknown> = {};
-		cyclic.self = cyclic;
-		const symbolKeyed = { safe: true, [Symbol("hidden")]: "secret" };
-		const values = [
-			() => "secret",
-			undefined,
-			Number.NaN,
-			Number.POSITIVE_INFINITY,
-			1n,
-			accessor,
-			{ nested: [arrayAccessor] },
-			inherited,
-			proxied,
-			cyclic,
-			symbolKeyed,
-		];
-		for (const value of values) {
-			const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props: { value } } });
-			expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
-			expect(result.definition?.root).not.toHaveProperty("props");
-			expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
-		}
-		const schema = { type: "string" };
-		Object.defineProperty(schema, "x-formbar", { enumerable: true, get: getter });
-		const accessorHint = compile(schema);
-		expect(accessorHint.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(accessorHint.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-props" })]);
-		expect(getter).not.toHaveBeenCalled();
-	});
-
-	it("preserves valid literal $type objects and nested JSON props unchanged", () => {
-		const props = {
-			date: { $type: "date", value: "2026-09-22" },
-			number: { $type: "number", value: "NaN" },
-			unavailable: { $type: "unavailable", value: "literal" },
-			nested: [{ values: [null, true, 3, "text"] }],
-		};
-		const result = compile({ type: "string", "x-formbar": { widget: "demo.text", props } });
-		expect(result.definition?.root).toMatchObject({
-			type: "field",
-			widget: "demo.text",
-			props: Object.fromEntries(Object.entries(props).map(([key, value]) => [key, { mode: "literal", value }])),
-		});
-		expect(result.diagnostics).toEqual([]);
-	});
-
-	it("does not grant direct JSON Schema hint semantics to Standard JSON conversion", () => {
-		const convert = () => ({ type: "string", "x-formbar": { widget: "demo.text", props: { safe: true } } });
-		const schema = {
-			"~standard": { version: 1 as const, vendor: "test", jsonSchema: { input: convert, output: convert } },
-		};
-		const result = compile(schema, standardJsonSchemaProvider({ target: "draft-2020-12", execution: "allow" }));
-		expect(result.definition?.root).toMatchObject({ type: "field", widget: "text" });
-		expect(result.definition?.root).not.toHaveProperty("props");
-	});
-
-	it("fails malformed extension IDs closed", () => {
-		const result = compile({ type: "string", "x-formbar": { widget: "" } });
-		expect(result.definition?.root).toMatchObject({ type: "field", widget: "unsupported" });
-		expect(result.diagnostics).toEqual([expect.objectContaining({ code: "invalid-extension-id" })]);
-	});
-
-	it("maps object title and description to a titled section", () => {
-		const result = compile({
-			type: "object",
-			title: "Contact",
-			description: "How we can reach you",
-			properties: { email: { type: "string" } },
-		});
-		expect(result.definition?.root).toMatchObject({
-			type: "section",
-			title: "Contact",
-			description: "How we can reach you",
-			children: [expect.objectContaining({ type: "field", widget: "text" })],
-		});
-	});
-
-	it("compiles descriptions from exact JSON, Zod 3, and Zod 4 metadata locations", () => {
-		const json = compile({ type: "object", description: "Person section", properties: { name: { type: "string" } } });
-		const zod3 = compile(
-			z3.object({ name: z3.string() }).describe("Person section"),
-			zod3Provider({ execution: { shape: "allow", metadata: "allow" } }),
 		);
-		const zod4Schema = z4.object({ name: z4.string() }).describe("Person section");
-		const zod4 = compile(zod4Schema, zod4Provider({ execution: { shape: "allow", metadata: "allow" } }));
-		expect(json.definition?.root).toMatchObject({ type: "section", description: "Person section" });
-		expect(zod3.definition?.root).toMatchObject({ type: "section", description: "Person section" });
-		expect(zod4.definition?.root).toMatchObject({ type: "section", description: "Person section" });
-		expect(rootMetadata(json.descriptors)).toMatchObject({ annotations: { description: "Person section" } });
-		expect(rootMetadata(zod3.descriptors)).toMatchObject({ description: "Person section" });
-		expect(rootMetadata(zod4.descriptors)).toMatchObject({ annotations: { description: "Person section" } });
+		expect(() => compileDefaultKaladaV1Definition(limited.descriptors)).toThrow(/complete input-side/);
 	});
 
-	it("compiles trusted Zod 4 title and description annotations without aliases", () => {
-		const schema = z4.object({ name: z4.string() }).meta({ title: "Person", description: "Person section" });
-		const result = compile(schema, zod4Provider({ execution: { shape: "allow", metadata: "allow" } }));
-		expect(result.definition?.root).toMatchObject({
-			type: "section",
-			title: "Person",
-			description: "Person section",
-		});
-		expect(rootMetadata(result.descriptors)).toMatchObject({
-			annotations: { title: "Person", description: "Person section" },
-		});
+	it("initializes valid defaults in the installed host before edits and submission", async () => {
+		const schema = {
+			...hostSchema,
+			properties: {
+				...hostSchema.properties,
+				profile: {
+					...hostSchema.properties.profile,
+					properties: { name: { type: "string", default: "seed" } },
+				},
+			},
+		};
+		const f = validationHost(schema);
+		const initialized = f.host.snapshot();
+		expect(initialized.data).toMatchObject({ profile: { name: "seed" } });
+		expect(initialized.revision).toBeDefined();
+		const field = initialized.controls.find((control) => control.nodeId === f.nameId);
+		expect(field?.value).toBe("seed");
+		expect(field?.writers.value?.("updated")).toEqual({ status: "applied" });
+		expect(f.host.snapshot().revision).not.toBe(initialized.revision);
+		expect(await f.host.submit()).toEqual({ status: "submitted" });
+		expect(f.installed.instances.values().next().value?.outgoing).toMatchObject({ profile: { name: "updated" } });
+		f.host.dispose();
 	});
 });
-
-function rootMetadata(document: ReturnType<typeof projectSchema>["descriptors"]) {
-	return document.nodes[document.occurrences[document.rootOccurrenceId].nodeId].metadata;
-}

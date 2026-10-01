@@ -1,5 +1,4 @@
 import type { FormNode } from "@formbar/declarative";
-import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import type { SchemaDemoSource } from "../demos/baseline-contracts";
 import { type DemoRegistration, demos } from "../demos/registry";
 import { runtimeProfileIdsFor } from "../runtime/runtime-profile-selection";
@@ -11,7 +10,6 @@ import {
 	type RuntimeCapabilityDeclaration,
 } from "./contracts";
 
-const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 let projected: readonly PlaygroundExample[] | undefined;
 
 const schemaOptionsExample: PlaygroundExample = {
@@ -102,14 +100,24 @@ function projectSource(registration: DemoRegistration, source: SchemaDemoSource)
 			createExample(registration, source, variant.definition, variant.key, variant.label),
 		);
 	}
-	const definition = source.definition ?? createSchemaForm(source.schema, { provider, side: "input" }).definition;
+	const definition = source.definition ?? null;
 	return [createExample(registration, source, definition)];
+}
+
+function fixedFields(source: SchemaDemoSource): PlaygroundExample["runtime"]["fixed"] {
+	return [
+		"profileIds",
+		"capabilities",
+		"initialUiState",
+		...(source.arbiterRules ? ["arbiterRules" as const] : []),
+		"actionControls",
+	];
 }
 
 function createExample(
 	registration: DemoRegistration,
 	source: SchemaDemoSource,
-	definition: NonNullable<PlaygroundExample["document"]["definition"]>,
+	definition: PlaygroundExample["document"]["definition"],
 	definitionKey?: string,
 	definitionLabel?: string,
 ): PlaygroundExample {
@@ -146,22 +154,16 @@ function createExample(
 			...(source.arbiterRules ? { arbiterRules: jsonClone(source.arbiterRules) } : {}),
 			actionControls,
 			editable: ["schema", "definition", "initialData"],
-			fixed: [
-				"profileIds",
-				"capabilities",
-				"initialUiState",
-				...(source.arbiterRules ? ["arbiterRules" as const] : []),
-				"actionControls",
-			],
+			fixed: fixedFields(source),
 		},
 	};
 }
 
 function actionCapabilities(
-	definition: NonNullable<PlaygroundExample["document"]["definition"]>,
+	definition: PlaygroundExample["document"]["definition"],
 	actionControls: "host" | "definition",
 ): RuntimeCapabilityDeclaration[] {
-	const definitionActions = allNodes(definition.root).flatMap((node) =>
+	const definitionActions = (definition ? allNodes(definition.root) : []).flatMap((node) =>
 		node.type === "action" ? [{ kind: "action" as const, id: node.action }] : [],
 	);
 	const hostActions = actionControls === "host" ? ["submit", "reset"] : [];

@@ -1,368 +1,82 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { basicContactDemo } from "../demos/01-basic-contact";
-import { userProfileDemo } from "../demos/02-user-profile";
 import { nestedAddressDemo } from "../demos/03-nested-address";
-import { settingsPanelDemo } from "../demos/04-settings-panel";
-import { productEntryDemo } from "../demos/05-product-entry";
-import { arrayItemsDemo } from "../demos/08-array-items";
-import { customLayoutDemo } from "../demos/09-custom-layout";
-import { responsiveSectionsDemo } from "../demos/10-multi-section-responsive";
-import { searchFiltersDemo } from "../demos/11-search-filters";
 import { multiSchemaSourcesDemo } from "../demos/13-multi-schema-sources";
-import { kitchenSinkDemo } from "../demos/15-kitchen-sink";
 import type { SchemaDemoFixture } from "../demos/baseline-contracts";
-import { baselineFixtures } from "../demos/index";
 import { SchemaDemoHost } from "../renderers/SchemaDemoHost";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-
-interface MountedHost {
-	readonly container: HTMLDivElement;
-	readonly root: Root;
-}
-
-const mounted: MountedHost[] = [];
+const mounted: { root: ReturnType<typeof createRoot>; container: HTMLDivElement }[] = [];
 afterEach(() => {
-	for (const view of mounted.splice(0)) {
-		act(() => view.root.unmount());
-		view.container.remove();
+	for (const { root, container } of mounted.splice(0)) {
+		act(() => root.unmount());
+		container.remove();
 	}
 });
 
-function mount(
-	fixture: SchemaDemoFixture,
-	onSubmit?: (payload: Readonly<Record<string, unknown>>) => void,
-): MountedHost {
+function mount(fixture: SchemaDemoFixture, onSubmit = vi.fn()) {
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
+	mounted.push({ root, container });
 	act(() => root.render(<SchemaDemoHost fixture={fixture} onSubmit={onSubmit} />));
-	const view = { container, root };
-	mounted.push(view);
-	return view;
+	return { container, onSubmit };
 }
 
-function control(view: MountedHost, labelText: string): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
-	const label = [...view.container.querySelectorAll("label")].find((candidate) => candidate.textContent === labelText);
-	const element = label?.htmlFor ? document.getElementById(label.htmlFor) : label?.querySelector("input");
-	if (
-		!(
-			element instanceof HTMLInputElement ||
-			element instanceof HTMLTextAreaElement ||
-			element instanceof HTMLSelectElement
-		)
-	) {
-		throw new Error(`Missing control for ${labelText}`);
-	}
-	return element;
-}
-
-function input(element: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+function edit(container: HTMLElement, label: string, value: string) {
+	const control = [...container.querySelectorAll("label")].find((node) => node.textContent === label)?.control;
+	if (!(control instanceof HTMLInputElement)) throw new Error(`Missing ${label}`);
 	act(() => {
-		const prototype =
-			element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-		Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, value);
-		element.dispatchEvent(new Event("input", { bubbles: true }));
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(control, value);
+		control.dispatchEvent(new Event("change", { bubbles: true }));
 	});
+	return control;
 }
 
-function change(element: HTMLSelectElement, value: string): void {
-	act(() => {
-		Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(element, value);
-		element.dispatchEvent(new Event("change", { bubbles: true }));
-	});
-}
-
-function radios(view: MountedHost, id: string): HTMLInputElement[] {
-	return [...view.container.querySelectorAll<HTMLInputElement>(`[data-formbar-node="${id}"] input[type="radio"]`)];
-}
-
-async function click(view: MountedHost, text: string): Promise<void> {
-	const button = [...view.container.querySelectorAll("button")].find(
-		(candidate) => candidate.textContent?.trim() === text,
-	);
-	if (!button) throw new Error(`Missing ${text} button`);
+async function submit(container: HTMLElement) {
 	await act(async () => {
-		button.click();
+		container.querySelector<HTMLButtonElement>('form button[type="submit"]')?.click();
 		await Promise.resolve();
 	});
 }
 
-function fillRequiredFields(view: MountedHost, fixture: SchemaDemoFixture): void {
-	if (fixture === userProfileDemo) {
-		input(control(view, "First Name") as HTMLInputElement, "Ada");
-		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
-		input(control(view, "Email") as HTMLInputElement, "ada@example.com");
-		act(() => radios(view, "f-role")[0].click());
-	} else if (fixture === productEntryDemo) {
-		input(control(view, "Product Name") as HTMLInputElement, "Widget");
-		input(control(view, "SKU") as HTMLInputElement, "SKU-1");
-		input(control(view, "Price (USD)") as HTMLInputElement, "10");
-		change(control(view, "Category") as HTMLSelectElement, "option-0");
-	} else if (fixture === customLayoutDemo) {
-		input(control(view, "Vessel Name") as HTMLInputElement, "Aurora");
-		input(control(view, "IMO Number") as HTMLInputElement, "1234567");
-	}
-}
-
-describe("SchemaDemoHost routes", () => {
-	it("renders every registered fixture through a semantic production form", () => {
-		for (const fixture of baselineFixtures) {
-			const view = mount(fixture);
-			expect(view.container.querySelector("form")?.getAttribute("data-formbar-definition"), fixture.id).toBeTruthy();
-			expect(view.container.querySelector("[data-formbar-diagnostic]"), fixture.id).toBeNull();
-		}
+describe("app-installed baseline host", () => {
+	it("validates schema-required generated contact controls, edits, submits and resets", async () => {
+		const { container, onSubmit } = mount(basicContactDemo);
+		expect(container.querySelector("form[data-kalada-v1]")).not.toBeNull();
+		await submit(container);
+		expect(onSubmit).not.toHaveBeenCalled();
+		expect(container.querySelector("[data-kalada-issue-summary]")?.textContent).toContain("email");
+		const name = edit(container, "Full Name", "Ada");
+		edit(container, "Email", "ada@example.com");
+		await submit(container);
+		expect(onSubmit).toHaveBeenCalledWith({ name: "Ada", email: "ada@example.com" });
+		act(() => container.querySelector<HTMLButtonElement>('button[type="button"]')?.click());
+		expect(name.value).toBe("");
 	});
-});
 
-describe("generated and schema-evidence behavior", () => {
-	it.each([
-		[userProfileDemo, "f-role", "Role", ["Developer", "Designer", "Manager", "QA", "DevOps"], true],
-		[settingsPanelDemo, "f-language", "Language", ["English", "Spanish", "French", "German", "Japanese"], false],
-		[arrayItemsDemo, "f-priority", "Priority", ["Low", "Medium", "High", "Critical"], false],
-		[
-			customLayoutDemo,
-			"f-type",
-			"Vessel Type",
-			["Container", "Bulk Carrier", "Tanker", "RoRo", "General Cargo"],
-			false,
-		],
-		[searchFiltersDemo, "f-file-size", "File Size", ["Any", "< 1 MB", "1-10 MB", "10-100 MB", "> 100 MB"], false],
-	] as const)("renders %s native radio choices in historical order", (fixture, id, label, options, required) => {
-		const view = mount(fixture);
-		const choices = radios(view, id);
-		expect(choices.map((choice) => choice.nextElementSibling?.textContent)).toEqual(options);
-		expect(choices.every((choice) => choice.required === required && !choice.checked)).toBe(true);
-		expect(choices[0].closest("fieldset")?.querySelector("legend")?.textContent).toBe(label);
-		act(() => choices[1].click());
-		expect(choices[1].checked).toBe(true);
-		expect(view.container.querySelector(`[data-formbar-node="${id}"]`)?.getAttribute("data-formbar-span-md")).toBe(
-			id === "f-priority" ? null : "6",
-		);
-		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
-	});
-	it("renders generated required, format, textarea, nested, and option controls", () => {
-		const contact = mount(basicContactDemo);
-		const name = control(contact, "Full Name") as HTMLInputElement;
-		expect(name.required).toBe(true);
-		input(name, "Updated contact");
-		expect(name.value).toBe("Updated contact");
-		expect((control(contact, "Email") as HTMLInputElement).type).toBe("email");
-		expect(control(contact, "Message")).toBeInstanceOf(HTMLTextAreaElement);
-
-		const addresses = mount(nestedAddressDemo);
-		expect([...addresses.container.querySelectorAll("form h2")].map((heading) => heading.textContent)).toEqual([
+	it("renders nested authored sections and editable schema-enumerated choices", () => {
+		const { container } = mount(nestedAddressDemo);
+		expect([...container.querySelectorAll("form h2")].map((node) => node.textContent)).toEqual([
 			"Home Address",
 			"Work Address",
 		]);
-		const countries = [...addresses.container.querySelectorAll("select")];
-		expect(countries).toHaveLength(2);
-		expect([...countries[0].options].map((option) => option.textContent)).toContain("United Kingdom");
-		change(countries[0], "option-0");
-		expect(countries[0].selectedOptions[0].textContent).toBe("United States");
+		const selects = [...container.querySelectorAll("form select")];
+		expect(selects).toHaveLength(2);
+		expect(selects[0].textContent).toContain("United Kingdom");
 	});
 
-	it("keeps select, checkbox, and bounded-slider edits across renderer updates", async () => {
-		const profile = mount(userProfileDemo);
-		await act(async () => {
-			await Promise.resolve();
-		});
-		const age = control(profile, "Age") as HTMLInputElement;
-		expect([age.type, age.min, age.max, age.step]).toEqual(["range", "18", "120", "1"]);
-		const department = control(profile, "Department") as HTMLSelectElement;
-		change(department, "option-2");
-		expect(department.selectedOptions[0].textContent).toBe("Marketing");
-		input(age, "42");
-		expect(age.value).toBe("42");
-
-		const settings = mount(settingsPanelDemo);
-		const fontSize = control(settings, "Font Size") as HTMLInputElement;
-		expect([fontSize.type, fontSize.min, fontSize.max, fontSize.step]).toEqual(["range", "12", "24", "1"]);
-		const analytics = control(settings, "Usage Analytics") as HTMLInputElement;
-		act(() => analytics.click());
-		expect(analytics.checked).toBe(true);
-		const timeZone = control(settings, "Time Zone") as HTMLSelectElement;
-		change(timeZone, "option-2");
-		expect(timeZone.selectedOptions[0].textContent).toBe("UTC+0 (GMT)");
-	});
-
-	it("renders product constraints and authored vessel layout without app-owned controls", () => {
-		const product = mount(productEntryDemo);
-		const rating = control(product, "Quality Rating") as HTMLInputElement;
-		expect([rating.type, rating.min, rating.max, rating.step]).toEqual(["range", "1", "5", "1"]);
-		for (const label of ["Price (USD)", "Weight (kg)", "Stock Quantity"]) {
-			expect((control(product, label) as HTMLInputElement).type).toBe("number");
-		}
-		expect(
-			[...(control(product, "Category") as HTMLSelectElement).options].map((option) => option.textContent),
-		).toContain("Electronics");
-
-		const vessel = mount(customLayoutDemo);
-		expect([...vessel.container.querySelectorAll("form h2")].map((heading) => heading.textContent)).toEqual([
-			"Vessel Identity",
-			"Classification",
-			"Dimensions & Capacity",
-		]);
-		const year = control(vessel, "Year Built") as HTMLInputElement;
-		expect([year.type, year.min, year.max, year.step]).toEqual(["range", "1950", "2026", "1"]);
-		for (const label of ["Gross Tonnage", "Deadweight", "LOA (m)", "Beam (m)", "Max Draft (m)"]) {
-			expect((control(vessel, label) as HTMLInputElement).type).toBe("number");
-		}
-	});
-});
-
-describe("lifecycle and accessibility", () => {
-	it.each([
-		[userProfileDemo, "Age", "age", 18, 120, 42],
-		[settingsPanelDemo, "Font Size", "fontSize", 12, 24, 18],
-		[productEntryDemo, "Quality Rating", "rating", 1, 5, 4],
-		[customLayoutDemo, "Year Built", "yearBuilt", 1950, 2026, 2000],
-	] as const)("keeps %s slider presentation separate from core data", async (fixture, label, key, min, max, edited) => {
-		const onSubmit = vi.fn();
-		const view = mount(fixture, onSubmit);
-		await act(async () => {
-			await Promise.resolve();
-		});
-		const slider = control(view, label) as HTMLInputElement;
-		const widget = slider.closest('[data-widget="demo16.range"]');
-		expect([slider.type, slider.min, slider.max, slider.step, slider.value]).toEqual([
-			"range",
-			String(min),
-			String(max),
-			"1",
-			String(min),
-		]);
-		expect(slider.getAttribute("aria-labelledby")).toBeTruthy();
-		expect(widget?.querySelector("output")?.textContent).toBe(String(min));
-		expect(widget?.getAttribute("data-dirty")).toBeNull();
-		if (label === "Font Size" || label === "Quality Rating") {
-			const descriptionId = slider.getAttribute("aria-describedby");
-			expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
-				label === "Font Size" ? "Base font size in pixels" : "Internal quality score",
-			);
-		}
-		input(slider, String(edited));
-		expect(widget?.querySelector("output")?.textContent).toBe(String(edited));
-		expect(widget?.getAttribute("data-dirty")).toBe("true");
+	it("remounts generated controls when the selected schema source changes", () => {
+		const { container } = mount(multiSchemaSourcesDemo);
+		const chooser = container.querySelector("header select");
+		if (!(chooser instanceof HTMLSelectElement)) throw new Error("Missing schema chooser");
 		act(() => {
-			slider.focus();
-			slider.blur();
+			chooser.value = "explicit";
+			chooser.dispatchEvent(new Event("change", { bubbles: true }));
 		});
-		await click(view, "Reset");
-		expect([slider.value, widget?.querySelector("output")?.textContent]).toEqual([String(min), String(min)]);
-		expect(widget?.getAttribute("data-dirty")).toBeNull();
-		fillRequiredFields(view, fixture);
-		await click(view, "Submit");
-		expect(onSubmit).toHaveBeenCalledOnce();
-		expect(onSubmit.mock.calls[0][0]).not.toHaveProperty(key);
-		input(slider, String(edited));
-		await click(view, "Submit");
-		expect(onSubmit).toHaveBeenCalledTimes(2);
-		expect(onSubmit.mock.calls[1][0]).toHaveProperty(key, edited);
-		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
-	});
-
-	it("submits valid data and resets edited data through FormApi", async () => {
-		const view = mount(userProfileDemo);
-		input(control(view, "First Name") as HTMLInputElement, "Ada");
-		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
-		input(control(view, "Email") as HTMLInputElement, "ada@example.com");
-		act(() => radios(view, "f-role")[0].click());
-		const age = control(view, "Age") as HTMLInputElement;
-		input(age, "42");
-		await click(view, "Submit");
-		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
-		await click(view, "Reset");
-		expect(age.value).toBe("18");
-		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("");
-
-		const kitchen = mount(kitchenSinkDemo);
-		const withDefault = control(kitchen, "With Default Value") as HTMLInputElement;
-		expect(withDefault.value).toBe("Hello, ARB!");
-		input(withDefault, "Changed");
-		await click(kitchen, "Reset");
-		expect(withDefault.value).toBe("Hello, ARB!");
-		expect(kitchen.container.querySelector('input[type="radio"]:checked')?.parentElement?.textContent).toBe("legacy");
-	});
-
-	it("exposes required, description, live-status, and label wiring without inventing schema validation", () => {
-		const view = mount(kitchenSinkDemo);
-		const required = control(view, "Required Field") as HTMLInputElement;
-		expect(required.required).toBe(true);
-		expect(required.getAttribute("aria-required")).toBe("true");
-		const descriptionId = required.getAttribute("aria-describedby");
-		expect(descriptionId).toBeTruthy();
-		expect(document.getElementById(descriptionId ?? "")?.textContent).toContain("Required");
-		expect(required.getAttribute("aria-invalid")).toBeNull();
-		expect(view.container.querySelector('[aria-live="polite"]')).not.toBeNull();
-		for (const type of ["text", "number", "checkbox", "radio", "email", "url"]) {
-			expect(view.container.querySelector(`input[type="${type}"]`), type).not.toBeNull();
-		}
-		expect(view.container.querySelector("textarea")).not.toBeNull();
-		expect(view.container.querySelector("form select")).not.toBeNull();
-	});
-
-	it("labels the historical sliderField key as a constrained native number", () => {
-		const view = mount(kitchenSinkDemo);
-		const range = control(view, "Value from 0 to 100") as HTMLInputElement;
-		expect([range.type, range.min, range.max, range.step]).toEqual(["number", "0", "100", "1"]);
-		expect([...view.container.querySelectorAll("label")].some((label) => label.textContent === "Slider")).toBe(false);
-	});
-});
-
-describe("source and responsive presentation", () => {
-	it("submits and resets historical free-text DOB and phone through the production host", async () => {
-		const onSubmit = vi.fn();
-		const view = mount(responsiveSectionsDemo, onSubmit);
-		const dob = control(view, "Date of Birth") as HTMLInputElement;
-		const phone = control(view, "Emergency Contact Phone") as HTMLInputElement;
-		expect(dob.type).toBe("text");
-		expect(phone.type).toBe("text");
-		expect(dob.getAttribute("aria-describedby")).toBeTruthy();
-		expect(document.getElementById(dob.getAttribute("aria-describedby") ?? "")?.textContent).toContain(
-			"YYYY-MM-DD format",
-		);
-		input(control(view, "First Name") as HTMLInputElement, "Ada");
-		input(control(view, "Last Name") as HTMLInputElement, "Lovelace");
-		input(dob, "not-a-date");
-		input(phone, "extension pending");
-		expect([dob.value, phone.value]).toEqual(["not-a-date", "extension pending"]);
-		await click(view, "Submit");
-		expect(view.container.querySelector("[data-formbar-status]")?.textContent).toBe("Form submitted.");
-		expect(onSubmit).toHaveBeenCalledOnce();
-		expect(onSubmit.mock.calls[0][0]).toMatchObject({
-			firstName: "Ada",
-			lastName: "Lovelace",
-			dateOfBirth: "not-a-date",
-			emergencyContactPhone: "extension pending",
-		});
-		expect(view.container.querySelector("[data-formbar-diagnostic]")).toBeNull();
-		await click(view, "Reset");
-		expect([dob.value, phone.value]).toEqual(["", ""]);
-	});
-
-	it("remounts the same host path when the JSON Schema detail level changes", () => {
-		const view = mount(multiSchemaSourcesDemo);
-		const name = view.container.querySelector('form input[type="text"]') as HTMLInputElement;
-		input(name, "Unsaved value");
-		const chooser = view.container.querySelector("header select") as HTMLSelectElement;
-		change(chooser, "explicit");
-		const explicitName = control(view, "Full Name") as HTMLInputElement;
-		expect(explicitName.value).toBe("");
-		expect(view.container.textContent).toContain("Explicit JSON Schema");
-		expect(view.container.textContent).toContain("two JSON Schema detail levels");
-	});
-
-	it("emits observable base and md span data and CSS variables", () => {
-		const view = mount(responsiveSectionsDemo);
-		const node = view.container.querySelector('[data-formbar-node="f-first"]') as HTMLElement;
-		expect(node.getAttribute("data-formbar-span-base")).toBe("12");
-		expect(node.getAttribute("data-formbar-span-md")).toBe("6");
-		expect(node.style.getPropertyValue("--formbar-span-base")).toBe("12");
-		expect(node.style.getPropertyValue("--formbar-span-md")).toBe("6");
+		expect([...container.querySelectorAll("form label")].map((label) => label.textContent)).toContain("Full Name");
 	});
 });

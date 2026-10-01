@@ -10,7 +10,7 @@ import {
 import { type StorageLike, saveDraft } from "../playground/storage";
 
 function presetDocument() {
-	const preset = getPlaygroundExample("schema-compilation");
+	const preset = getPlaygroundExample("basic-contact", "schema-options");
 	if (!preset) throw new Error("missing test preset");
 	return preset.document;
 }
@@ -38,10 +38,10 @@ describe("playground session", () => {
 		expect(recovered.errors).toEqual({});
 	});
 
-	it("applies v2 sources atomically", () => {
+	it("applies v2 schema-only sources atomically", () => {
 		const original = createPlaygroundSession(presetDocument());
-		const applied = applySources(updateSource(original, "initialData", '{"name":"Ada"}'));
-		expect(applied.applied.initialData).toEqual({ name: "Ada" });
+		const applied = applySources(updateSource(original, "initialData", '{"role":"developer"}'));
+		expect(applied.applied.initialData).toEqual({ role: "developer" });
 		expect(applied.revision).toBe(1);
 		expect(resetSession(applied, presetDocument()).revision).toBe(2);
 	});
@@ -53,9 +53,9 @@ describe("playground session", () => {
 			setItem: (key, value) => values.set(key, value),
 			removeItem: (key) => values.delete(key),
 		};
-		const sources = { ...createPlaygroundSession(presetDocument()).sources, initialData: '{"name":"Recovered"}' };
-		expect(saveDraft(storage, "schema-compilation:default", sources)).toBe(true);
-		const restored = restorePlaygroundSession(presetDocument(), "schema-compilation:default", storage);
+		const sources = { ...createPlaygroundSession(presetDocument()).sources, initialData: '{"role":"developer"}' };
+		expect(saveDraft(storage, "basic-contact:schema-options", sources)).toBe(true);
+		const restored = restorePlaygroundSession(presetDocument(), "basic-contact:schema-options", storage);
 		expect(restored.sources).toEqual(sources);
 		expect(restored.applied).toBe(presetDocument());
 		expect(restored.revision).toBe(0);

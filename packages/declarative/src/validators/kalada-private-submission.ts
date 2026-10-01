@@ -2,6 +2,7 @@ import { copyJson } from "@formbar/expressions";
 import type {
 	DataContext,
 	FormbarDataStrategyV1,
+	OperationFenceV1,
 	SubmissionRequest,
 	SubmissionResult,
 } from "./kalada-data-strategy.js";
@@ -36,7 +37,7 @@ export function privateSubmission(strategy: FormbarDataStrategyV1, context: Data
 	};
 	return {
 		captureSubmission,
-		async submit(): Promise<SubmissionResult> {
+		async submit(operation?: OperationFenceV1): Promise<SubmissionResult> {
 			const capture = captureSubmission();
 			if (capture.status !== "found") return { status: capture.status };
 			if (!strategy.submitCaptured) return { status: "unsupported" };
@@ -44,8 +45,8 @@ export function privateSubmission(strategy: FormbarDataStrategyV1, context: Data
 				if (!live() || strategy.current(context) !== capture.request.revision) return { status: "stale" };
 				return await strategy.submitCaptured(
 					context,
-					capture.request,
-					() => live() && strategy.current(context) === capture.request.revision,
+					{ ...capture.request, ...(operation ? { operation } : {}) },
+					() => live() && strategy.current(context) === capture.request.revision && (!operation || operation.fresh()),
 				);
 			} catch {
 				return { status: "stale" };

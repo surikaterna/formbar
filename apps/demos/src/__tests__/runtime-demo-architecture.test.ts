@@ -1,6 +1,4 @@
-import { createForm } from "@formbar/core";
 import type { FormNode } from "@formbar/declarative";
-import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { FormRenderer } from "@formbar/react-schema";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -16,6 +14,8 @@ import {
 } from "../demos/19-arbiter-calculated";
 import { arbiterValidationData, arbiterValidationSchema } from "../demos/20-arbiter-validation-gating";
 import { demos } from "../demos/index";
+import { getPlaygroundExample } from "../playground/examples";
+import { installDemo } from "../runtime/kalada-demo-install";
 import { resolveTrustedRuntimeProfiles } from "../runtime/trusted-runtime-profiles";
 
 const ids = [
@@ -26,7 +26,6 @@ const ids = [
 	"arbiter-calculated",
 	"arbiter-validation-gating",
 ] as const;
-const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 
 function fixture(id: (typeof ids)[number]) {
 	const value = demos.find((demo) => demo.id === id)?.fixture;
@@ -92,12 +91,19 @@ describe("runtime demo architecture", () => {
 			const source = fixture(id).sources[0];
 			expect(JSON.parse(JSON.stringify(source.schema)), id).toEqual(source.schema);
 			expect(JSON.parse(JSON.stringify(source.definition)), id).toEqual(source.definition);
-			const prepared = createSchemaForm(source.schema, {
-				provider,
-				side: "input",
-				definition: source.definition,
-			});
-			expect(prepared.diagnostics.definition, id).toEqual([]);
+			const host = installDemo(
+				{ version: 2, schema: source.schema, definition: source.definition, initialData: source.initialData },
+				undefined,
+				[
+					"formbar.standard.v1",
+					...(source.arbiterRules ? ["formbar.arbiter.v1"] : []),
+					...(fixture(id).runtimeProfileIds ?? []),
+				],
+				source.initialUiState,
+				source.arbiterRules,
+			);
+			expect(host.definition, id).toBeDefined();
+			host.dispose();
 		}
 	});
 
@@ -275,31 +281,18 @@ describe("runtime demo architecture", () => {
 		expect(calculated.filter((node) => node.type === "conditional")).toHaveLength(1);
 	});
 
-	it("server-renders all six through the shared host without direct host controls", () => {
-		for (const id of ids) {
-			const demo = fixture(id);
-			const source = demo.sources[0];
-			const prepared = createSchemaForm<Record<string, unknown>, Record<string, unknown>>(source.schema, {
-				provider,
-				side: "input",
-				definition: source.definition,
-			});
-			const form = createForm<Record<string, unknown>, Record<string, unknown>>({
-				initialData: source.initialData,
-				initialUiState: source.initialUiState ?? {},
-			});
-			const profile = resolveTrustedRuntimeProfiles(["formbar.standard.v1", ...(demo.runtimeProfileIds ?? [])]);
-			const html = renderToString(
-				createElement(FormRenderer<Record<string, unknown>, Record<string, unknown>>, {
-					...prepared,
-					form,
-					extensions: profile.extensions,
-					actions: profile.actions,
-				}),
-			);
-			expect(html, id).toContain("data-formbar-definition");
-			expect(html, id).not.toContain("schema-demo-actions");
-			form.dispose();
+	it("server-renders the installed schema-only host rather than passing a legacy prepared form", () => {
+		const example = getPlaygroundExample("basic-contact", "schema-options");
+		if (!example) throw new Error("Missing supported example");
+		const host = installDemo(example.document);
+		try {
+			const html = renderToString(createElement(FormRenderer, { host }));
+			expect(html).toContain("<form");
+			expect(html).toContain("<label for=");
+			expect(html).toContain('aria-invalid="false"');
+			expect(html).not.toContain("schema-demo-actions");
+		} finally {
+			host.dispose();
 		}
 	});
 });

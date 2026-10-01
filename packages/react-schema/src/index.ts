@@ -5,6 +5,7 @@ export {
 	useSchemaForm,
 } from "./use-schema-form.js";
 export { FormRenderer, type FormRendererProps } from "./form-renderer.js";
+export { KaladaFormRenderer, type KaladaControlProps, type KaladaFormRendererProps } from "./kalada-form-renderer.js";
 export type {
 	CustomNodeRegistration,
 	ExtensionPolicy,

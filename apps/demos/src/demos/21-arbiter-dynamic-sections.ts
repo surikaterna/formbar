@@ -1,6 +1,7 @@
 import type { ArbiterPluginOptions } from "@formbar/arbiter";
-import type { Expression, FormDefinition, FormNode } from "@formbar/declarative";
+import type { DefinitionProgram as Expression, FormDefinition, FormNode } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+import { dataRef, equality, literal, present } from "./kalada-fixture-programs";
 
 type ArbiterRule = NonNullable<ArbiterPluginOptions["rules"]>[number];
 const required = (path: string, value: boolean) => ({ path: `/${path}`, required: value });
@@ -50,7 +51,7 @@ export const arbiterSectionsRules = [
 	}),
 ] satisfies NonNullable<ArbiterPluginOptions["rules"]>;
 
-const coverageRef = { kind: "ref", ref: { namespace: "data", segments: ["coverageType"] } } as const;
+const coverageRef = dataRef("coverageType");
 const binding = (path: string) => ({ namespace: "data" as const, segments: [path] });
 
 function field(id: string, path: string, widget: string, label: string, placeholder?: string): FormNode {
@@ -65,11 +66,7 @@ function field(id: string, path: string, widget: string, label: string, placehol
 }
 
 function sectionBranch(id: string, coverageType: string, title: string, children: readonly FormNode[]): FormNode {
-	const condition: Expression = {
-		kind: "op",
-		op: "eq",
-		args: [coverageRef, { kind: "literal", value: coverageType }],
-	};
+	const condition: Expression = equality("equal", coverageRef, literal(coverageType));
 	return {
 		type: "conditional",
 		id,
@@ -90,7 +87,7 @@ export const arbiterSectionsDefinition = {
 			{
 				type: "conditional",
 				id: "when-coverage-selected",
-				condition: { kind: "op", op: "exists", args: [coverageRef] },
+				condition: present(coverageRef),
 				// biome-ignore lint/suspicious/noThenProperty: This is serialized FormDefinition branch data.
 				then: [
 					sectionBranch("when-auto", "auto", "Vehicle Information", [
