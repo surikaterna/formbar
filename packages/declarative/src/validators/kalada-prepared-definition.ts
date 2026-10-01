@@ -1,10 +1,10 @@
 import { type JsonValue, copyJson } from "@formbar/expressions";
-import { KALADA_RUNTIME_ARTIFACT } from "./kalada-artifact.js";
 import type { DataContext, FormbarDataStrategyV1 } from "./kalada-data-strategy.js";
 import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import { list, object } from "./kalada-definition-shape.js";
 import type { AdmittedDefinition, AdmittedNode } from "./kalada-definition.js";
 import { type TrustedDirectLocations, checkPrivateDirectLocation } from "./kalada-direct-location.js";
+import { installationIdentityMatches } from "./kalada-installation-identity.js";
 import { type AdmissionPolicy, type PolicyIdentity, snapshotAdmissionPolicy } from "./kalada-policy.js";
 import { components } from "./kalada-private-components.js";
 import { checkKaladaOutputFormat409, checkKaladaPresentation409 } from "./kalada-private-presentation-409.js";
@@ -53,11 +53,7 @@ function checkInstallation(options: PrepareKaladaV1Options, policy: AdmissionPol
 	});
 	try {
 		const installed = strategy.identity(context);
-		if (
-			installed.artifact !== KALADA_RUNTIME_ARTIFACT ||
-			installed.policyGeneration !== identity.generation ||
-			installed.policyFingerprint !== identity.fingerprint
-		)
+		if (!installationIdentityMatches(installed, identity))
 			throw new ProgramAdmissionError("root", "STALE_INSTALLATION");
 	} catch {
 		throw new ProgramAdmissionError("root", "STALE_INSTALLATION");

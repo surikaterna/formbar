@@ -1,7 +1,6 @@
 import { copyJson } from "@formbar/expressions";
 import { compileKaladaV1Program } from "@kalada/core";
 import type { CompiledKaladaV1Program, KaladaValue } from "@kalada/core";
-import { KALADA_RUNTIME_ARTIFACT } from "./kalada-artifact.js";
 import type {
 	DataContext,
 	DataFrame,
@@ -12,6 +11,7 @@ import type {
 import { admitKaladaDefinitionWithPolicy } from "./kalada-definition-policy.js";
 import type { AdmittedDefinition } from "./kalada-definition.js";
 import type { TrustedDirectLocations } from "./kalada-direct-location.js";
+import { installationIdentityMatches } from "./kalada-installation-identity.js";
 import type { AdmissionPolicy, PolicyIdentity } from "./kalada-policy.js";
 import type { PreparedKaladaV1Definition } from "./kalada-prepared-definition.js";
 import { privateLifecycle } from "./kalada-private-lifecycle.js";
@@ -159,11 +159,9 @@ function installationMatches(
 	const installed = strategy.identity(context);
 	return (
 		strategy.contract === "formbar-data-strategy-v1" &&
-		installed.artifact === KALADA_RUNTIME_ARTIFACT &&
-		installed.policyGeneration === policy.generation &&
-		installed.policyGeneration === identity.generation &&
-		installed.policyFingerprint === policy.fingerprint &&
-		installed.policyFingerprint === identity.fingerprint
+		policy.generation === identity.generation &&
+		policy.fingerprint === identity.fingerprint &&
+		installationIdentityMatches(installed, identity)
 	);
 }
 function capturedTarget(args: {

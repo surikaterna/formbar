@@ -9,7 +9,16 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url));
-const names = ["expressions", "core", "declarative", "from-schema", "react", "arbiter", "react-schema"];
+const names = [
+	"expressions",
+	"core",
+	"declarative",
+	"fsx-authoring",
+	"from-schema",
+	"react",
+	"arbiter",
+	"react-schema",
+];
 // Frozen #154 coverage: never infer the public surface from the manifests under test.
 const specifiers = [
 	"@formbar/expressions",
@@ -19,6 +28,7 @@ const specifiers = [
 	"@formbar/core/validation",
 	"@formbar/core/internal/scoped-sync",
 	"@formbar/declarative",
+	"@formbar/fsx-authoring",
 	"@formbar/declarative/internal/scoped-sync",
 	"@formbar/from-schema",
 	"@formbar/react",

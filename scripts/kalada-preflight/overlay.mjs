@@ -64,7 +64,7 @@ const runEnv = {
 };
 const commit = "1ed0ec83a7673dffa2ae3cda062e5c4176b4143a";
 const excluded = new Set([".git", ".npmrc", "trees", "node_modules", "dist"]);
-const inputs = ["package.json", "packages/declarative/package.json", "bun.lock"];
+const inputs = ["package.json", "packages/declarative/package.json", "packages/fsx-authoring/package.json", "bun.lock"];
 const workspaceManifests = ["packages", "apps"].flatMap((group) =>
 	readdirSync(join(source, group), { withFileTypes: true })
 		.filter((entry) => entry.isDirectory() && existsSync(join(source, group, entry.name, "package.json")))
@@ -284,6 +284,10 @@ function checkGraph(directory, archives) {
 	const candidateCore = resolvedPackage(join(directory, "packages/declarative"), "@kalada/core");
 	const syntax = resolvedPackage(directory, "@kalada/syntax");
 	const syntaxCore = resolvedPackage(syntax.path, "@kalada/core");
+	const authoring = join(directory, "packages/fsx-authoring");
+	assert.equal(resolvedPackage(authoring, "@kalada/core").path, candidateCore.path);
+	assert.equal(resolvedPackage(authoring, "@kalada/syntax").path, syntax.path);
+	assert.equal(resolvedPackage(authoring, "@kalada/provider-routing").manifest.version, "0.1.0");
 	const kuery = resolvedPackage(join(directory, "packages/expressions"), "kuery");
 	const lockedCore = resolvedPackage(kuery.path, "@kalada/core");
 	assert.equal(candidateCore.manifest.version, "0.6.0");
@@ -386,8 +390,8 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/376-public-kalada-v1");
-	assert.equal(run("git", ["rev-parse", "HEAD"], source), "d6de555a024053d835827bb4501c63d5cca50da2");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/305-fsx-authoring");
+	assert.equal(run("git", ["rev-parse", "HEAD"], source), "4879fcc5987095b2f91095d96e6dde1dc9c79e2a");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -396,13 +400,22 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/376-public-kalada-v1");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/305-fsx-authoring");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
-		assert.equal(run("git", ["diff", "--name-only", "HEAD", "--", path], source), "", `${path}: not pristine`);
+		if (path === "packages/declarative/package.json")
+			assert.equal(run("git", ["diff", "--name-only", "HEAD", "--", path], source), "", `${path}: not pristine`);
 	}
 	assert.ok(!existsSync(join(source, ".npmrc")), "temporary scoped registry config already exists");
+	for (const path of inputs.filter((path) => path.endsWith("package.json"))) {
+		const manifest = JSON.parse(readFileSync(join(source, path), "utf8"));
+		for (const dependencies of [manifest.dependencies, manifest.devDependencies, manifest.peerDependencies])
+			assert.ok(
+				!Object.keys(dependencies ?? {}).some((name) => name.startsWith("@kalada/")),
+				`${path}: permanent Kalada candidate dependency`,
+			);
+	}
 	for (const path of ["node_modules", "packages/declarative/dist", "packages/declarative/tsconfig.tsbuildinfo"]) {
 		const file = join(source, path);
 		if (!existsSync(file)) continue;
@@ -458,6 +471,12 @@ try {
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 	manifest.dependencies["@kalada/core"] = "0.6.0";
 	writeOwned("packages/declarative/package.json", formattedManifest("packages/declarative/package.json", manifest));
+	const authoringPath = "packages/fsx-authoring/package.json";
+	const authoring = JSON.parse(original.get(authoringPath));
+	authoring.dependencies["@kalada/core"] = "0.6.0";
+	authoring.dependencies["@kalada/syntax"] = "0.1.0";
+	authoring.dependencies["@kalada/provider-routing"] = "0.1.0";
+	writeOwned(authoringPath, formattedManifest(authoringPath, authoring));
 	if (process.env.KALADA_316_FAIL_AFTER_MANIFEST === "1") throw new Error("injected manifest failure");
 	const rootPath = join(source, "package.json");
 	const root = JSON.parse(readFileSync(rootPath, "utf8"));
@@ -504,6 +523,8 @@ try {
 		["bun", ["run", "--filter", "@formbar/declarative", "build"]],
 		["bun", ["x", "tsc", "-p", "scripts/kalada-preflight/fixtures/kalada-contract.tsconfig.json"]],
 		["bun", ["run", "--filter", "@formbar/declarative", "build:dist"]],
+		["bun", ["run", "--filter", "@formbar/fsx-authoring", "build"]],
+		["bun", ["run", "--filter", "@formbar/fsx-authoring", "build:dist"]],
 		["bun", ["run", "--filter", "@formbar/from-schema", "build:dist"]],
 		["bun", ["run", "--filter", "@formbar/react", "build:dist"]],
 		["bun", ["run", "--filter", "@formbar/react-schema", "build"]],
@@ -528,6 +549,26 @@ try {
 		["bun", ["run", "build"]],
 		["bun", ["run", "--filter", "@formbar/demos", "build"]],
 	];
+	if (process.env.KALADA_305_FOCUSED === "1") {
+		candidateCommands.splice(
+			0,
+			candidateCommands.length,
+			["bun", ["run", "--filter", "@formbar/expressions", "build:dist"]],
+			["bun", ["run", "--filter", "@formbar/core", "build:dist"]],
+			["bun", ["run", "--filter", "@formbar/declarative", "build:dist"]],
+			["bun", ["run", "--filter", "@formbar/fsx-authoring", "build"]],
+			[
+				"bun",
+				[
+					"x",
+					"vitest",
+					"run",
+					"packages/fsx-authoring/src/__tests__",
+					"apps/demos/src/__tests__/kalada-demo-code-principles.test.ts",
+				],
+			],
+		);
+	}
 	if (process.env.KALADA_376_PRIMITIVE_FOCUSED === "1") {
 		const focused = [
 			...candidateCommands.slice(0, 3),
@@ -575,7 +616,11 @@ try {
 			if (scopedStatus !== 0) failedCandidateLanes.push({ lane: "candidate-schema-packages", status: scopedStatus });
 		}
 	}
-	if (failedCandidateLanes.length === 0 && process.env.KALADA_376_PRIMITIVE_FOCUSED !== "1") {
+	if (
+		failedCandidateLanes.length === 0 &&
+		process.env.KALADA_376_PRIMITIVE_FOCUSED !== "1" &&
+		process.env.KALADA_305_FOCUSED !== "1"
+	) {
 		runPackedConsumer(archives, temp, source, runEnv);
 		await runFormbarPackedConsumer(archives, temp, source, runEnv);
 	} else console.error(JSON.stringify({ failedCandidateLanes, packedConsumer: "blocked by candidate failures" }));
@@ -586,8 +631,9 @@ try {
 	);
 	console.log(
 		JSON.stringify({
-			issue: 376,
-			stage: "public-v1-candidate-ready-for-audit",
+			issue: 305,
+			stage:
+				process.env.KALADA_305_FOCUSED === "1" ? "focused-authoring-check-only" : "authoring-candidate-ready-for-audit",
 			candidate: commit,
 			sourceSha256: createHash("sha256").update(JSON.stringify(before)).digest("hex"),
 			candidateInstalled: "passed",
@@ -645,6 +691,7 @@ try {
 					sourceBefore: digest(before),
 					sourceAfter: digest(after),
 					changeset: hash(join(source, ".changeset/public-kalada-v1.md")),
+					authoringChangeset: hash(join(source, ".changeset/fsx-authoring-candidate.md")),
 				}),
 			);
 			assert.deepEqual(after, before, "worktree source or Changeset changed");

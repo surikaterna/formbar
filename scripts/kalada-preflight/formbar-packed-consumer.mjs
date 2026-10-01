@@ -7,7 +7,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const fixtures = fileURLToPath(new URL("../../tests/consumers/formbar-kalada-v1/", import.meta.url));
-const names = ["expressions", "core", "declarative", "from-schema", "react", "arbiter", "react-schema"];
+const names = [
+	"expressions",
+	"core",
+	"declarative",
+	"fsx-authoring",
+	"from-schema",
+	"react",
+	"arbiter",
+	"react-schema",
+];
 const entries = names.map((name) => `@formbar/${name}`);
 const runtimeEntries = [...entries, "@formbar/core/path", "@formbar/core/transforms", "@formbar/core/validation"];
 const files = [
@@ -161,6 +170,23 @@ async function consumer(source, directory, tarballs, archives, major, env) {
 	);
 	verify(directory, source);
 	for (const file of files) copyFileSync(join(fixtures, file), join(directory, file));
+	const fsxFixtures = join(source, "tests/consumers/fsx-authoring");
+	for (const file of ["case.mjs", "esm.mjs", "cjs.cjs", "types.mts", "types.cts"])
+		copyFileSync(join(fsxFixtures, file), join(directory, `fsx-${file}`));
+	run(
+		"bun",
+		[
+			"build",
+			join(fsxFixtures, "fixture.ts"),
+			"--target=browser",
+			"--format=esm",
+			"--packages=external",
+			"--outfile",
+			join(directory, "fsx-fixture.mjs"),
+		],
+		source,
+		env,
+	);
 	run(
 		"bun",
 		[
@@ -221,6 +247,8 @@ async function consumer(source, directory, tarballs, archives, major, env) {
 			"node,react,react-dom",
 			"types.mts",
 			"types.cts",
+			"fsx-types.mts",
+			"fsx-types.cts",
 		],
 		directory,
 		env,
@@ -235,6 +263,8 @@ async function consumer(source, directory, tarballs, archives, major, env) {
 	run("node", ["sections.mjs"], directory, env);
 	run("node", ["initialization.mjs"], directory, env);
 	run("node", ["feedback.mjs"], directory, env);
+	run("node", ["fsx-esm.mjs"], directory, env);
+	run("node", ["fsx-cjs.cjs"], directory, env);
 	console.log(
 		JSON.stringify({
 			lane: "packed-formbar-consumer",

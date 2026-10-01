@@ -1,5 +1,15 @@
 export const productionBase = "d6de555a024053d835827bb4501c63d5cca50da2";
 export const productionInventory = [
+	"packages/declarative/src/validators/kalada-installation-identity.ts",
+	"packages/fsx-authoring/src/attributes.ts",
+	"packages/fsx-authoring/src/custom.ts",
+	"packages/fsx-authoring/src/errors.ts",
+	"packages/fsx-authoring/src/expressions.ts",
+	"packages/fsx-authoring/src/guest.ts",
+	"packages/fsx-authoring/src/index.ts",
+	"packages/fsx-authoring/src/lower.ts",
+	"packages/fsx-authoring/src/parser.ts",
+	"packages/fsx-authoring/src/types.ts",
 	"apps/demos/src/demos/07-conditional-fields.ts",
 	"apps/demos/src/demos/08-array-items.ts",
 	"apps/demos/src/demos/12-survey-questionnaire.ts",
