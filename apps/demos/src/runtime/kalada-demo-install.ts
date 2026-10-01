@@ -45,7 +45,7 @@ const native = new Set([
 ]);
 const object = (value: unknown): value is Node => !!value && typeof value === "object" && !Array.isArray(value);
 
-function valueAuthority(schema: Node, path: Path["path"], value: JsonValue): boolean {
+function valueAuthority(schema: Node, path: Parameters<typeof schemaNode>[1], value: JsonValue): boolean {
 	const node = schemaNode(schema, path);
 	return !!node && schemaValueAllowed(node, value);
 }

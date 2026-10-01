@@ -24,7 +24,16 @@ export function demoPolicy(
 	return {
 		policy: {
 			...identity,
-			widgets: Object.fromEntries([...widgets].map((id) => [id, { children: "forbidden", props: widgetProps }])),
+			widgets: Object.fromEntries(
+				[...widgets].map((id) => [
+					id,
+					{
+						children: "forbidden",
+						props:
+							id === "demo16.range" ? { ...widgetProps, max: { modes: ["literal"], expected: "number" } } : widgetProps,
+					},
+				]),
+			),
 			renderers: Object.fromEntries(
 				[...renderers].map((id) => [
 					id,

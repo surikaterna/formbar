@@ -58,6 +58,13 @@ it("R12 denied submit links and focuses the first supported CURRENT invalid nati
 		expect(link?.getAttribute("href")).toBe(`#${input?.id}`);
 		expect(link?.textContent).toContain("Name");
 		expect(input?.getAttribute("aria-invalid")).toBe("true");
+		const other = container.querySelectorAll<HTMLInputElement>("input")[1];
+		act(() => other.focus());
+		expect(document.activeElement).toBe(other);
+		await act(async () => host.snapshot().controls[0].onBlur?.());
+		expect(document.activeElement).toBe(other);
+		await act(async () => container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click());
+		expect(document.activeElement).toBe(input);
 		act(() => container.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus());
 		act(() => link?.click());
 		expect(document.activeElement).toBe(input);

@@ -46,11 +46,11 @@ describe("interactive playground runner", () => {
 				await Promise.resolve();
 			});
 			expect(container.querySelector("form"), example.key).not.toBeNull();
-			const before = container.querySelector("form select")?.value;
+			const before = container.querySelector<HTMLSelectElement>("form select")?.value;
 			act(() => {
 				if (!changeFirstControl(container)) return;
 			});
-			expect(container.querySelector("form select")?.value, example.key).not.toBe(before);
+			expect(container.querySelector<HTMLSelectElement>("form select")?.value, example.key).not.toBe(before);
 			act(() => root.unmount());
 			container.remove();
 		}

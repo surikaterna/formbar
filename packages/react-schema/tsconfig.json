@@ -13,7 +13,7 @@
 		"sourceMap": true,
 		"composite": true,
 		"rootDir": "src",
-		"outDir": "dist"
+		"outDir": ".types"
 	},
 	"include": ["src/**/*.ts", "src/**/*.tsx"],
 	"exclude": ["src/__tests__"],

@@ -136,6 +136,8 @@ export async function runRequiredAuthority(factory) {
 		await write(fixture, "make", "Auto make");
 		await write(fixture, "model", "Auto model");
 		assert.equal((await submit(fixture)).status, "submitted");
+		assert.equal(Object.hasOwn(fixture.submitted.at(-1), "address"), false);
+		assert.equal(Object.hasOwn(fixture.host.snapshot().data, "address"), true);
 		await write(fixture, "coverageType", "home");
 		assert.notEqual((await submit(fixture)).status, "submitted");
 		assert.deepEqual(

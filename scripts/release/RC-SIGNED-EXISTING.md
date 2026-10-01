@@ -6,6 +6,23 @@ approval, OIDC exchange, or #298 merge. The expected identity must come from an
 independently protected approved run, not npm metadata, `gitHead`, a URL, or
 the public attestation itself. #250/#298 remain held.
 
+#383 adds a **separate disabled** `verifyPrepackedSignedVersion` contract for
+the empirically missing npm11 tarball-input `gitHead`. The original
+`verifyExistingSignedVersion` also permits absent `gitHead` only after its
+full authenticated signed provenance and downloaded-byte verification; the
+prepacked contract additionally binds the expected local tarball bytes. A
+present `gitHead` must still equal the independently approved protected main
+commit. An absent
+one is accepted only if the downloaded registry tarball SHA512 also matches
+the supplied exact prepacked bytes and the authenticated signed SLSA subject,
+certificate identity and signed repo/ref/commit/workflow/run/attempt all match
+the approved run. Missing/changed prepack bytes, unsigned proof, unknown run
+or mismatched present `gitHead` denies. Neither API is wired to a skip or a
+publish. Only `createPinnedAudit` is the trusted verifier implementation;
+injected test proofs simulate orchestration, never cryptographic authority.
+The prepacked bytes must be independently produced from the exact reviewed
+version tree with a pinned toolchain before this conditional path is used.
+
 The optional test `rc-signed-live.test.ts` uses an isolated single top-level
 exact `@changesets/cli@2.29.7` install, Node **22.23.2** and npm **11.20.0**.
 Supply absolute paths `RC_SIGNED_NODE`, `RC_SIGNED_NPM_ROOT` (npm's package

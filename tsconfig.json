@@ -12,12 +12,15 @@
 		"sourceMap": true,
 		"composite": true
 	},
+	"files": [],
 	"references": [
 		{ "path": "packages/expressions" },
 		{ "path": "packages/core" },
 		{ "path": "packages/declarative" },
 		{ "path": "packages/fsx-authoring" },
 		{ "path": "packages/from-schema" },
-		{ "path": "packages/react" }
+		{ "path": "packages/react" },
+		{ "path": "packages/arbiter" },
+		{ "path": "packages/react-schema" }
 	]
 }

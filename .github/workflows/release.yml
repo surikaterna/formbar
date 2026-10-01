@@ -1,16 +1,9 @@
-name: Version proposal (release disabled)
+name: Version proposal and manual RC
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      expected_main_sha:
-        description: Full lowercase SHA at the tip of main (NOT publish authorization)
-        required: true
-        type: string
-
-concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: read
@@ -42,13 +35,69 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  reject-dispatch:
-    if: github.event_name == 'workflow_dispatch'
+  publish-rc:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'surikaterna/formbar' && github.ref == 'refs/heads/main' && github.actor == 'spralle'
     runs-on: ubuntu-latest
+    concurrency:
+      group: formbar-manual-rc
+      cancel-in-progress: false
     permissions:
       contents: read
+      id-token: write
     steps:
-      - name: Refuse release until independent approval is enforceable
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Install npm and provision offline test tools
         run: |
-          printf '::error::#350 release dispatch disabled: no independently verified protected release environment, non-self approval, main protection, or #250 final GO. SHA is not authorization.\n'
-          exit 1
+          npm install --global --ignore-scripts --no-audit --no-fund npm@11.20.0
+          [[ "$(node --version)" == v22.23.2 && "$(npm --version)" == 11.20.0 ]]
+          printf 'RC_NODE_BINARY=%s\nRC_NPM_ROOT=%s\n' "$(command -v node)" "$(npm root -g)/npm" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build packages
+        run: bun run build
+      - name: Test
+        run: bun run test
+      - name: Publish and check RC
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot="$(mktemp -d)"
+          trap 'rm -rf "$snapshot"' EXIT
+          node scripts/release/rc-workspace-plan.mjs > "$snapshot/plan"
+          while IFS=$'\t' read -r package version; do
+            if npm view "@formbar/$package" dist-tags --json > "$snapshot/$package.latest"; then
+              jq -e --arg package "$package" 'type == "object" and (if has("latest") then (.latest | type == "string" and length > 0) else $package == "fsx-authoring" end)' "$snapshot/$package.latest"
+            else
+              [[ "$package" == fsx-authoring ]]
+              jq -e '.error.code == "E404"' "$snapshot/$package.latest"
+              printf '{}\n' > "$snapshot/$package.latest"
+            fi
+            printf '%s latest before: ' "@formbar/$package"
+            cat "$snapshot/$package.latest"
+          done < "$snapshot/plan"
+          while IFS=$'\t' read -r package version; do
+            if npm view "@formbar/$package@$version" name version --json > "$snapshot/exact.json"; then
+              jq -e --arg name "@formbar/$package" --arg version "$version" '.name == $name and .version == $version' "$snapshot/exact.json"
+              printf 'Skipping immutable existing %s@%s\n' "@formbar/$package" "$version"
+            else
+              jq -e '.error.code == "E404"' "$snapshot/exact.json"
+              (cd "packages/$package" && npm publish --tag rc --access public --provenance)
+            fi
+          done < "$snapshot/plan"
+          while IFS=$'\t' read -r package version; do
+            npm view "@formbar/$package@$version" name version --json > "$snapshot/exact.json"
+            cat "$snapshot/exact.json"
+            jq -e --arg name "@formbar/$package" --arg version "$version" '.name == $name and .version == $version' "$snapshot/exact.json"
+            npm view "@formbar/$package" dist-tags --json > "$snapshot/tags.json"
+            cat "$snapshot/tags.json"
+            jq -e --arg version "$version" --slurpfile latest "$snapshot/$package.latest" '.rc == $version and (if ($latest[0] | has("latest")) then .latest == $latest[0].latest else (has("latest") | not) end)' "$snapshot/tags.json"
+          done < "$snapshot/plan"

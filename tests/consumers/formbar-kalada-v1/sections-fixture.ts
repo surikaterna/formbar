@@ -1,4 +1,4 @@
-import type { JsonValue, KaladaV1Host, SchemaValidatorV1 } from "@formbar/declarative";
+import type { FormDefinition, FormNode, JsonValue, KaladaV1Host, SchemaValidatorV1 } from "@formbar/declarative";
 import { arbiterDynamicSectionsDemo } from "../../../apps/demos/src/demos/21-arbiter-dynamic-sections";
 import { literal } from "../../../apps/demos/src/demos/kalada-fixture-programs";
 import type { PlaygroundDocument } from "../../../apps/demos/src/playground/contracts";
@@ -40,41 +40,64 @@ function selectedRequired(calls: JsonValue[]): SchemaValidatorV1 {
 	};
 }
 
-function child(node: Node, branch: string, index: number) {
-	const value = (node[branch] as readonly Node[])[index];
-	if (!value) throw new Error("Missing demo21 fixture branch");
-	return value;
+function sectionNode(node: FormNode, options: Options): FormNode {
+	if (node.type === "field" && node.id === "f-make")
+		return {
+			...node,
+			...(options.locked ? { readOnly: literal(true) } : {}),
+			...(options.missing
+				? {
+						required: {
+							format: "kalada-program",
+							version: 1,
+							profile: "kalada-v1",
+							expression: { kind: "ref", ref: { namespace: "ui", segments: ["fieldRequired:missing"] } },
+						} as const,
+					}
+				: {}),
+		};
+	if (node.type === "conditional")
+		return {
+			...node,
+			// biome-ignore lint/suspicious/noThenProperty: Canonical conditional branch DTO, not a thenable.
+			then: node.then.map((child) => sectionNode(child, options)),
+			...(node.else ? { else: node.else.map((child) => sectionNode(child, options)) } : {}),
+		};
+	if ("children" in node && node.children)
+		return { ...node, children: node.children.map((child) => sectionNode(child, options)) };
+	return node;
 }
 
 function sectionsDocument(options: Options) {
 	const source = arbiterDynamicSectionsDemo.sources[0];
-	const definition = structuredClone(source.definition) as unknown as Node;
+	const definition: FormDefinition = {
+		...source.definition,
+		root: sectionNode(source.definition.root, options),
+		...(options.omit ? { submission: { hiddenValues: "omit-inactive" } } : {}),
+	};
 	const rules = structuredClone(source.arbiterRules);
-	const auto = child(child(child(definition.root as Node, "children", 1), "then", 0), "then", 0).children as Node[];
-	const policy = rules[0].then[0].$set as unknown as Record<string, Node>;
+	const policy = rules[0].then[0].$set;
 	if (options.locked) {
-		auto[0].readOnly = literal(true);
-		policy["$formbar.fieldPolicy.make"].readOnly = false;
-		policy["$formbar.fieldPolicy.model"].disabled = true;
-		policy["$formbar.fieldPolicy.year"].readOnly = true;
+		lockPolicy(policy, "$formbar.fieldPolicy.make", "readOnly", false);
+		lockPolicy(policy, "$formbar.fieldPolicy.model", "disabled", true);
+		lockPolicy(policy, "$formbar.fieldPolicy.year", "readOnly", true);
 	}
-	if (options.missing)
-		auto[0].required = {
-			format: "kalada-program",
-			version: 1,
-			profile: "kalada-v1",
-			expression: { kind: "ref", ref: { namespace: "ui", segments: ["fieldRequired:missing"] } },
-		};
-	if (options.omit) definition.submission = { hiddenValues: "omit-inactive" };
-	const schema = structuredClone(source.schema) as unknown as Node;
+	const schema: Node = structuredClone(source.schema);
 	if (options.schemaFailure) (schema.properties as Record<string, Node>).make.minLength = 3;
 	const document = {
 		version: 2,
 		schema,
 		definition,
 		initialData: structuredClone(source.initialData),
-	} as PlaygroundDocument;
+	} satisfies PlaygroundDocument;
 	return { document, rules };
+}
+
+function lockPolicy(policy: unknown, name: string, property: string, value: boolean) {
+	if (!policy || typeof policy !== "object" || !(name in policy)) throw new Error("Missing policy fixture");
+	const field = Object.getOwnPropertyDescriptor(policy, name)?.value;
+	if (!field || typeof field !== "object" || Array.isArray(field)) throw new Error("Invalid policy fixture");
+	Object.defineProperty(field, property, { value, enumerable: true, writable: true, configurable: true });
 }
 
 export function sectionsFixture(options: Options = {}) {

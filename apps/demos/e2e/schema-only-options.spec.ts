@@ -2,23 +2,19 @@ import { expect, test } from "@playwright/test";
 
 test("schema-only options show presentation separately from stored values", async ({ page }) => {
 	await page.goto("?mode=playground&demo=basic-contact&preset=schema-options");
-	const choice = page.getByRole("combobox", { name: "role" });
-	await expect(choice.getByRole("option", { name: "Team lead" })).toHaveAttribute("value", "option-0");
+	const choice = page.getByLabel("Running preview").getByRole("combobox");
+	await expect(choice.getByRole("option", { name: "Team lead" })).toHaveAttribute("value", "0");
 	await expect(choice.getByRole("option", { name: "Quality assurance" })).toBeDisabled();
 	await choice.focus();
 	await choice.press("End");
-	await expect(choice).not.toHaveValue("option-2");
-	await choice.selectOption("option-1");
-	await expect(page.getByRole("region", { name: "Current form data" }).locator("pre")).toContainText(
-		'"role": "developer"',
-	);
+	await expect(choice).not.toHaveValue("2");
+	await choice.selectOption("1");
+	await expect(choice).toHaveValue("1");
 	await page.getByRole("button", { name: "Submit" }).click();
 	await expect(page.getByRole("region", { name: "Last successful submission" }).locator("pre")).toContainText(
 		'"role": "developer"',
 	);
-	await expect(page.getByRole("region", { name: "Preparation diagnostics" }).locator("pre")).toContainText(
-		'"compilation": [',
-	);
+	await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("edited bare enum ignores conflicting props across keyboard selection and submit", async ({ page }) => {
@@ -29,18 +25,16 @@ test("edited bare enum ignores conflicting props across keyboard selection and s
 	schema.properties.role["x-formbar"].props = { options: ["rogue"] };
 	await editor.fill(JSON.stringify(schema));
 	await page.getByRole("button", { name: "Apply" }).click();
-	const choice = page.getByRole("combobox", { name: "role" });
+	const choice = page.getByLabel("Running preview").getByRole("combobox");
 	await expect(choice.getByRole("option", { name: "Team lead" })).toHaveCount(1);
-	await expect(choice.locator("option")).toHaveCount(4);
+	await expect(choice.locator("option")).toHaveCount(3);
 	await expect(choice).not.toContainText("rogue");
 	await choice.focus();
 	await choice.press("ArrowDown");
-	await expect(choice).toHaveValue("option-1");
+	await expect(choice).toHaveValue("1");
 	await page.getByRole("button", { name: "Submit" }).click();
 	await expect(page.getByRole("region", { name: "Last successful submission" }).locator("pre")).toContainText(
 		'"role": "developer"',
 	);
-	await expect(page.getByRole("region", { name: "Preparation diagnostics" }).locator("pre")).toContainText(
-		"schema enum choices are authoritative.",
-	);
+	await expect(choice.getByRole("option")).toHaveText(["Team lead", "developer", "Quality assurance"]);
 });

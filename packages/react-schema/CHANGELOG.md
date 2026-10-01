@@ -1,5 +1,63 @@
 # @formbar/react-schema
 
+## 1.0.0-rc.1
+
+### Major Changes
+
+- 4879fcc: Replace serialized FormDefinition V1 Kuery expression slots and positional FormApi rendering with canonical Kalada V1 data programs, host-installed policy and strategy-owned reads, writes, rows, and submission. Existing definitions must be re-authored; there is no implicit adapter or dual engine.
+
+### Patch Changes
+
+- Updated dependencies [da0a748]
+- Updated dependencies [da0a748]
+- Updated dependencies [8e27ed2]
+- Updated dependencies [ee71f85]
+- Updated dependencies [abda3ac]
+- Updated dependencies [8998ab4]
+- Updated dependencies [eee4541]
+- Updated dependencies [da5c817]
+- Updated dependencies [4879fcc]
+- Updated dependencies [ee9d850]
+  - @formbar/declarative@1.0.0-rc.1
+  - @formbar/from-schema@1.0.0-rc.1
+
+## 0.23.0-rc.0
+
+### Minor Changes
+
+- 70f01ad: Enable validated definition-bound omit-inactive submission through prepared schema factories and forward the opt-in from useSchemaForm. Generated definitions accept a serialized submission policy and field-ID include-hidden overrides; default full-draft submission is unchanged.
+- 772a12e: Surface failed checked outgoing-candidate validation in native form summaries and field errors so opted-in schema forms can guide users to correct the actual submitted request.
+- 10b4eaa: Forward prepared async field validator options through the deferred schema-form hook without changing the React core form API.
+
+### Patch Changes
+
+- c460d74: Expose the public trusted definition-field issue input and concrete data-binding types for authored and generated scoped validators. Document registration, full-draft and candidate execution, and legacy migration without enabling omission.
+  Install prepared schema and caller validators exactly once through the eager/deferred factory; React delegates preparation validators to the factory while retaining its separate Standard Schema source validation.
+- Updated dependencies [cbb9d59]
+- Updated dependencies [b4340af]
+- Updated dependencies [7698998]
+- Updated dependencies [0ed966b]
+- Updated dependencies [1bf5761]
+- Updated dependencies [08c1a2b]
+- Updated dependencies [439a847]
+- Updated dependencies [75454ce]
+- Updated dependencies [ed3d7c3]
+- Updated dependencies [70f01ad]
+- Updated dependencies [ba13b66]
+- Updated dependencies [be5b55a]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [cd7009c]
+- Updated dependencies [81c9913]
+- Updated dependencies [c460d74]
+- Updated dependencies [ca15dcb]
+- Updated dependencies [ceaf702]
+  - @formbar/core@0.23.0-rc.0
+  - @formbar/declarative@0.23.0-rc.0
+  - @formbar/from-schema@0.23.0-rc.0
+  - @formbar/react@0.23.0-rc.0
+
 ## 0.22.0
 
 ### Patch Changes

@@ -1,8 +1,9 @@
+import type { JsonValue } from "@formbar/declarative";
 import { expect, it } from "vitest";
 import { lineSubtotal } from "../runtime/kalada-demo-calculations";
 
 it("projects only finite numeric row amounts without coercing invalid JSON or storing output", () => {
-	const rows = [{ amount: 2 }, {}, { amount: 3 }];
+	const rows: JsonValue = [{ amount: 2 }, {}, { amount: 3 }];
 	expect(lineSubtotal(rows)).toBe(5);
 	expect(rows).toEqual([{ amount: 2 }, {}, { amount: 3 }]);
 	expect(lineSubtotal([])).toBe(0);

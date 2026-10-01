@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { consumed, initialVersions, rcVersion } from "../../release/rc-reviewed-plan";
+import { kaladaProductionDependencies, rcEdges, rcPackages } from "../../release/rc-workspace-plan.mjs";
 import { npmPackDryRun } from "../npm-pack";
 import { type PackageManifest, packagePolicies } from "../policy";
 import {
@@ -9,6 +11,7 @@ import {
 	validateExportTargets,
 	validateLicense,
 	validateRcDependencies,
+	validateRcPlan,
 	validateSourceMaps,
 	validateVersion,
 } from "../validate";
@@ -17,6 +20,12 @@ const temporaryDirectories: string[] = [];
 const policy = packagePolicies.find(({ directory }) => directory === "core");
 if (!policy) throw new Error("core package policy is required");
 const standardFiles = ["LICENSE", "README.md", "package.json"];
+const activePreFixture = {
+	mode: "pre",
+	tag: "rc",
+	initialVersions: { ...initialVersions, "@formbar/fsx-authoring": "0.0.0" },
+	changesets: consumed,
+};
 
 function temporaryDirectory(name: string): string {
 	const directory = mkdtempSync(resolve(tmpdir(), `formbar-${name}-`));
@@ -137,7 +146,62 @@ describe("package artifact policy", () => {
 				/invalid prerelease dependency/,
 			);
 		}
+		const rcExpressions = { "@formbar/expressions": "0.23.0-rc.0" };
+		expect(() => validateRcDependencies(policy, withExpressions("^0.23.0-rc.0"), rcExpressions)).not.toThrow();
+		for (const range of ["^0.14.3", "^0.23.0-rc.1", "^0.23.0", "^0.23.0-rc.00"]) {
+			expect(() => validateRcDependencies(policy, withExpressions(range), rcExpressions)).toThrow(
+				/invalid prerelease dependency/,
+			);
+		}
+		expect(() => validateRcDependencies(policy, withExpressions("^0.23.0-rc.0"), expressions)).toThrow(
+			/invalid prerelease dependency/,
+		);
 		expect(() => validateRcDependencies(policy, manifest("0.14.3", "^0.22.2"), versions)).not.toThrow();
+	});
+	it("binds the eight RC manifest graph to the active workspace plan", () => {
+		const root = temporaryDirectory("eight-rc-plan");
+		mkdirSync(resolve(root, ".changeset"));
+		const pre = activePreFixture;
+		const prePath = resolve(root, ".changeset/pre.json");
+		const manifests = rcPackages.map((name) => ({
+			name: `@formbar/${name}`,
+			version: rcVersion,
+			dependencies: {
+				...Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${rcVersion}`])),
+				...kaladaProductionDependencies[`@formbar/${name}`],
+			},
+		})) as PackageManifest[];
+		writeFileSync(prePath, JSON.stringify(pre));
+		for (const manifest of manifests) {
+			mkdirSync(resolve(root, `packages/${manifest.name.slice(9)}`), { recursive: true });
+			writeFileSync(resolve(root, `packages/${manifest.name.slice(9)}/package.json`), JSON.stringify(manifest));
+		}
+		expect(() => validateRcPlan(root, manifests)).not.toThrow();
+		expect(() => validateRcPlan(root, manifests.slice(1))).toThrow(/incomplete eight-package/);
+		expect(() =>
+			validateRcPlan(root, [...manifests, { name: "@formbar/extra", version: rcVersion } as PackageManifest]),
+		).toThrow(/incomplete eight-package/);
+		for (const changed of [
+			{ ...manifests[0], version: "0.14.3" },
+			{ ...manifests[1], dependencies: { "@formbar/expressions": "^0.14.3" } },
+			{ ...manifests[1], dependencies: { ...manifests[1].dependencies, "@formbar/react": `^${rcVersion}` } },
+		]) {
+			expect(() =>
+				validateRcPlan(
+					root,
+					manifests.map((item) => (item.name === changed.name ? changed : item)),
+				),
+			).toThrow();
+		}
+		for (const forged of [
+			{ ...pre, mode: "exit" },
+			{ ...pre, changesets: [...consumed, consumed[0]] },
+			{ ...pre, initialVersions: { ...pre.initialVersions, "@formbar/expressions": undefined } },
+			{ ...pre, injected: true },
+		]) {
+			writeFileSync(prePath, JSON.stringify(forged));
+			expect(() => validateRcPlan(root, manifests)).toThrow();
+		}
 	});
 	it("rejects a test file selected by native npm pack", () => {
 		const directory = temporaryDirectory("pack-leak");
@@ -155,7 +219,7 @@ describe("package artifact policy", () => {
 		expect(() => validateAllowedFiles(policy, [...standardFiles, "dist/leak.test.js"])).toThrow(
 			/prohibited packed file/,
 		);
-	});
+	}, 25_000); // Native npm pack is a subprocess; hosted CI exceeded Vitest's 5s default under concurrent load (#422).
 
 	it("requires every runtime, declaration, and subpath target to be packed", () => {
 		const manifest = exportFixture();

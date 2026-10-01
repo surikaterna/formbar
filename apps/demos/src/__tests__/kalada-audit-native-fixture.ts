@@ -1,4 +1,4 @@
-import type { FormDefinition, FormNode, JsonValue } from "@formbar/declarative";
+import type { FieldNode, FormDefinition, FormNode, JsonValue } from "@formbar/declarative";
 import {
 	compileDefaultKaladaV1Definition,
 	createKaladaSchemaForm,
@@ -72,17 +72,19 @@ function authored(): FormDefinition {
 		root: {
 			type: "group",
 			id: "root",
-			children: nativeMatrix.map((name) => ({
-				type: "field",
-				id: name,
-				label: name,
-				widget: name === "integer" ? "number" : name === "formatted" ? "text" : name,
-				binding: { namespace: "data", segments: [name] },
-				props:
-					name === "select" || name === "radio"
-						? { options: literalProp(options.map((value) => ({ value, title: String(value) }))) }
-						: { placeholder: literalProp(`Enter ${name}`), description: literalProp(`${name} help`) },
-			})),
+			children: nativeMatrix.map(
+				(name): FieldNode => ({
+					type: "field",
+					id: name,
+					label: name,
+					widget: name === "integer" ? "number" : name === "formatted" ? "text" : name,
+					binding: { namespace: "data", segments: [name] },
+					props:
+						name === "select" || name === "radio"
+							? { options: literalProp(options.map((value) => ({ value, title: String(value) }))) }
+							: { placeholder: literalProp(`Enter ${name}`), description: literalProp(`${name} help`) },
+				}),
+			),
 		},
 	};
 }
@@ -125,7 +127,14 @@ export function nativeFixture(
 	const identity = { generation: "native-audit", fingerprint: "owned" };
 	const paths = nativeMatrix.map((name) => ({ path: [name], kind: "value" as const }));
 	const fieldPaths = Object.fromEntries(
-		fields.map((field, index) => [`root.children[${index}]`, field.type === "field" ? field.binding.segments : []]),
+		fields.map((field, index) => {
+			if (field.type !== "field" || field.binding.segments.some((part) => typeof part !== "string"))
+				throw new TypeError("Native fixture requires canonical string bindings");
+			return [
+				`root.children[${index}]`,
+				field.binding.segments.filter((part): part is string => typeof part === "string"),
+			];
+		}),
 	);
 	const store = createDemoStrategy(
 		identity,

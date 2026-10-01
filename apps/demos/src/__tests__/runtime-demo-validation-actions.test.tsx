@@ -59,10 +59,7 @@ describe("app-installed Kalada validation and lifecycle", () => {
 	it("rejects stale direct-write callbacks after edits and reset without mutating submission", async () => {
 		const submitted = vi.fn();
 		const source = basicContactDemo.sources[0];
-		const host = installDemo(
-			{ version: 2, schema: source.schema, definition: source.definition ?? null, initialData: {} },
-			submitted,
-		);
+		const host = installDemo({ version: 2, schema: source.schema, definition: null, initialData: {} }, submitted);
 		try {
 			const email = host.snapshot().controls.find((control) => control.rendererId === "email")?.writers.value;
 			if (!email) throw new Error("Missing direct email writer");
@@ -82,10 +79,7 @@ describe("app-installed Kalada validation and lifecycle", () => {
 	it("fences a pending async submit when the live draft changes before validation settles", async () => {
 		const submitted = vi.fn();
 		const source = basicContactDemo.sources[0];
-		const host = installDemo(
-			{ version: 2, schema: source.schema, definition: source.definition ?? null, initialData: {} },
-			submitted,
-		);
+		const host = installDemo({ version: 2, schema: source.schema, definition: null, initialData: {} }, submitted);
 		try {
 			const write = (widget: string, value: string) => {
 				const writer = host.snapshot().controls.find((control) => control.rendererId === widget)?.writers.value;

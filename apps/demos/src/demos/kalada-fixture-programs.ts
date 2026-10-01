@@ -1,4 +1,5 @@
 import type { DefinitionProgram, JsonValue } from "@formbar/declarative";
+import { kaladaJson } from "../runtime/kalada-demo-json";
 
 type AuthoredProgram = DefinitionProgram;
 const program = (expression: DefinitionProgram["expression"]): AuthoredProgram => ({
@@ -12,7 +13,7 @@ export const dataRef = (path: string): AuthoredProgram =>
 	program({ kind: "ref", ref: { namespace: "data", segments: [path] } });
 export const uiRef = (path: string): AuthoredProgram =>
 	program({ kind: "ref", ref: { namespace: "ui", segments: [path] } });
-export const literal = (value: JsonValue): AuthoredProgram => program({ kind: "literal", value });
+export const literal = (value: JsonValue): AuthoredProgram => program({ kind: "literal", value: kaladaJson(value) });
 export const numeric = (
 	operator: "add" | "subtract" | "multiply" | "divide",
 	left: AuthoredProgram,

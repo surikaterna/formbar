@@ -1,4 +1,4 @@
-import type { CreateKaladaV1HostOptions, JsonValue } from "@formbar/declarative";
+import type { CreateKaladaV1HostOptions, FieldNode, FormNode, JsonValue, ValidationNode } from "@formbar/declarative";
 import { createKaladaSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { dataRef, literal } from "../../../apps/demos/src/demos/kalada-fixture-programs";
 import type { PlaygroundDocument } from "../../../apps/demos/src/playground/contracts";
@@ -52,7 +52,7 @@ function documentFor(options: Options) {
 				: {}),
 		},
 	};
-	const field = {
+	const field: FieldNode = {
 		type: "field",
 		id: "name",
 		label: "Name",
@@ -62,14 +62,14 @@ function documentFor(options: Options) {
 		props: { description: { mode: "literal", value: "Name guidance" } },
 		...(options.fieldVisible === undefined ? {} : { visible: dataRef("show") }),
 	};
-	const feedback = {
+	const feedback: ValidationNode = {
 		type: "validation",
 		id: "name-feedback",
 		binding: binding(["name"]),
 		...(options.messages === undefined ? {} : { messages: options.messages }),
 		...(options.feedbackVisible === false ? { visible: literal(false) } : {}),
 	};
-	const children: Record<string, unknown>[] = [
+	const children: FormNode[] = [
 		field,
 		{ type: "field", id: "show", widget: "checkbox", binding: binding(["show"]) },
 		feedback,
@@ -111,19 +111,22 @@ function documentFor(options: Options) {
 				? { groups: [{ rows: [{ name: "Ada" }, { name: "Bea" }] }, { rows: [{ name: "Other" }] }] }
 				: {}),
 		},
-	} as PlaygroundDocument;
+	} satisfies PlaygroundDocument;
 }
 
-function fieldInventory(document: PlaygroundDocument) {
+function fieldInventory(document: ReturnType<typeof documentFor>) {
 	const fields: Record<string, readonly (string | { row: string })[]> = {};
 	const refs: Record<string, ReturnType<typeof binding>> = {};
 	const paths = new Map<string, { path: readonly (string | { row: string })[]; kind: "array" | "value" }>();
-	const visit = (
-		node: Record<string, unknown>,
-		at: string,
-		scopes: Record<string, readonly (string | { row: string })[]>,
-	) => {
-		const ref = node.binding as ReturnType<typeof binding> | undefined;
+	const visit = (node: FormNode, at: string, scopes: Record<string, readonly (string | { row: string })[]>) => {
+		const source = "binding" in node ? node.binding : undefined;
+		if (source?.segments.some((part) => typeof part !== "string")) throw new TypeError("Noncanonical fixture binding");
+		const ref = source
+			? binding(
+					source.segments.filter((part): part is string => typeof part === "string"),
+					source.scope,
+				)
+			: undefined;
 		const path = ref && [...(ref.scope ? scopes[ref.scope] : []), ...ref.segments];
 		if (path) paths.set(JSON.stringify(path), { path, kind: node.type === "repeater" ? "array" : "value" });
 		if (node.type === "field" && path && ref) {
@@ -134,10 +137,10 @@ function fieldInventory(document: PlaygroundDocument) {
 			node.type === "repeater" && path
 				? { ...scopes, [String(node.scope)]: [...path, { row: String(node.scope) }] }
 				: scopes;
-		for (const [i, child] of ((node.children ?? []) as Record<string, unknown>[]).entries())
+		for (const [i, child] of ("children" in node ? (node.children ?? []) : []).entries())
 			visit(child, `${at}.children[${i}]`, next);
 	};
-	visit(document.definition?.root as Record<string, unknown>, "root", {});
+	visit(document.definition.root, "root", {});
 	return { fields, refs, paths: [...paths.values()] };
 }
 
@@ -198,7 +201,7 @@ function attemptValidator(deferred = false) {
 }
 
 function schemaFeedback(
-	document: PlaygroundDocument,
+	document: ReturnType<typeof documentFor>,
 	inventory: ReturnType<typeof fieldInventory>,
 	validators: NonNullable<CreateKaladaV1HostOptions["validators"]>,
 ) {
@@ -217,7 +220,7 @@ function schemaFeedback(
 		undefined,
 		{},
 		undefined,
-		{ schema: document.schema, definition: document.definition as Record<string, unknown> },
+		{ schema: document.schema, definition: document.definition },
 	);
 	const strategy = {
 		...ports.strategy,

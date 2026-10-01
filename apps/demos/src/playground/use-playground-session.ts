@@ -8,7 +8,7 @@ import { discardDraft } from "./storage";
 function liveData(host: KaladaV1Host | undefined): PlaygroundDocument["initialData"] | undefined {
 	if (!host) return;
 	const data = host.snapshot().data;
-	return data && typeof data === "object" && !Array.isArray(data) ? data : undefined;
+	return data && typeof data === "object" && !Array.isArray(data) ? { ...data } : undefined;
 }
 
 /** Selection identity/revision fences editor callbacks; runtime authority remains host-owned. */

@@ -7,10 +7,10 @@ export function addNativeEvidence(node: Node, schema: Node | undefined) {
 	const add = (key: string, value: unknown) => {
 		if (value !== undefined) props[key] = { mode: "literal", value };
 	};
-	if (node.widget === "number") {
+	if (node.widget === "number" || node.widget === "demo16.range") {
 		add("min", schema.minimum);
 		add("max", schema.maximum);
-		add("step", schema.multipleOf ?? (schema.type === "integer" ? 1 : "any"));
+		add("step", schema.multipleOf ?? (schema.type === "integer" || node.widget === "demo16.range" ? 1 : "any"));
 	}
 	if (["text", "textarea", "email", "url", "tel", "password", "search"].includes(String(node.widget))) {
 		for (const key of ["minLength", "maxLength", "pattern", "format"]) add(key, schema[key]);

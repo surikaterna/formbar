@@ -1,10 +1,10 @@
-import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import YAML from "yaml";
 import { checkRcCandidate, requireReleaseAuthority } from "../guard";
 import type { DispatchContext } from "../guard";
+import { rcPackages } from "../rc-reviewed-plan";
 import type { ReleasePlan, ReleaseReader } from "../types";
 
 const sha = "a".repeat(40);
@@ -23,7 +23,7 @@ const plan: ReleasePlan = {
 	schemaVersion: 1,
 	repository: context.repository,
 	releaseCommit: sha,
-	candidates: ["core", "arbiter", "declarative", "from-schema", "react", "react-schema"].map((name) => ({
+	candidates: rcPackages.map((name) => ({
 		name: `@formbar/${name}`,
 		version: "0.23.0-rc.0",
 		directory: name,
@@ -41,33 +41,26 @@ const reader = { npmVersion } as unknown as ReleaseReader;
 describe("#350 fail-closed release", () => {
 	it("keeps push-main proposal-only even when Changesets reports no changesets", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
-		expect(Object.keys(workflow.jobs)).toEqual(["version-proposal", "reject-dispatch"]);
+		expect(Object.keys(workflow.jobs)).toEqual(["version-proposal", "publish-rc"]);
 		expect(workflow.on.push).toEqual({ branches: ["main"] });
-		expect(Object.keys(workflow.on.workflow_dispatch.inputs)).toEqual(["expected_main_sha"]);
+		expect(workflow.on.workflow_dispatch).toBeNull();
 		expect(workflow.jobs["version-proposal"].if).toContain("github.event_name == 'push'");
 		expect(workflow.jobs["version-proposal"].steps.at(-1)).toMatchObject({
 			uses: "changesets/action@v1",
 			with: { version: "bun run version:packages" },
 		});
-		expect(workflow.jobs["reject-dispatch"].if).toContain("workflow_dispatch");
-		expect(workflow.jobs["reject-dispatch"].steps.at(-1).run).toContain("exit 1");
-		expect(JSON.stringify(workflow.jobs)).not.toMatch(
-			/hasChangesets|changeset publish|release\/plan|release\/apply|id-token|NPM_CONFIG_PROVENANCE/,
-		);
+		expect(workflow.jobs["publish-rc"].if).toContain("workflow_dispatch");
+		expect(JSON.stringify(workflow.jobs["version-proposal"])).not.toMatch(/hasChangesets|changeset publish|id-token/);
 	});
 
-	it("dispatch runs only a rejecting shell step without any publish permission", async () => {
+	it("restricts the manual job to main and the operator without an environment", async () => {
 		const workflow = YAML.parse(await readFile(resolve(".github/workflows/release.yml"), "utf8"));
-		const rejected = workflow.jobs["reject-dispatch"];
+		const protectedJob = workflow.jobs["publish-rc"];
 		expect(workflow.permissions).toEqual({ contents: "read" });
-		expect(rejected.permissions).toEqual({ contents: "read" });
-		expect(rejected.environment).toBeUndefined();
-		const result = spawnSync("bash", ["-e", "-c", rejected.steps[0].run], {
-			encoding: "utf8",
-			env: { ...process.env, EXPECTED_MAIN_SHA: sha },
-		});
-		expect(result.status).toBe(1);
-		expect(result.stdout).toContain("release dispatch disabled");
+		expect(protectedJob.permissions).toEqual({ contents: "read", "id-token": "write" });
+		expect(protectedJob).not.toHaveProperty("environment");
+		expect(protectedJob.if).toContain("github.actor == 'spralle'");
+		expect(protectedJob.if).toContain("github.ref == 'refs/heads/main'");
 	});
 
 	it.each([
@@ -88,7 +81,7 @@ describe("#350 fail-closed release", () => {
 		const stable = { ...plan, candidates: plan.candidates.map((c) => ({ ...c, version: "0.23.0" })) };
 		await expect(checkRcCandidate(context, stable, reader)).rejects.toThrow("rc.0");
 		await expect(checkRcCandidate(context, { ...plan, candidates: plan.candidates.slice(1) }, reader)).rejects.toThrow(
-			"six-package",
+			"seven-package",
 		);
 		const conflict: ReleaseReader = { ...reader, npmVersion: async () => ({ exists: true, gitHead: "b".repeat(40) }) };
 		await expect(checkRcCandidate(context, plan, conflict)).rejects.toThrow("conflicting");

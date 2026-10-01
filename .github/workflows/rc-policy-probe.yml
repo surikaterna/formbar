@@ -1,0 +1,124 @@
+name: Read-only RC policy visibility probe (#413)
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: Exact lowercase main SHA; not release authorization
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.repository == 'surikaterna/formbar' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'spralle' && github.triggering_actor == 'spralle' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Read main and policy with the installation token (no checkout)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          node <<'NODE'
+          const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
+          const arr = (value) => Array.isArray(value) ? value : [];
+          const equalSet = (value, expected) => Array.isArray(value) && value.length === expected.length &&
+            new Set(value).size === expected.length && expected.every((item) => value.includes(item));
+          let failed = false;
+          function check(code, valid) {
+            console.log(`${code}=${valid === true}`);
+            if (valid !== true) failed = true;
+          }
+          function deny(code) {
+            console.log(code);
+            process.exitCode = 1;
+          }
+          async function get(path, code) {
+            try {
+              const response = await fetch(`https://api.github.com/repos/surikaterna/formbar/${path}`, {
+                method: 'GET',
+                headers: {
+                  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                  Accept: 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                },
+                redirect: 'error',
+                signal: AbortSignal.timeout(8000),
+              });
+              if (!response.ok) { deny(`${code}_HTTP`); return null; }
+              const reader = response.body.getReader();
+              let bytes = 0;
+              const chunks = [];
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                bytes += value.byteLength;
+                if (bytes > 65536) { await reader.cancel(); deny(`${code}_SIZE`); return null; }
+                chunks.push(value);
+              }
+              const body = Buffer.concat(chunks).toString('utf8');
+              const parsed = JSON.parse(body);
+              if (parsed === null) { deny(`${code}_SHAPE`); return null; }
+              return parsed;
+            } catch {
+              deny(`${code}_ERROR`);
+              return null;
+            }
+          }
+          async function verifyPolicy(ruleset) {
+            const policy = obj(ruleset);
+            check('IDENTITY', policy.id === 24103769);
+            check('ACTIVE', policy.enforcement === 'active');
+            check('BRANCH', policy.target === 'branch');
+            check('REPOSITORY', policy.source_type === 'Repository');
+            const ref = obj(obj(policy.conditions).ref_name);
+            check('MAIN_ONLY', equalSet(ref.include, ['refs/heads/main']) && equalSet(ref.exclude, []));
+            check('BYPASS_EMPTY', Array.isArray(policy.bypass_actors) && policy.bypass_actors.length === 0);
+            check('CALLER_NEVER', typeof policy.current_user_can_bypass === 'string' && policy.current_user_can_bypass === 'never');
+            const required = ['deletion', 'non_fast_forward', 'pull_request', 'required_status_checks'];
+            const rules = arr(policy.rules).map(obj);
+            check('RULE_TYPES', equalSet(rules.map((rule) => rule.type), required));
+            const pr = obj(obj(rules.find((rule) => rule.type === 'pull_request')).parameters);
+            const checks = obj(obj(rules.find((rule) => rule.type === 'required_status_checks')).parameters);
+            const validPr = (params) => params.required_approving_review_count === 0 &&
+              equalSet(params.required_reviewers, []) && equalSet(params.allowed_merge_methods, ['merge', 'squash', 'rebase']);
+            const validCi = (params) => Array.isArray(params.required_status_checks) &&
+              params.required_status_checks.length === 1 &&
+              obj(params.required_status_checks[0]).context === 'ci' &&
+              obj(params.required_status_checks[0]).integration_id === 15368;
+            check('PR_ZERO', validPr(pr));
+            check('CI_APP', validCi(checks));
+            const effective = await get('rules/branches/main', 'EFFECTIVE');
+            if (effective === null) return;
+            const active = arr(effective).map(obj).filter((rule) => rule.ruleset_id === 24103769);
+            check('EFFECTIVE_TYPES', Array.isArray(effective) && equalSet(active.map((rule) => rule.type), required));
+            const effectivePr = obj(obj(active.find((rule) => rule.type === 'pull_request')).parameters);
+            const effectiveCi = obj(obj(active.find((rule) => rule.type === 'required_status_checks')).parameters);
+            check('EFFECTIVE_PR', validPr(effectivePr) && JSON.stringify(effectivePr) === JSON.stringify(pr));
+            check('EFFECTIVE_CI', validCi(effectiveCi) && JSON.stringify(effectiveCi) === JSON.stringify(checks));
+            if (failed) process.exitCode = 1;
+          }
+          async function main() {
+            const sha = process.env.EXPECTED_MAIN_SHA;
+            if (process.env.GITHUB_REPOSITORY !== 'surikaterna/formbar' ||
+                process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' ||
+                process.env.GITHUB_REF !== 'refs/heads/main' ||
+                process.env.GITHUB_ACTOR !== 'spralle' || process.env.TRIGGERING_ACTOR !== 'spralle' ||
+                process.env.GITHUB_RUN_ATTEMPT !== '1' || !/^[0-9a-f]{40}$/.test(sha ?? '') ||
+                sha !== process.env.GITHUB_SHA || !process.env.GITHUB_TOKEN) {
+              deny('IDENTITY_DENIED'); return;
+            }
+            const tip = await get('git/ref/heads/main', 'MAIN');
+            if (tip === null) return;
+            if (obj(obj(tip).object).sha !== sha) { deny('MAIN_MISMATCH'); return; }
+            const ruleset = await get('rulesets/24103769', 'RULESET');
+            if (ruleset !== null) await verifyPolicy(ruleset);
+          }
+          main().catch(() => deny('PROBE_ERROR'));
+          NODE

@@ -29,16 +29,16 @@ async function fillRequired(preview: Locator, demo: string, required: readonly s
 			.fill(name === "Email" ? "ada@example.com" : name === "Price (USD)" ? "10" : "Example");
 	}
 	if (demo === "user-profile")
-		await preview.getByRole("group", { name: "Role" }).getByRole("radio", { name: "Developer" }).check();
+		await preview.getByRole("radiogroup", { name: "Role" }).getByRole("radio", { name: "Developer" }).check();
 	if (demo === "product-entry") await preview.getByRole("combobox", { name: "Category" }).selectOption({ index: 1 });
 }
 
-async function exerciseKeyboard(slider: Locator, data: Locator, key: string, min: number, max: number) {
+async function exerciseKeyboard(slider: Locator, lifecycle: Locator, min: number, max: number) {
 	await slider.focus();
 	await expect(slider).toBeFocused();
 	await slider.press("ArrowRight");
 	await expect(slider).toHaveValue(String(min + 1));
-	await expect(data).toContainText(`"${key}": ${min + 1}`);
+	await expect(lifecycle).toContainText("dirty: true");
 	await slider.press("End");
 	await expect(slider).toHaveValue(String(max));
 	await slider.press("Home");
@@ -59,15 +59,14 @@ for (const { demo, label, key, min, max, required } of cases) {
 		const preview = page.getByLabel("Running preview");
 		const slider = preview.getByRole("slider", { name: label });
 		const widget = slider.locator('xpath=ancestor::*[@data-widget="demo16.range"]');
-		const data = page.getByRole("region", { name: "Current form data" }).locator("pre");
+		const lifecycle = preview.locator("[data-kalada-lifecycle]");
 		const result = page.getByRole("region", { name: "Last successful submission" }).locator("pre");
 		await expect(slider).toHaveAttribute("min", String(min));
 		await expect(slider).toHaveAttribute("max", String(max));
 		await expect(slider).toHaveAttribute("step", "1");
 		await expect(slider).toHaveValue(String(min));
 		await expect(widget.locator("output")).toHaveText(String(min));
-		await expect(data).toHaveText("{}");
-		await expect(page.getByLabel("Core validation issues and submission status")).toContainText("pristine");
+		await expect(lifecycle).toContainText("dirty: false");
 		await expect(slider).toHaveAccessibleName(label);
 		if (label === "Font Size" || label === "Quality Rating") {
 			await expect(slider).toHaveAttribute("aria-describedby", /.+/);
@@ -75,16 +74,19 @@ for (const { demo, label, key, min, max, required } of cases) {
 		await fillRequired(preview, demo, required);
 		await preview.getByRole("button", { name: "Submit" }).click();
 		await expect(result).not.toContainText(`"${key}"`);
-		await exerciseKeyboard(slider, data, key, min, max);
+		await exerciseKeyboard(slider, lifecycle, min, max);
 		await preview.getByRole("button", { name: "Submit" }).click();
 		await expect(result).toContainText(`"${key}": ${min + 1}`);
 		await preview.getByRole("button", { name: "Reset" }).click();
 		await expect(slider).toHaveValue(String(min));
 		await expect(widget.locator("output")).toHaveText(String(min));
-		await expect(data).toHaveText("{}");
+		await expect(lifecycle).toContainText("dirty: false");
 		await slider.focus();
 		await slider.press("End");
-		await expect(data).toContainText(`"${key}": ${max}`);
+		await expect(slider).toHaveValue(String(max));
+		await fillRequired(preview, demo, required);
+		await preview.getByRole("button", { name: "Submit", exact: true }).click();
+		await expect(result).toContainText(`"${key}": ${max}`);
 		await expect(preview.locator("[data-formbar-diagnostic]")).toHaveCount(0);
 		expect(errors).toEqual([]);
 	});

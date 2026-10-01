@@ -1,5 +1,6 @@
 import { createKaladaV1Host } from "@formbar/declarative";
 import { literal } from "../demos/kalada-fixture-programs";
+import type { PlaygroundDocument } from "../playground/contracts";
 import { type DemoLifecycle, installDemo } from "../runtime/kalada-demo-install";
 import { schemaValidators } from "../runtime/kalada-demo-schema";
 import { createDemoStrategy } from "../runtime/kalada-demo-strategy";
@@ -40,27 +41,37 @@ export function omissionDocument(include = false) {
 		schema: omissionSchema,
 		initialData: { name: "visible", hidden: "x", show: false },
 		definition: {
-			version: 1,
+			version: 1 as const,
 			id: "owned-omission",
-			submission: { hiddenValues: "omit-inactive" },
+			submission: { hiddenValues: "omit-inactive" as const },
 			root: {
-				type: "group",
+				type: "group" as const,
 				id: "root",
 				children: [
-					{ type: "field", id: "name", widget: "text", binding: { namespace: "data", segments: ["name"] } },
 					{
-						type: "field",
+						type: "field" as const,
+						id: "name",
+						widget: "text",
+						binding: { namespace: "data" as const, segments: ["name"] },
+					},
+					{
+						type: "field" as const,
 						id: "hidden",
 						widget: "text",
-						binding: { namespace: "data", segments: ["hidden"] },
+						binding: { namespace: "data" as const, segments: ["hidden"] },
 						visible: literal(false),
-						...(include ? { submitWhenHidden: "include" } : {}),
+						...(include ? { submitWhenHidden: "include" as const } : {}),
 					},
-					{ type: "field", id: "show", widget: "checkbox", binding: { namespace: "data", segments: ["show"] } },
+					{
+						type: "field" as const,
+						id: "show",
+						widget: "checkbox",
+						binding: { namespace: "data" as const, segments: ["show"] },
+					},
 				],
 			},
 		},
-	};
+	} satisfies PlaygroundDocument;
 }
 
 export function duplicateOmissionHost(submit: Parameters<typeof installDemo>[1]) {
@@ -77,7 +88,7 @@ export function duplicateOmissionHost(submit: Parameters<typeof installDemo>[1])
 		fields,
 		(ref, value) => (ref.path[0] === "show" ? typeof value === "boolean" : typeof value === "string"),
 		(data) => {
-			if (data && typeof data === "object" && !Array.isArray(data)) submit?.(data);
+			if (data && typeof data === "object" && !Array.isArray(data)) submit?.({ ...data });
 		},
 		{},
 		undefined,

@@ -1,5 +1,57 @@
 # @formbar/declarative
 
+## 1.0.0-rc.1
+
+### Major Changes
+
+- 4879fcc: Replace serialized FormDefinition V1 Kuery expression slots and positional FormApi rendering with canonical Kalada V1 data programs, host-installed policy and strategy-owned reads, writes, rows, and submission. Existing definitions must be re-authored; there is no implicit adapter or dual engine.
+
+### Patch Changes
+
+- da0a748: Reject malformed strategy identity receipts using own data descriptors without invoking accessors during public admission or runtime installation checks.
+- da0a748: Accept publicly checked scoped primitive whole-item native and custom writers independently of alias spelling, whitespace, or grouping. Preserve exact typed item metadata, lexical scope, schema admission, and live row-token/revision authorization.
+- 8e27ed2: Keep private non-repeater direct writes behind statically checked Kalada WRITE locations and host-owned use-time authorization. No public write API is enabled.
+- ee71f85: Stage the private per-instance Kalada read strategy, #291 host-owned atomic whole-data submission capture and strategy-backed custom prop projection without changing the public V1 runtime, package exports or dependency graph. The public major switch and installed renderer remain #376 after #317.
+- abda3ac: Add a private host-owned atomic direct-write request for unscoped non-repeater data targets without enabling public write controls.
+- 8998ab4: Gate private repeater write callbacks on scoped static WRITE evidence and host-owned row identity and use-time authorization. No public write control is enabled.
+- eee4541: Add a private, capture-bound row enumeration port for host-installed Kalada data strategies without enabling public V1 or repeater writes.
+- da5c817: Define a private, versioned host-owned atomic direct-write contract for stable repeater row identities without enabling public write controls.
+- ee9d850: Add private Kalada V1 full-definition admission with public reference-codec validation, typed symbolic path and computation graph checks, and immutable host-supplied registry/schema/UI authority. This stages Formbar dependency analysis without changing public V1 validation or runtime behavior; the public breaking switch and major Changesets remain #376.
+
+## 0.23.0-rc.0
+
+### Minor Changes
+
+- 10b4eaa: Add validated definition field async registrations, typed per-instance ownership projection, and fail-closed overlapping-binding checks.
+- cd7009c: Run every configured definition-scoped async instance on the guarded post-egress FINAL candidate alongside legacy validators, even when sync validation fails. Keep candidate issues in the attempt lane and leave retained draft validation unchanged. Pass captured submit stage and context to definition-scoped async callbacks.
+- c460d74: Expose the public trusted definition-field issue input and concrete data-binding types for authored and generated scoped validators. Document registration, full-draft and candidate execution, and legacy migration without enabling omission.
+  Install prepared schema and caller validators exactly once through the eager/deferred factory; React delegates preparation validators to the factory while retaining its separate Standard Schema source validation.
+- ceaf702: Validate and retain an optional serialized hidden-values submission policy and field-only include-hidden override, and project the override onto each concrete field instance. This does not activate omission or change default submission.
+
+### Patch Changes
+
+- b4340af: Certify existing typed descendant diagnostics from uniquely bound object fields against the callback's draft or FINAL candidate data, without making unknown sibling data eligible for omission.
+- 08c1a2b: Preserve original certified scoped-issue evidence through a metadata-only guarded submit checkpoint and bind it to the real checked final omission and attempt-owned validation generations. Snapshot both generation lanes before pipeline hooks so competing validation cannot claim the attempt's FINAL transitions. This private receipt does not activate omission or change default submission.
+- ba13b66: Connect prepared definition-bound omission projections to the private guarded candidate checkpoint and preserve its single checked final witness for later submit work. No public submit activation is added.
+- be5b55a: Provide a private definition/form-bound, single-capture omission supplier and final structural checker seam without enabling hidden-value submission or changing the default submit path.
+- Updated dependencies [cbb9d59]
+- Updated dependencies [7698998]
+- Updated dependencies [0ed966b]
+- Updated dependencies [1bf5761]
+- Updated dependencies [08c1a2b]
+- Updated dependencies [439a847]
+- Updated dependencies [75454ce]
+- Updated dependencies [ed3d7c3]
+- Updated dependencies [ba13b66]
+- Updated dependencies [be5b55a]
+- Updated dependencies [bf56976]
+- Updated dependencies [10b4eaa]
+- Updated dependencies [cd7009c]
+- Updated dependencies [81c9913]
+- Updated dependencies [ca15dcb]
+  - @formbar/core@0.23.0-rc.0
+  - @formbar/expressions@0.23.0-rc.0
+
 ## 0.22.1
 
 ### Patch Changes

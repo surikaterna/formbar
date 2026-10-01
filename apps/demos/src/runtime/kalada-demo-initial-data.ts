@@ -3,7 +3,7 @@ import { copyJson } from "@formbar/expressions";
 import { initialTypeAllowed } from "./kalada-demo-initial-types";
 import { schemaNode } from "./kalada-demo-schema";
 import type { DemoSession } from "./kalada-demo-session";
-import { DemoStore, type Path } from "./kalada-demo-store";
+import { DemoStore, type Path, type Reference } from "./kalada-demo-store";
 const safeName = (value: unknown) =>
 	typeof value === "string" &&
 	value.length > 0 &&
@@ -27,7 +27,7 @@ export function captureInitialPayload(request: object) {
 	}) as Readonly<Record<string, JsonValue>>;
 }
 
-function matches(path: readonly (string | { row: string })[], concrete: readonly (string | number)[], prefix = false) {
+function matches(path: Reference["path"], concrete: readonly (string | number)[], prefix = false) {
 	return (
 		(prefix ? path.length >= concrete.length : path.length === concrete.length) &&
 		concrete.every((part, i) => (typeof part === "number" ? typeof path[i] === "object" : part === path[i]))
@@ -147,7 +147,8 @@ export function validateInitialPaths(session: DemoSession, value: JsonValue, pat
 	} else if (!exact) throw new TypeError("Unattested initial value");
 }
 
-function initialValueAllowed(session: DemoSession, path: readonly (string | { row: string })[], value: JsonValue) {
+function initialValueAllowed(session: DemoSession, path: Reference["path"], value: JsonValue) {
+	if (path.some((part) => typeof part === "number")) return false;
 	if (session.authority.valueAllowed({ namespace: "data", path }, value)) return true;
 	const node = session.authority.schema && schemaNode(session.authority.schema, path);
 	return !!node && initialTypeAllowed(node, value);

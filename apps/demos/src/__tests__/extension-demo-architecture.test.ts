@@ -242,6 +242,7 @@ describe("extension demo architecture", () => {
 			widget: "demo16.color",
 		});
 		const diagnostic = { definition: diagnosticSource.definition };
+		if (!diagnostic.definition) throw new Error("Missing diagnostic definition fixture");
 		const diagnosticIds = allNodes(diagnostic.definition.root).map((node) =>
 			node.type === "field" ? node.widget : node.type === "custom" ? node.renderer : "",
 		);

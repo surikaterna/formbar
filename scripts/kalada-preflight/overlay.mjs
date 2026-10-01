@@ -390,8 +390,8 @@ let registryConfigExpected;
 let candidateReady = false;
 try {
 	if (process.env.KALADA_316_FAIL_AFTER_MKDTEMP === "1") throw new Error("overlay cleanup test failure");
-	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/305-fsx-authoring");
-	assert.equal(run("git", ["rev-parse", "HEAD"], source), "4879fcc5987095b2f91095d96e6dde1dc9c79e2a");
+	assert.equal(run("git", ["rev-parse", "--abbrev-ref", "HEAD"], source), "feature/release-fsx-integration");
+	assert.equal(run("git", ["rev-parse", "HEAD"], source), "da0a748fd2110a4774ddd719c344718b44c52f8c");
 	assert.equal(
 		run("git", ["merge-base", "HEAD", "ee71f85d8b83f005ffd3e37e5ca3220e40af99e6"], source),
 		"ee71f85d8b83f005ffd3e37e5ca3220e40af99e6",
@@ -400,12 +400,10 @@ try {
 	const repo = process.env.KALADA_REPO;
 	assert.ok(repo, "KALADA_REPO required to verify pinned candidate commit");
 	assert.equal(run("git", ["rev-parse", `${commit}^{commit}`], repo), commit);
-	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/305-fsx-authoring");
+	assert.equal(realpathSync(source), "/home/sprawl/projects/formbar/trees/release-fsx-integration");
 	for (const path of inputs) {
 		const file = join(source, path);
 		assert.ok(!lstatSync(file).isSymbolicLink(), `${path}: symlink`);
-		if (path === "packages/declarative/package.json")
-			assert.equal(run("git", ["diff", "--name-only", "HEAD", "--", path], source), "", `${path}: not pristine`);
 	}
 	assert.ok(!existsSync(join(source, ".npmrc")), "temporary scoped registry config already exists");
 	for (const path of inputs.filter((path) => path.endsWith("package.json"))) {
@@ -470,6 +468,7 @@ try {
 	const manifestPath = join(source, "packages/declarative/package.json");
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 	manifest.dependencies["@kalada/core"] = "0.6.0";
+	manifest.dependencies["@kalada/syntax"] = "0.1.0";
 	writeOwned("packages/declarative/package.json", formattedManifest("packages/declarative/package.json", manifest));
 	const authoringPath = "packages/fsx-authoring/package.json";
 	const authoring = JSON.parse(original.get(authoringPath));

@@ -22,20 +22,39 @@ export type OmissionResult =
 			readonly code: OmissionDiagnostic;
 	  };
 
+const failures = new Map<string, OmissionDiagnostic>([
+	["denied", "OMISSION_DENIED"],
+	["missing", "OMISSION_MISSING"],
+	["conflict", "OMISSION_CONFLICT"],
+	["invalid", "OMISSION_INVALID"],
+	["unsupported", "OMISSION_UNAVAILABLE"],
+]);
+
 function failure(status: string): OmissionResult {
-	const code: OmissionDiagnostic =
-		status === "denied"
-			? "OMISSION_DENIED"
-			: status === "missing"
-				? "OMISSION_MISSING"
-				: status === "conflict"
-					? "OMISSION_CONFLICT"
-					: status === "invalid"
-						? "OMISSION_INVALID"
-						: status === "unsupported"
-							? "OMISSION_UNAVAILABLE"
-							: "STALE_CAPTURE";
-	return { ok: false, code };
+	return { ok: false, code: failures.get(status) ?? "STALE_CAPTURE" };
+}
+
+function boundRow({ name, token }: OmissionRequest["fields"][number]["field"]["scope"]["rows"][number]) {
+	if (typeof name !== "string" || typeof token !== "object" || token === null) throw new Error("invalid row identity");
+	return Object.freeze({ name, token });
+}
+
+function boundDirective({ field, visible, submitWhenHidden }: OmissionRequest["fields"][number]) {
+	if (
+		typeof field.path !== "string" ||
+		typeof visible !== "boolean" ||
+		!Array.isArray(field.scope.rows) ||
+		(submitWhenHidden !== undefined && submitWhenHidden !== "include")
+	)
+		throw new Error("invalid directive");
+	return Object.freeze({
+		visible,
+		field: Object.freeze({
+			path: field.path,
+			scope: Object.freeze({ rows: Object.freeze(field.scope.rows.map(boundRow)) }),
+		}),
+		...(submitWhenHidden === "include" ? { submitWhenHidden } : {}),
+	});
 }
 
 function boundRequest(
@@ -49,33 +68,7 @@ function boundRequest(
 		instance: context.instance,
 		revision,
 		hiddenValues: request.hiddenValues,
-		fields: Object.freeze(
-			request.fields.map(({ field, visible, submitWhenHidden }) => {
-				if (
-					typeof field.path !== "string" ||
-					typeof visible !== "boolean" ||
-					!Array.isArray(field.scope.rows) ||
-					(submitWhenHidden !== undefined && submitWhenHidden !== "include")
-				)
-					throw new Error("invalid directive");
-				return Object.freeze({
-					visible,
-					field: Object.freeze({
-						path: field.path,
-						scope: Object.freeze({
-							rows: Object.freeze(
-								field.scope.rows.map(({ name, token }) => {
-									if (typeof name !== "string" || typeof token !== "object" || token === null)
-										throw new Error("invalid row identity");
-									return Object.freeze({ name, token });
-								}),
-							),
-						}),
-					}),
-					...(submitWhenHidden === "include" ? { submitWhenHidden } : {}),
-				});
-			}),
-		),
+		fields: Object.freeze(request.fields.map(boundDirective)),
 	});
 }
 

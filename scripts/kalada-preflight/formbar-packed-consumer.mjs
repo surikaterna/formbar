@@ -142,21 +142,29 @@ async function install(args, directory, env) {
 	}
 }
 
-async function consumer(source, directory, tarballs, archives, major, env) {
+async function consumer(source, directory, tarballs, archives, major, env, normalRegistry = false) {
 	mkdirSync(directory);
 	writeFileSync(join(directory, "package.json"), JSON.stringify({ private: true, type: "module" }));
-	copyFileSync(join(source, ".npmrc"), join(directory, ".npmrc"));
+	if (!normalRegistry) copyFileSync(join(source, ".npmrc"), join(directory, ".npmrc"));
 	const versions = major === 18 ? ["18.3.1", "18.3.27", "18.3.7"] : ["19.2.0", "19.2.14", "19.2.3"];
 	await install(
 		[
 			"install",
-			"--ignore-scripts",
+			...(normalRegistry ? [] : ["--ignore-scripts"]),
 			"--no-package-lock",
 			"--no-save",
 			"--no-audit",
 			"--no-fund",
 			...tarballs,
 			...archives.map(({ file }) => file),
+			...(normalRegistry
+				? [
+						"--registry=https://registry.npmjs.org",
+						"@kalada/core@0.6.0",
+						"@kalada/syntax@0.1.0",
+						"@kalada/provider-routing@0.1.0",
+					]
+				: []),
 			`react@${versions[0]}`,
 			`react-dom@${versions[0]}`,
 			`@types/react@${versions[1]}`,
@@ -169,66 +177,40 @@ async function consumer(source, directory, tarballs, archives, major, env) {
 		env,
 	);
 	verify(directory, source);
+	prepareFixtures(source, directory, env);
+	compileTypes(directory, env);
+	parity(directory, env, major);
+	runCases(directory, env, major);
+}
+
+function prepareFixtures(source, directory, env) {
 	for (const file of files) copyFileSync(join(fixtures, file), join(directory, file));
 	const fsxFixtures = join(source, "tests/consumers/fsx-authoring");
 	for (const file of ["case.mjs", "esm.mjs", "cjs.cjs", "types.mts", "types.cts"])
 		copyFileSync(join(fsxFixtures, file), join(directory, `fsx-${file}`));
-	run(
-		"bun",
-		[
-			"build",
-			join(fsxFixtures, "fixture.ts"),
-			"--target=browser",
-			"--format=esm",
-			"--packages=external",
-			"--outfile",
-			join(directory, "fsx-fixture.mjs"),
-		],
-		source,
-		env,
-	);
-	run(
-		"bun",
-		[
-			"build",
-			join(fixtures, "feedback-fixture.ts"),
-			"--target=node",
-			"--format=esm",
-			"--packages=external",
-			"--outfile",
-			join(directory, "feedback-fixture.mjs"),
-		],
-		source,
-		env,
-	);
-	run(
-		"bun",
-		[
-			"build",
-			join(fixtures, "initialization-fixture.ts"),
-			"--target=node",
-			"--format=esm",
-			"--packages=external",
-			"--outfile",
-			join(directory, "initialization-fixture.mjs"),
-		],
-		source,
-		env,
-	);
-	run(
-		"bun",
-		[
-			"build",
-			join(fixtures, "sections-fixture.ts"),
-			"--target=node",
-			"--format=esm",
-			"--packages=external",
-			"--outfile",
-			join(directory, "sections-fixture.mjs"),
-		],
-		source,
-		env,
-	);
+	for (const [input, target, output] of [
+		[join(fsxFixtures, "fixture.ts"), "browser", "fsx-fixture.mjs"],
+		[join(fixtures, "feedback-fixture.ts"), "node", "feedback-fixture.mjs"],
+		[join(fixtures, "initialization-fixture.ts"), "node", "initialization-fixture.mjs"],
+		[join(fixtures, "sections-fixture.ts"), "node", "sections-fixture.mjs"],
+	])
+		run(
+			"bun",
+			[
+				"build",
+				input,
+				`--target=${target}`,
+				"--format=esm",
+				"--packages=external",
+				"--outfile",
+				join(directory, output),
+			],
+			source,
+			env,
+		);
+}
+
+function compileTypes(directory, env) {
 	run(
 		"node",
 		[
@@ -253,7 +235,9 @@ async function consumer(source, directory, tarballs, archives, major, env) {
 		directory,
 		env,
 	);
-	parity(directory, env, major);
+}
+
+function runCases(directory, env, major) {
 	for (const file of ["esm.mjs", "cjs.cjs"]) run("node", [file], directory, env);
 	run("node", ["hooks.mjs"], directory, env);
 	run("node", ["commit.mjs"], directory, env);
@@ -282,4 +266,12 @@ export async function runFormbarPackedConsumer(archives, temp, source, env) {
 	const tarballs = pack(source, directory, env);
 	for (const major of [18, 19])
 		await consumer(source, join(directory, `react-${major}`), tarballs, archives, major, env);
+}
+
+export async function runNormalFormbarPackedConsumer(temp, source, env) {
+	const directory = join(temp, "normal-packed-formbar");
+	mkdirSync(directory);
+	const tarballs = pack(source, directory, env);
+	for (const major of [18, 19])
+		await consumer(source, join(directory, `react-${major}`), tarballs, [], major, env, true);
 }

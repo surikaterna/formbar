@@ -1,10 +1,11 @@
-import type { DefinitionProgram, JsonValue } from "@formbar/declarative";
+import type { JsonValue } from "@formbar/declarative";
 import { compileKaladaV1Program } from "@kalada/core";
+import { kaladaJson } from "./kalada-demo-json";
 import { readDemo } from "./kalada-demo-reads";
 import type { DemoSession, Node } from "./kalada-demo-session";
 import type { Context, Reference, Scope, Strategy } from "./kalada-demo-store";
 
-type Ref = Extract<DefinitionProgram["expression"], { kind: "ref" }>["ref"];
+type Ref = { namespace: "data" | "ui"; segments: string[]; scope?: string };
 type Scopes = Readonly<Record<string, Reference["path"]>>;
 type Field = Parameters<NonNullable<Strategy["captureOmission"]>>[1]["fields"][number];
 type OwnedField = Field & { readonly disabled: boolean; readonly readOnly: boolean };
@@ -43,7 +44,9 @@ export function evaluateBoolean(
 	const result = compiled.value.evaluate((ref) => {
 		const target = staticRef(ref, scopes);
 		const read = readDemo(session, context, session.store.revision, target, ref.scope ? scope : { rows: [] });
-		return read.status === "found" ? { found: true, value: read.value } : { found: false, reason: "denied" };
+		return read.status === "found"
+			? { found: true, value: kaladaJson(read.value) }
+			: { found: false, reason: "denied" };
 	});
 	if (!result.ok || typeof result.value !== "boolean") throw new TypeError("Boolean visibility required");
 	return result.value;

@@ -72,6 +72,7 @@ describe("trusted installed demo 16 widgets", () => {
 				controlId: "rating",
 				labelId: "rating-label",
 				descriptionId: "rating-description",
+				errorId: "rating-error",
 				describedBy: "rating-description",
 				invalid: false,
 				required: true,

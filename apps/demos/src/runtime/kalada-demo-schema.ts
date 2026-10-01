@@ -1,5 +1,6 @@
 import type { JsonValue } from "@formbar/declarative";
 import { createJsonSchemaValidator } from "@formbar/from-schema";
+import type { Reference } from "./kalada-demo-store";
 export type Node = Record<string, unknown>;
 export type Path = { path: readonly (string | { row: string })[]; kind: "array" | "value" };
 const object = (value: unknown): value is Node => !!value && typeof value === "object" && !Array.isArray(value);
@@ -8,9 +9,10 @@ const property = (node: Node, part: string): Node | undefined =>
 		? node.properties[part]
 		: undefined;
 
-export function schemaNode(schema: Node, path: Path["path"]): Node | undefined {
+export function schemaNode(schema: Node, path: Reference["path"]): Node | undefined {
 	let node: Node = schema;
 	for (const part of path) {
+		if (typeof part === "number") return;
 		const child = typeof part === "string" ? property(node, part) : object(node.items) ? node.items : undefined;
 		if (!child) return;
 		node = child;

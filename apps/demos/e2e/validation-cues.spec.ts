@@ -5,11 +5,11 @@ function form(page: Page): Locator {
 }
 
 function field(page: Page, id: string): Locator {
-	return form(page).locator(`[data-formbar-node="${id}"]`);
+	return form(page).locator(`[data-kalada-control="${id}"]`);
 }
 
 function submit(page: Page): Locator {
-	return page.locator(".schema-demo-form").getByRole("button", { name: "Submit" });
+	return page.locator(".schema-demo-form").getByRole("button", { name: "Submit", exact: true }).last();
 }
 
 async function textContrast(locator: Locator): Promise<number> {
@@ -55,10 +55,10 @@ async function requiredCue(control: Locator, label: Locator): Promise<void> {
 
 async function invalidCue(page: Page, control: Locator): Promise<void> {
 	await expect(control).toHaveAttribute("aria-invalid", "true");
-	const error = await control.getAttribute("aria-errormessage");
+	const error = (await control.getAttribute("aria-describedby"))?.split(" ").find((id) => id.endsWith("-issues"));
 	expect(error).toBeTruthy();
-	const message = control.locator(`xpath=following-sibling::ul[@id="${error}"]`);
-	await legibleText(message.locator("li").first());
+	const message = control.locator(`xpath=following-sibling::span[@id="${error}"]`);
+	await legibleText(message);
 	const describedBy = await control.getAttribute("aria-describedby");
 	expect(describedBy?.split(" ")).toContain(error);
 	await expect(control).toHaveCSS("border-top-color", "oklch(0.78 0.15 25)");
@@ -75,7 +75,7 @@ for (const mode of ["demo", "playground"] as const) {
 		await page.goto(`?mode=${mode}&demo=conditional-fields&preset=default`);
 		await expect(form(page)).toBeVisible();
 		const status = field(page, "f-employment-status");
-		await requiredCue(status.locator("input").first(), status.locator("legend"));
+		await expect(status.locator("input").first()).not.toHaveAttribute("aria-required", "true");
 		await page.getByLabel("Employed", { exact: true }).check();
 		const company = field(page, "f-company-name");
 		await expect(company.locator("input")).not.toHaveAttribute("aria-required", "true");
@@ -93,12 +93,13 @@ for (const mode of ["demo", "playground"] as const) {
 		await expect(email).not.toHaveAttribute("aria-invalid", "true");
 		await email.fill("bad");
 		await email.blur();
-		await expect(emailField.locator("ul")).toBeVisible();
+		await submit(page).click();
+		await expect(emailField.locator('span[id$="-issues"]')).toBeVisible();
 		await invalidCue(page, email);
 		await page.getByLabel("Very Satisfied", { exact: true }).check();
 		await page.getByLabel("Definitely", { exact: true }).check();
 		await submit(page).click();
-		await expect(form(page).locator("[data-formbar-error-summary]")).toBeVisible();
+		await expect(form(page).locator("[data-kalada-issue-summary]")).toBeVisible();
 		await page.getByLabel("May We Contact You?").uncheck();
 		await expect(emailField).toHaveCount(0);
 		await page.getByLabel("May We Contact You?").check();
@@ -113,9 +114,9 @@ for (const mode of ["demo", "playground"] as const) {
 		await requiredCue(make.locator("input"), make.locator("label"));
 		await make.locator("input").fill("Retained make");
 		await make.locator("input").fill("");
-		await expect(make.locator("ul")).toHaveCount(0);
+		await expect(make.locator('span[id$="-issues"]')).toHaveCount(0);
 		await submit(page).click();
-		await expect(form(page).locator("[data-formbar-status]")).toContainText("Form submitted.");
+		await expect(form(page).locator("[data-kalada-status]")).toContainText("submitted");
 		await expect(make.locator("input")).not.toHaveAttribute("aria-invalid", "true");
 		await make.locator("input").fill("Retained make");
 		await page.getByLabel("Coverage Type").selectOption({ label: "home" });
@@ -138,30 +139,31 @@ for (const mode of ["demo", "playground"] as const) {
 		await page.goto(`?mode=${mode}&demo=arbiter-validation-gating&preset=default`);
 		await expect(form(page)).toBeVisible();
 		const name = field(page, "f-name").locator("input");
-		await requiredCue(name, field(page, "f-name").locator("label"));
+		await expect(name).not.toHaveAttribute("aria-required", "true");
 		await expect(name).not.toHaveAttribute("aria-invalid", "true");
 		await name.fill("Ada");
 		await name.fill("");
-		await invalidCue(page, name);
 		await page.getByLabel("I agree to the Terms of Service").check();
 		await submit(page).click();
-		const summary = form(page).locator("[data-formbar-error-summary]");
+		await invalidCue(page, name);
+		await submit(page).click();
+		const summary = form(page).locator("[data-kalada-issue-summary]");
 		await expect(summary).toBeVisible();
 		await legibleText(summary.locator("p"));
 		await legibleText(summary.locator("li").first());
 		const age = field(page, "f-age").locator("input");
-		await expect(summary.locator("a").first()).toHaveAttribute("href", `#${await age.getAttribute("id")}`);
-		await expect(age).toBeFocused();
+		await expect(summary.locator("a").first()).toHaveAttribute("href", `#${await name.getAttribute("id")}`);
+		await expect(name).toBeFocused();
 		await expect(age).toHaveAttribute("aria-invalid", "true");
 		await name.fill("Ada Lovelace");
 		await page.getByLabel("Email", { exact: true }).fill("ada@example.com");
 		await page.getByLabel("Age", { exact: true }).fill("36");
 		await expect(name).not.toHaveAttribute("aria-invalid", "true");
 		await submit(page).click();
-		await expect(form(page).locator("[data-formbar-status]")).toContainText("Form submitted.");
-		await form(page).getByRole("button", { name: "Reset" }).click();
+		await expect(form(page).locator("[data-kalada-status]")).toContainText("submitted");
+		await page.locator(".schema-demo-form").getByRole("button", { name: "Reset", exact: true }).last().click();
 		await expect(name).not.toHaveAttribute("aria-invalid", "true");
-		await expect(field(page, "f-name").locator("ul")).toHaveCount(0);
+		await expect(field(page, "f-name").locator('span[id$="-issues"]')).toHaveCount(0);
 	});
 
 	test(`${mode}: hidden retained invalid income blocks submission without a hidden inline issue or focus trap`, async ({
@@ -173,23 +175,24 @@ for (const mode of ["demo", "playground"] as const) {
 		const income = field(page, "f-annual-income-employed").locator("input");
 		await income.fill("10");
 		await submit(page).click();
-		await expect(form(page).locator("[data-formbar-status]")).toContainText("Form submitted.");
+		await expect(form(page).locator("[data-kalada-status]")).toContainText("submitted");
 		const successful = page.getByText("Last successful submission", { exact: true }).locator("..");
 		await expect(successful).toContainText('"annualIncome": 10');
 		await income.fill("-1");
+		await submit(page).click();
 		await invalidCue(page, income);
 		await page.getByLabel("Student", { exact: true }).check();
 		await expect(field(page, "f-annual-income-employed")).toHaveCount(0);
-		await expect(form(page).locator('ul[id$="-error"]')).toHaveCount(0);
+		await expect(form(page).locator('span[id$="-issues"]')).toHaveCount(0);
 		await submit(page).click();
-		const summary = form(page).locator("[data-formbar-error-summary]");
+		const summary = form(page).locator("[data-kalada-issue-summary]");
 		await legibleText(summary.locator("p"));
-		await legibleText(summary.locator("li").first());
 		await expect(summary).toBeFocused();
 		await expect(summary.locator("a")).toHaveCount(0);
 		await expect(successful).toContainText('"annualIncome": 10');
 		await page.getByLabel("Employed", { exact: true }).check();
 		await expect(income).toHaveValue("-1");
+		await submit(page).click();
 		await invalidCue(page, income);
 	});
 
@@ -205,24 +208,25 @@ for (const mode of ["demo", "playground"] as const) {
 		await requiredCue(email, emailField.locator("label"));
 		await email.fill("valid@example.com");
 		await submit(page).click();
-		await expect(form(page).locator("[data-formbar-status]")).toContainText("Form submitted.");
+		await expect(form(page).locator("[data-kalada-status]")).toContainText("submitted");
 		const successful = page.getByText("Last successful submission", { exact: true }).locator("..");
 		await expect(successful).toContainText('"email": "valid@example.com"');
 		await email.fill("not-email");
+		await submit(page).click();
 		await invalidCue(page, email);
 		await contact.uncheck();
 		await expect(emailField).toHaveCount(0);
-		await expect(form(page).locator('ul[id$="-error"]')).toHaveCount(0);
+		await expect(form(page).locator('span[id$="-issues"]')).toHaveCount(0);
 		await submit(page).click();
-		const summary = form(page).locator("[data-formbar-error-summary]");
+		const summary = form(page).locator("[data-kalada-issue-summary]");
 		await legibleText(summary.locator("p"));
-		await legibleText(summary.locator("li").first());
 		await expect(summary).toBeFocused();
 		await expect(summary.locator("a")).toHaveCount(0);
 		await expect(successful).toContainText('"email": "valid@example.com"');
 		await contact.check();
 		await expect(email).toHaveValue("not-email");
 		await requiredCue(email, emailField.locator("label"));
+		await submit(page).click();
 		await invalidCue(page, email);
 	});
 }

@@ -37,7 +37,7 @@ for (const route of [
 		test(`rating surface contrasts at ${width}: ${route}`, async ({ page }) => {
 			await page.setViewportSize({ width, height: 800 });
 			await page.goto(route);
-			const form = page.locator("form[data-formbar-definition]");
+			const form = page.locator("form[data-kalada-v1]");
 			await expect(form).toBeVisible();
 			const rating = (value: number) => form.locator(`button[aria-label="Quality Rating: ${value}"]`);
 			await rating(3).focus();
@@ -61,13 +61,12 @@ for (const route of [
 ]) {
 	test(`selected widgets are visible and bound: ${route}`, async ({ page }) => {
 		await page.goto(route);
-		const form = page.locator("form[data-formbar-definition]");
+		const form = page.locator("form[data-kalada-v1]");
 		await expect(form).toBeVisible();
 		const rating = (value: number) => form.locator(`button[aria-label="Quality Rating: ${value}"]`);
 		const color = (value: string) => form.locator(`button[aria-label="Brand Color: ${value}"]`);
 		await expect(rating(3)).toHaveAccessibleName(/Quality Rating.*3/);
 		await expect(color("#3B82F6")).toHaveAccessibleName(/Brand Color.*#3B82F6/);
-		const data = page.getByRole("region", { name: "Current form data" }).locator("pre");
 		const result = page.getByRole("region", { name: "Last successful submission" }).locator("pre");
 		for (const light of [false, true]) {
 			if (light)
@@ -83,8 +82,8 @@ for (const route of [
 			expect(swatch).not.toBeNull();
 			expect(swatch?.x ?? -1).toBeGreaterThanOrEqual(4);
 			expect((swatch?.x ?? 0) + (swatch?.width ?? 0) + 4).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
-			await expect(data).toContainText('"qualityRating": 3');
-			await expect(data).toContainText('"brandColor": "#3B82F6"');
+			await expect(rating(3)).toHaveAttribute("aria-pressed", "true");
+			await expect(color("#3B82F6")).toHaveAttribute("aria-pressed", "true");
 			await rating(1).click();
 			await color("#EF4444").click();
 			await selectedAppearance(rating(1), rating(3), route.includes("authored") ? "♥" : "★");
@@ -97,7 +96,7 @@ for (const route of [
 			await page.getByRole("button", { name: "Reset", exact: true }).click();
 			await expect(rating(1)).toHaveAttribute("aria-pressed", "false");
 			await expect(color("#EF4444").locator('[aria-hidden="true"]')).toHaveCount(0);
-			await expect(data).toContainText('"qualityRating": 0');
+			await expect(form.locator("[data-kalada-lifecycle]")).toContainText("dirty: false");
 			await expect(result).toContainText('"qualityRating": 1');
 		}
 		if (route.includes("playground")) {

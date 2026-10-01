@@ -16,6 +16,7 @@ export interface CompiledPresentation {
 export interface CompiledContainerPresentation {
 	readonly title?: string;
 	readonly description?: string;
+	readonly presentation?: NodePresentation;
 }
 
 export function presentationFor(node: DescriptorNode, provider: string): CompiledPresentation {

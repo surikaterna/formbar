@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("demo 10 deep link submits and resets historical DOB and phone text", async ({ page }) => {
 	await page.goto("?mode=playground&demo=multi-section-responsive&preset=default");
 	const preview = page.getByLabel("Running preview");
-	await expect(preview.locator('form[data-formbar-definition="multi-section-responsive"]')).toBeVisible();
+	await expect(preview.locator("form[data-kalada-v1]")).toBeVisible();
 	const dob = preview.getByRole("textbox", { name: "Date of Birth" });
 	const phone = preview.getByRole("textbox", { name: "Emergency Contact Phone" });
 	await expect(dob).toHaveAttribute("type", "text");

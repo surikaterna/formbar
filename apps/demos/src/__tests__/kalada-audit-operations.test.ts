@@ -1,5 +1,7 @@
+import type { FormDefinition } from "@formbar/declarative";
 import { expect, it, vi } from "vitest";
 import { dataRef } from "../demos/kalada-fixture-programs";
+import type { PlaygroundDocument } from "../playground/contracts";
 import { disposeDemoSession, installDemo } from "../runtime/kalada-demo-install";
 import type { Issue } from "../runtime/kalada-demo-store";
 import { deferred, omissionDocument } from "./kalada-audit-fixtures";
@@ -12,7 +14,7 @@ function submittedHost(
 ) {
 	const source = omit
 		? omissionDocument()
-		: {
+		: ({
 				version: 2 as const,
 				schema: { type: "object", properties: { name: { type: "string" } } },
 				initialData: { name: "valid" },
@@ -27,8 +29,8 @@ function submittedHost(
 						],
 					},
 				},
-			};
-	const definition = {
+			} satisfies PlaygroundDocument);
+	const definition: FormDefinition = {
 		...source.definition,
 		root: {
 			...source.definition.root,

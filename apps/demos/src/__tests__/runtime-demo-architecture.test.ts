@@ -92,7 +92,7 @@ describe("runtime demo architecture", () => {
 			expect(JSON.parse(JSON.stringify(source.schema)), id).toEqual(source.schema);
 			expect(JSON.parse(JSON.stringify(source.definition)), id).toEqual(source.definition);
 			const host = installDemo(
-				{ version: 2, schema: source.schema, definition: source.definition, initialData: source.initialData },
+				{ version: 2, schema: source.schema, definition: source.definition ?? null, initialData: source.initialData },
 				undefined,
 				[
 					"formbar.standard.v1",

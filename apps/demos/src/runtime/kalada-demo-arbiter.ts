@@ -15,7 +15,11 @@ export interface DemoArbiter {
 	stage(data: JsonValue): DemoArbiter;
 }
 
-function evaluate(plugin: ReturnType<typeof createArbiterPlugin>, data: JsonValue, ui: Record<string, JsonValue>) {
+function evaluate(
+	plugin: ReturnType<typeof createArbiterPlugin>,
+	data: Readonly<Record<string, JsonValue>>,
+	ui: Record<string, JsonValue>,
+) {
 	return plugin.evaluate?.({
 		action: { type: "demo.sync" },
 		data,
@@ -39,7 +43,7 @@ export function createDemoArbiter(rules: Rules, initial: Readonly<Record<string,
 		ui = { ...base, ...ui, ...managed };
 		if (!plugin?.evaluate) return;
 		if (!data || typeof data !== "object" || Array.isArray(data)) return;
-		const result = evaluate(plugin, data, ui);
+		const result = evaluate(plugin, Object.fromEntries(Object.entries(data)), ui);
 		if (!result) return;
 		for (const policy of result.fieldPolicy ?? []) {
 			if (typeof policy.path !== "string" || !policy.path.startsWith("/") || policy.path.slice(1).includes("/"))

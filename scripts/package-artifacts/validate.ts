@@ -1,6 +1,7 @@
 import { deepStrictEqual, strictEqual } from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, posix, relative, resolve } from "node:path";
+import { checkProductionDeclarations, checkRcManifests, readRcPlan } from "../release/rc-workspace-plan.mjs";
 import type { ExportConditions, PackageManifest, PackagePolicy } from "./policy";
 import { exportEntries, expressionAdr, standardPackageFiles } from "./policy";
 
@@ -69,14 +70,7 @@ export function validateRcDependencies(
 		const floor = /^\^(.+)$/.exec(range)?.[1];
 		const expected = rcVersion.exec(target);
 		const actual = floor && rcVersion.exec(floor);
-		if (
-			name !== "@formbar/expressions" &&
-			expected &&
-			actual &&
-			actual[1] === expected[1] &&
-			BigInt(actual[2]) <= BigInt(expected[2])
-		)
-			continue;
+		if (expected && actual && actual[1] === expected[1] && BigInt(actual[2]) <= BigInt(expected[2])) continue;
 		const stableFloor = floor && stableParts.exec(floor);
 		const stableTarget = stableParts.exec(target);
 		if (name === "@formbar/expressions" && stableFloor && stableTarget) {
@@ -91,6 +85,18 @@ export function validateRcDependencies(
 		}
 		fail(policy, `invalid prerelease dependency ${name}: ${range} for ${target}`);
 	}
+}
+
+export function validateRcPlan(root: string, manifests: readonly PackageManifest[]): void {
+	if (!manifests.some(({ version }) => rcVersion.test(version))) return;
+	checkRcManifests(manifests);
+	checkProductionDeclarations(manifests);
+	const source = readRcPlan(root);
+	deepStrictEqual(
+		manifests.map(({ name, version }) => ({ name, version })),
+		source.map(({ name, version }) => ({ name, version })),
+		"packed RC versions differ from workspace plan",
+	);
 }
 
 export function validateManifest(

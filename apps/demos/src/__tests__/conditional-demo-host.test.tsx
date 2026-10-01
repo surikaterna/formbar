@@ -30,7 +30,7 @@ function mount(fixture: SchemaDemoFixture, onSubmit = vi.fn()) {
 function choose(container: HTMLElement, label: string) {
 	const radio = [...container.querySelectorAll("form label")]
 		.find((item) => item.textContent === label)
-		?.querySelector('input[type="radio"]');
+		?.querySelector<HTMLInputElement>('input[type="radio"]');
 	if (!radio) throw new Error(`Missing ${label} choice`);
 	act(() => radio.click());
 }

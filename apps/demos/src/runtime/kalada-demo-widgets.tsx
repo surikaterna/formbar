@@ -30,45 +30,49 @@ function Rating(props: KaladaControlProps) {
 				<button
 					key={rating}
 					type="button"
-					aria-label={`${props.nodeId}: ${rating}`}
+					aria-label={`${props.label ?? props.nodeId}: ${rating}`}
+					className={`rounded px-1 text-xl leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${props.value === rating ? "bg-foreground font-bold text-background" : "text-foreground"}`}
 					aria-pressed={props.value === rating}
 					disabled={props.disabled || props.readOnly}
 					onClick={() => write(props, rating)}
 				>
-					{props.props.icon === "heart" ? "♥" : "★"}
+					<span aria-hidden="true">{props.props.icon === "heart" ? "♥" : "★"}</span>
 				</button>
 			))}
 		</fieldset>
 	);
 }
 
-function Choices(props: KaladaControlProps & { kind: string }) {
+function CheckboxChoices(props: KaladaControlProps & { kind: string }) {
 	const entries = options(props);
-	if (props.kind === "demo16.checkbox-group") {
-		const selected = Array.isArray(props.value) ? props.value : [];
-		return (
-			<fieldset className="m-0 min-w-0 border-0 p-0" data-widget={props.kind} {...widgetAccessibility(props)}>
-				{entries.map((entry) => (
-					<label key={optionKey(entry)}>
-						<input
-							type="checkbox"
-							checked={selected.includes(entry.value)}
-							disabled={props.disabled || props.readOnly || entry.disabled}
-							onChange={() =>
-								write(
-									props,
-									selected.includes(entry.value)
-										? selected.filter((item) => item !== entry.value)
-										: [...selected, entry.value],
-								)
-							}
-						/>
-						{entry.title ?? String(entry.value)}
-					</label>
-				))}
-			</fieldset>
-		);
-	}
+	const selected = Array.isArray(props.value) ? props.value : [];
+	return (
+		<fieldset className="m-0 min-w-0 border-0 p-0" data-widget={props.kind} {...widgetAccessibility(props)}>
+			{entries.map((entry) => (
+				<label key={optionKey(entry)}>
+					<input
+						type="checkbox"
+						checked={selected.includes(entry.value)}
+						disabled={props.disabled || props.readOnly || entry.disabled}
+						onChange={() =>
+							write(
+								props,
+								selected.includes(entry.value)
+									? selected.filter((item) => item !== entry.value)
+									: [...selected, entry.value],
+							)
+						}
+					/>
+					{entry.title ?? String(entry.value)}
+				</label>
+			))}
+		</fieldset>
+	);
+}
+
+function Choices(props: KaladaControlProps & { kind: string }) {
+	if (props.kind === "demo16.checkbox-group") return <CheckboxChoices {...props} />;
+	const entries = options(props);
 	return (
 		<fieldset className="m-0 min-w-0 border-0 p-0" data-widget={props.kind} {...widgetAccessibility(props)}>
 			{entries.map((entry) => (
@@ -77,10 +81,16 @@ function Choices(props: KaladaControlProps & { kind: string }) {
 					type="button"
 					aria-label={`${props.props.label ?? props.nodeId}: ${entry.title ?? entry.value}`}
 					aria-pressed={props.value === entry.value}
+					className={
+						props.value === entry.value
+							? "bg-foreground font-bold text-background ring-2 ring-foreground"
+							: "text-foreground"
+					}
 					disabled={props.disabled || props.readOnly || entry.disabled}
 					onClick={() => write(props, entry.value)}
 				>
 					{entry.title ?? String(entry.value)}
+					{props.value === entry.value ? <span aria-hidden="true">✓</span> : null}
 				</button>
 			))}
 		</fieldset>
@@ -115,6 +125,8 @@ function Select(props: KaladaControlProps) {
 }
 
 function Range(props: KaladaControlProps & { kind: string }) {
+	const minimum = typeof props.props.min === "number" ? props.props.min : 0;
+	const displayed = typeof props.value === "number" ? props.value : minimum;
 	return (
 		<div data-widget={props.kind}>
 			{props.kind === "demo16.progress" ? <progress value={Number(props.value ?? 0)} max={100} /> : null}
@@ -123,11 +135,14 @@ function Range(props: KaladaControlProps & { kind: string }) {
 				required={props.required}
 				type="range"
 				aria-label={props.nodeId}
-				value={Number(props.value ?? 0)}
+				value={displayed}
+				min={typeof props.props.min === "number" ? props.props.min : 0}
+				max={typeof props.props.max === "number" ? props.props.max : 100}
+				step={typeof props.props.step === "number" ? props.props.step : 1}
 				disabled={props.disabled || props.readOnly}
 				onChange={(event) => write(props, event.currentTarget.valueAsNumber)}
 			/>
-			<output>{String(props.value ?? 0)}</output>
+			<output>{String(displayed)}</output>
 		</div>
 	);
 }

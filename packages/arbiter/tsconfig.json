@@ -11,7 +11,7 @@
 		"sourceMap": true,
 		"composite": true,
 		"rootDir": "src",
-		"outDir": "dist"
+		"outDir": ".types"
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["src/__tests__"]

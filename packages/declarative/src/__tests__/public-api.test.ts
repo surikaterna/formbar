@@ -43,10 +43,13 @@ describe("public package boundary", () => {
 		for (const source of sources) checkSource(source);
 	});
 
-	it("declares a public source-free package with only neutral framework dependencies", () => {
+	it("declares a public source-free package with package-owned released Kalada dependencies", () => {
 		const manifest = JSON.parse(read("packages/declarative/package.json"));
 		expect(manifest.files).toEqual(["dist"]);
-		expectNeutralDependencies(manifest.dependencies, readNeutralVersions());
+		const { "@kalada/core": core, "@kalada/syntax": syntax, ...neutral } = manifest.dependencies;
+		expect(core).toBe("0.6.0");
+		expect(syntax).toBe("0.1.0");
+		expectNeutralDependencies(neutral, readNeutralVersions());
 		expect(manifest.exports["."]).toEqual({
 			import: { types: "./dist/index.d.ts", default: "./dist/index.js" },
 			require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },

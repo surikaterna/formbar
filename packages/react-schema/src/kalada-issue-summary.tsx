@@ -1,5 +1,5 @@
 import type { KaladaV1Host } from "@formbar/declarative";
-import { type RefObject, useEffect } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 type View = ReturnType<KaladaV1Host["snapshot"]>;
 const messages = (control: View["controls"][number]) => [
@@ -35,8 +35,17 @@ export function useDeniedFocus(
 	form: RefObject<HTMLFormElement | null>,
 	summary: RefObject<HTMLDivElement | null>,
 ) {
+	const focused = useRef<{ host: KaladaV1Host; attempt: number } | undefined>(undefined);
 	useEffect(() => {
+		if (status !== "denied") {
+			focused.current = undefined;
+			return;
+		}
 		if (status !== "denied" || host.currentRevision() !== view.revision || !form.current?.isConnected) return;
+		const attempt = view.lifecycle?.submitCount ?? 0;
+		if (focused.current?.host === host && focused.current.attempt === attempt) return;
+		// Blur/metadata publications are not new failed attempts and must not trap keyboard focus.
+		focused.current = { host, attempt };
 		for (const control of view.controls)
 			if (messages(control).length && focusControl(form.current, `${prefix}-${encodeURIComponent(control.key)}`))
 				return;

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runNormalFormbarPackedConsumer } from "../kalada-preflight/formbar-packed-consumer.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url));
@@ -169,7 +170,6 @@ try {
 		npm(
 			[
 				"install",
-				"--ignore-scripts",
 				"--no-package-lock",
 				"--no-save",
 				"--install-strategy=nested",
@@ -201,46 +201,10 @@ try {
 				execFileSync(process.execPath, [resolve(directory, fixture)], { cwd: directory, encoding: "utf8" }).trim(),
 			);
 		}
-		for (const fixture of ["disposed-submit.cjs", "disposed-submit.mjs", "disposed-submit-run.cjs"])
-			writeFileSync(resolve(directory, fixture), readFileSync(resolve(fixtures, fixture)));
-		for (const format of ["mjs", "cjs"])
-			console.log(
-				execFileSync(
-					process.execPath,
-					[resolve(directory, format === "mjs" ? "disposed-submit.mjs" : "disposed-submit-run.cjs")],
-					{ cwd: directory, encoding: "utf8" },
-				).trim(),
-			);
-		const defaultsFixture = resolve(directory, "schema-defaults.mjs");
-		writeFileSync(defaultsFixture, readFileSync(resolve(fixtures, "schema-defaults.mjs")));
-		console.log(execFileSync(process.execPath, [defaultsFixture], { cwd: directory, encoding: "utf8" }).trim());
-		const lifecycleFixture = resolve(directory, "strict-lifecycle.mjs");
-		writeFileSync(lifecycleFixture, readFileSync(resolve(fixtures, "strict-lifecycle.mjs")));
-		console.log(execFileSync(process.execPath, [lifecycleFixture], { cwd: directory, encoding: "utf8" }).trim());
-		for (const fixture of [
-			"omission-certified.cjs",
-			"omission-cases.cjs",
-			"omission-renderer-cases.cjs",
-			"omission-renderer.mjs",
-			"omission-renderer.cjs",
-			"omission-public.mjs",
-			"omission-public.cjs",
-		]) {
-			const target = resolve(directory, fixture);
-			writeFileSync(target, readFileSync(resolve(fixtures, fixture)));
-			if (fixture.endsWith("-cases.cjs") || fixture === "omission-cases.cjs" || fixture === "omission-certified.cjs")
-				continue;
-			console.log(execFileSync(process.execPath, [target], { cwd: directory, encoding: "utf8" }).trim());
-		}
-		for (const format of ["mjs", "cjs"]) {
-			const scopedFixture = resolve(directory, `scoped-sync.${format}`);
-			writeFileSync(scopedFixture, readFileSync(resolve(fixtures, `scoped-sync.${format}`)));
-			console.log(execFileSync(process.execPath, [scopedFixture], { cwd: directory, encoding: "utf8" }).trim());
-			const asyncFixture = resolve(directory, `scoped-async.${format}`);
-			writeFileSync(asyncFixture, readFileSync(resolve(fixtures, `scoped-async.${format}`)));
-			console.log(execFileSync(process.execPath, [asyncFixture], { cwd: directory, encoding: "utf8" }).trim());
-		}
 	}
+	// Strategy-owned V1 fixtures replace retired FormApi schema installation, retaining lifecycle,
+	// omission, scoped validation, native/custom controls, SSR/hydration and FSX safety coverage.
+	await runNormalFormbarPackedConsumer(temporary, root, process.env);
 	console.log(`CONSUMER_PACK source=${root} native_tarballs=${tarballs.length} temporary=${temporary}`);
 } finally {
 	rmSync(temporary, { recursive: true, force: true });

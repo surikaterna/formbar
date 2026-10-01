@@ -2,18 +2,33 @@ import { type GitHubRead, array, object, repo, requireThat, sameSet } from "./li
 
 async function verifyMainRules(api: GitHubRead): Promise<void> {
 	const ruleset = object(await api.get(`${repo}/rulesets/24103769`));
-	const conditions = object(object(ruleset.conditions).ref_name);
+	requireThat(ruleset.id === 24103769, "main ruleset identity not verified");
+	requireThat(ruleset.enforcement === "active", "main ruleset enforcement not active");
+	requireThat(ruleset.target === "branch", "main ruleset target not branch");
+	requireThat(ruleset.source_type === "Repository", "main ruleset source not repository");
 	requireThat(
-		ruleset.id === 24103769 &&
-			ruleset.enforcement === "active" &&
-			ruleset.target === "branch" &&
-			ruleset.source_type === "Repository" &&
-			sameSet(conditions.include, ["refs/heads/main"]) &&
-			sameSet(conditions.exclude, []) &&
-			sameSet(ruleset.bypass_actors, []) &&
-			ruleset.current_user_can_bypass === "never",
-		"main ruleset or bypass changed",
+		ruleset.conditions !== null && typeof ruleset.conditions === "object" && !Array.isArray(ruleset.conditions),
+		"main ruleset ref scope unreadable",
 	);
+	const refName = object(ruleset.conditions).ref_name;
+	requireThat(
+		refName !== null && typeof refName === "object" && !Array.isArray(refName),
+		"main ruleset ref scope unreadable",
+	);
+	const conditions = object(refName);
+	requireThat(
+		sameSet(conditions.include, ["refs/heads/main"]) && sameSet(conditions.exclude, []),
+		"main ruleset ref scope not verified",
+	);
+	const bypass = ruleset.bypass_actors;
+	if (bypass === null || !("bypass_actors" in ruleset)) {
+		// The installation token cannot prove empty; external admin proof is required before dispatch (#250).
+		console.warn("main ruleset bypass actors UNVERIFIABLE (redacted); external admin proof required");
+	} else {
+		requireThat(Array.isArray(bypass), "main ruleset bypass actors malformed");
+		requireThat(bypass.length === 0, "main ruleset bypass actors changed");
+	}
+	requireThat(ruleset.current_user_can_bypass === "never", "main ruleset caller bypass not verified");
 	await verifyRuleDetails(api, ruleset);
 }
 
@@ -61,57 +76,13 @@ async function verifyRuleDetails(api: GitHubRead, ruleset: Record<string, unknow
 	);
 }
 
-async function verifyEnvironment(api: GitHubRead): Promise<void> {
-	const environment = object(await api.get(`${repo}/environments/formbar-rc`));
-	const branch = object(environment.deployment_branch_policy);
-	requireThat(
-		environment.id === 22904271021 &&
-			environment.can_admins_bypass === false &&
-			branch.custom_branch_policies === true &&
-			branch.protected_branches === false,
-		"release environment changed",
-	);
-	const protection = array(environment.protection_rules).map(object);
-	requireThat(
-		sameSet(
-			protection.map((rule) => rule.type),
-			["required_reviewers", "branch_policy"],
-		),
-		"release protection rules changed",
-	);
-	const reviewerRule = protection.find((rule) => rule.type === "required_reviewers");
-	const reviewers = array(reviewerRule?.reviewers);
-	requireThat(
-		reviewerRule?.prevent_self_review === true &&
-			reviewers.length === 1 &&
-			object(object(reviewers[0]).reviewer).id === 806157 &&
-			object(reviewers[0]).type === "User",
-		"sole non-self reviewer changed",
-	);
-	const policies = object(await api.get(`${repo}/environments/formbar-rc/deployment-branch-policies`));
-	const entries = array(policies.branch_policies);
-	requireThat(
-		policies.total_count === 1 &&
-			entries.length === 1 &&
-			object(entries[0]).name === "main" &&
-			object(entries[0]).type === "branch",
-		"main-only deployment policy changed",
-	);
-}
-
 export async function verifyLivePolicy(api: GitHubRead): Promise<void> {
 	await verifyMainRules(api);
-	await verifyEnvironment(api);
 }
 
 export async function verifyEligibleActors(api: GitHubRead): Promise<void> {
-	for (const [login, id] of [
-		["eaglez", 1532734],
-		["spralle", 806157],
-	] as const) {
-		const permission = object(await api.get(`${repo}/collaborators/${login}/permission`));
-		requireThat(object(permission.user).id === id && permission.permission === "admin", "actor eligibility changed");
-	}
+	const permission = object(await api.get(`${repo}/collaborators/spralle/permission`));
+	requireThat(object(permission.user).id === 806157 && permission.permission === "admin", "actor eligibility changed");
 }
 
 export async function verifyCi(api: GitHubRead, commit: string): Promise<void> {

@@ -1,10 +1,10 @@
-import type { KaladaV1Host } from "@formbar/declarative";
+import type { FormDefinition, KaladaV1Host } from "@formbar/declarative";
 import { expect, it } from "vitest";
 import { literal } from "../demos/kalada-fixture-programs";
 import { disposeDemoSession, installDemo } from "../runtime/kalada-demo-install";
 
-const outerTarget = { namespace: "data", segments: ["groups"] };
-const innerTarget = { namespace: "data", segments: ["values"], scope: "group" };
+const outerTarget = { namespace: "data" as const, segments: ["groups"] };
+const innerTarget = { namespace: "data" as const, segments: ["values"], scope: "group" };
 const schema = {
 	type: "object",
 	additionalProperties: false,
@@ -19,7 +19,7 @@ const schema = {
 		},
 	},
 };
-const definition = {
+const definition: FormDefinition = {
 	version: 1,
 	id: "nested-risk",
 	root: {

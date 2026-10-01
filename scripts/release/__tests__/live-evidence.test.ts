@@ -1,132 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
 import { type RunWitness, fetchRcEvidence } from "../live-evidence";
-import { type GitHubRead, rcNames, repo } from "../live-evidence-shape";
+import { type GitHubRead, repo } from "../live-evidence-shape";
+import { verifyLivePolicy } from "../live-policy";
+import { endpointResponses } from "./rc-workflow-fixture";
 
-const commit = "a".repeat(40);
+const sha = "a".repeat(40);
 const tree = "b".repeat(40);
-const runId = 12345;
-const now = new Date("2026-09-28T11:00:00Z");
 const witness: RunWitness = {
-	runId,
+	runId: 12345,
 	attempt: 1,
-	actor: "eaglez",
-	senderId: 1532734,
+	actor: "spralle",
+	senderId: 806157,
 	repository: "surikaterna/formbar",
+	repositoryId: "1245476636",
+	repositoryOwnerId: "9478205",
 	event: "workflow_dispatch",
 	ref: "refs/heads/main",
+	refProtected: "true",
 	workflowRef: "surikaterna/formbar/.github/workflows/release.yml@refs/heads/main",
-	workflowSha: commit,
-	eventSha: commit,
-	checkoutSha: commit,
+	workflowSha: sha,
+	eventSha: sha,
+	checkoutSha: sha,
 	checkoutTree: tree,
-	expectedSha: commit,
+	expectedSha: sha,
 };
-const deps: Record<string, string[]> = {
-	arbiter: ["core", "expressions"],
-	core: ["expressions"],
-	declarative: ["core", "expressions"],
-	"from-schema": ["core", "declarative", "expressions"],
-	react: ["core", "expressions"],
-	"react-schema": ["core", "declarative", "from-schema", "react"],
-};
-const versions = Object.fromEntries(
-	rcNames.map((name) => [
-		`@formbar/${name}`,
-		{
-			version: "0.23.0-rc.0",
-			dependencies: Object.fromEntries(
-				deps[name].map((dep) => [`@formbar/${dep}`, dep === "expressions" ? "^0.14.3" : "^0.23.0-rc.0"]),
-			),
-		},
-	]),
-);
-const body = `FINAL GO\n${JSON.stringify({
-	run_id: runId,
-	attempt: 1,
-	sha: commit,
-	tree,
-	versions,
-	acknowledges_legacy_validation_issue:
-		"I acknowledge the global/default legacy ValidationIssue identity, mutability and non-JSON shape migration.",
-})}`;
-const ci = { name: "ci", head_sha: commit, status: "completed", conclusion: "success", app: { id: 15368 } };
-const ruleTypes = ["deletion", "non_fast_forward", "pull_request", "required_status_checks"];
-const pr = {
-	required_approving_review_count: 0,
-	required_reviewers: [],
-	allowed_merge_methods: ["merge", "squash", "rebase"],
-};
-const checks = { required_status_checks: [{ context: "ci", integration_id: 15368 }] };
 
 function fixture() {
-	const go = {
-		id: 456,
-		issue_url: `https://api.github.com/${repo}/issues/250`,
-		user: { id: 806157 },
-		created_at: "2026-09-28T10:01:00Z",
-		updated_at: "2026-09-28T10:01:00Z",
-		body,
-	};
-	const values: Record<string, unknown> = {
-		[`${repo}/actions/runs/${runId}`]: {
-			id: runId,
-			event: "workflow_dispatch",
-			run_attempt: 1,
-			actor: { id: 1532734 },
-			triggering_actor: { id: 1532734 },
-			head_sha: commit,
-			head_branch: "main",
-			path: ".github/workflows/release.yml",
-			workflow_id: 349257014,
-			created_at: "2026-09-28T10:00:00Z",
-			head_commit: { tree_id: tree },
-		},
-		[`${repo}/branches/main`]: { commit: { sha: commit } },
-		[`${repo}/git/commits/${commit}`]: { tree: { sha: tree } },
-		[`${repo}/collaborators/eaglez/permission`]: { user: { id: 1532734 }, permission: "admin" },
-		[`${repo}/collaborators/spralle/permission`]: { user: { id: 806157 }, permission: "admin" },
-		[`${repo}/rulesets/24103769`]: {
-			id: 24103769,
-			target: "branch",
-			source_type: "Repository",
-			enforcement: "active",
-			conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
-			bypass_actors: [],
-			current_user_can_bypass: "never",
-			rules: ruleTypes.map((type) => ({
-				type,
-				parameters: type === "pull_request" ? pr : type === "required_status_checks" ? checks : undefined,
-			})),
-		},
-		[`${repo}/rules/branches/main`]: ruleTypes.map((type) => ({
-			ruleset_id: 24103769,
-			type,
-			parameters: type === "pull_request" ? pr : type === "required_status_checks" ? checks : null,
-		})),
-		[`${repo}/environments/formbar-rc`]: {
-			id: 22904271021,
-			can_admins_bypass: false,
-			deployment_branch_policy: { custom_branch_policies: true, protected_branches: false },
-			protection_rules: [
-				{
-					type: "required_reviewers",
-					prevent_self_review: true,
-					reviewers: [{ type: "User", reviewer: { id: 806157 } }],
-				},
-				{ type: "branch_policy" },
-			],
-		},
-		[`${repo}/environments/formbar-rc/deployment-branch-policies`]: {
-			total_count: 1,
-			branch_policies: [{ id: 61266216, name: "main", type: "branch" }],
-		},
-		[`${repo}/commits/${commit}/check-runs?per_page=100&page=1`]: { total_count: 1, check_runs: [ci] },
-		[`${repo}/issues/250/comments?per_page=100&page=1`]: [go],
-		[`${repo}/issues/comments/456`]: go,
-		[`${repo}/actions/runs/${runId}/approvals`]: [
-			{ state: "approved", user: { id: 806157 }, environments: [{ id: 22904271021, name: "formbar-rc" }] },
-		],
-	};
+	const values = endpointResponses(sha, tree, new Date());
 	const get = vi.fn(async (path: string) => {
 		if (!(path in values)) throw Object.assign(new Error("Not Found"), { status: 404 });
 		return values[path];
@@ -134,112 +34,254 @@ function fixture() {
 	return { values, api: { get } satisfies GitHubRead, get };
 }
 
-describe("#365 read-only exact-run REST evidence", () => {
-	it("accepts only a complete fresh endpoint-shaped snapshot, without any write interface", async () => {
+describe("#406 single-operator read-only exact-run authority", () => {
+	it.each(
+		[undefined, null, "", " ", "1245476636", 0, -1, 1245476637, true, {}].flatMap((value) => [
+			["repository", value],
+			["owner", value],
+		]),
+	)("denies missing/malformed/mismatched authenticated %s ID=%s", async (field, value) => {
+		const { api, values, get } = fixture();
+		const run = values[`${repo}/actions/runs/12345`] as { repository: { id: unknown; owner: { id: unknown } } };
+		if (field === "repository") run.repository.id = value;
+		else run.repository.owner.id = value;
+		await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+		expect(get).toHaveBeenCalledTimes(1);
+	});
+	it("accepts spralle with no GO or approval endpoint and only GET capability", async () => {
 		const { api, get } = fixture();
-		await expect(fetchRcEvidence(api, witness, now)).resolves.toEqual({ commentId: 456 });
-		expect(get).toHaveBeenCalledWith(`${repo}/actions/runs/${runId}/approvals`);
+		await expect(fetchRcEvidence(api, witness)).resolves.toBeUndefined();
+		expect(get.mock.calls.every(([path]) => !path.includes("/issues/250/") && !path.endsWith("/approvals"))).toBe(true);
 		expect(Object.keys(api)).toEqual(["get"]);
 	});
 	it.each([
-		[`${repo}/actions/runs/${runId}`, "run_attempt", 2],
-		[`${repo}/actions/runs/${runId}`, "head_branch", "other"],
-		[`${repo}/actions/runs/${runId}`, "triggering_actor", { id: 806157 }],
+		{ actor: "eaglez" },
+		{ actor: "unknown" },
+		{ senderId: 1532734 },
+		{ runId: 12346 },
+		{ attempt: 2 },
+		{ repositoryId: "01245476636" },
+		{ repositoryOwnerId: "9478205 " },
+		{ repositoryId: "" },
+		{ repositoryOwnerId: "" },
+		{ event: "WORKFLOW_DISPATCH" },
+		{ eventSha: tree },
+		{ workflowSha: tree },
+		{ checkoutSha: tree },
+		{ checkoutTree: sha },
+		{ ref: "refs/heads/other" },
+		{ refProtected: "false" },
+		{ refProtected: "" },
+		{ workflowRef: "surikaterna/formbar/.github/workflows/ci.yml@refs/heads/main" },
+	])("rejects witness drift %o", async (drift) => {
+		await expect(fetchRcEvidence(fixture().api, { ...witness, ...drift })).rejects.toThrow();
+	});
+	it.each([
+		[`${repo}/actions/runs/12345`, "run_attempt", 2],
+		[`${repo}/actions/runs/12345`, "event", "push"],
+		...[
+			undefined,
+			null,
+			"spoof",
+			{},
+			{ full_name: "surikaterna/formbar", id: "1245476636", owner: { login: "surikaterna", id: 9478205 } },
+			{ full_name: "spoof/formbar", id: 1245476636, owner: { login: "surikaterna", id: 9478205 } },
+			{ full_name: "surikaterna/formbar", id: 1245476636, owner: { login: "spoof", id: 9478205 } },
+			{ full_name: "surikaterna/formbar", id: 1245476636, owner: { login: "surikaterna", id: "9478205" } },
+			{ full_name: "surikaterna/formbar", id: 1245476636, owner: null },
+		].map((value) => [`${repo}/actions/runs/12345`, "repository", value] as const),
+		[`${repo}/actions/runs/12345`, "actor", { id: 1532734 }],
+		[`${repo}/actions/runs/12345`, "triggering_actor", { id: 1532734 }],
+		[`${repo}/actions/runs/12345`, "head_branch", "other"],
 		[`${repo}/branches/main`, "commit", { sha: tree }],
-		[`${repo}/git/commits/${commit}`, "tree", { sha: commit }],
+		[`${repo}/git/commits/${sha}`, "tree", { sha }],
 		[`${repo}/rulesets/24103769`, "bypass_actors", [{ actor_id: 1 }]],
 		[`${repo}/rulesets/24103769`, "enforcement", "disabled"],
-		[`${repo}/environments/formbar-rc`, "can_admins_bypass", true],
-		[`${repo}/actions/runs/${runId}/approvals`, "length", 0],
-	] as const)("denies drift at %s %s", async (path, key, value) => {
-		const { values, api } = fixture();
-		if (key === "length") values[path] = [];
-		else (values[path] as Record<string, unknown>)[key] = value;
-		await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
+		[`${repo}/commits/${sha}/check-runs?per_page=100&page=1`, "total_count", 0],
+	] as const)("rejects live drift %s %s", async (path, key, value) => {
+		const { api, values } = fixture();
+		(values[path] as Record<string, unknown>)[key] = value;
+		await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
 	});
-	it.each([404, 401, 403, 500])("denies HTTP %i rather than treating it as empty", async (status) => {
+	it("rejects ungreen, missing and ambiguous same-SHA CI", async () => {
+		const path = `${repo}/commits/${sha}/check-runs?per_page=100&page=1`;
+		for (const checks of [
+			[],
+			[{ name: "ci", head_sha: sha, status: "completed", conclusion: "failure", app: { id: 15368 } }],
+		]) {
+			const { api, values } = fixture();
+			values[path] = { total_count: checks.length, check_runs: checks };
+			await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+		}
+		const { api, values } = fixture();
+		const check = (values[path] as { check_runs: unknown[] }).check_runs[0];
+		values[path] = { total_count: 2, check_runs: [check, check] };
+		await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+	});
+	it.each([401, 403, 404, 500])("denies HTTP %i", async (status) => {
 		const { api } = fixture();
 		api.get = vi.fn(async () => {
 			throw Object.assign(new Error("HTTP"), { status });
 		});
-		await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
+		await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+	});
+});
+
+describe("#411 main ruleset visibility boundary", () => {
+	const rulesetPath = `${repo}/rulesets/24103769`;
+	const cases: { name: string; change: (rule: Record<string, unknown>) => void; reason: string }[] = [
+		{
+			name: "wrong identity",
+			change: (rule) => {
+				rule.id = 0;
+			},
+			reason: "identity not verified",
+		},
+		{
+			name: "disabled",
+			change: (rule) => {
+				rule.enforcement = "disabled";
+			},
+			reason: "enforcement not active",
+		},
+		{
+			name: "wrong target",
+			change: (rule) => {
+				rule.target = "push";
+			},
+			reason: "target not branch",
+		},
+		{
+			name: "wrong source",
+			change: (rule) => {
+				rule.source_type = "Organization";
+			},
+			reason: "source not repository",
+		},
+		{
+			name: "missing ref scope",
+			change: (rule) => {
+				rule.conditions = null;
+			},
+			reason: "ref scope unreadable",
+		},
+		{
+			name: "other branch",
+			change: (rule) => {
+				rule.conditions = { ref_name: { include: ["refs/heads/other"], exclude: [] } };
+			},
+			reason: "ref scope not verified",
+		},
+		{
+			name: "present undefined is malformed",
+			change: (rule) => {
+				rule.bypass_actors = undefined;
+			},
+			reason: "bypass actors malformed",
+		},
+		...(["unknown", {}, 0, true] as unknown[]).map((value) => ({
+			name: `malformed bypass ${String(value)}`,
+			change: (rule: Record<string, unknown>) => {
+				rule.bypass_actors = value;
+			},
+			reason: "bypass actors malformed",
+		})),
+		{
+			name: "bypass granted",
+			change: (rule) => {
+				rule.bypass_actors = [{ actor_id: 1 }];
+			},
+			reason: "bypass actors changed",
+		},
+		{
+			name: "caller redacted",
+			change: (rule) => {
+				rule.current_user_can_bypass = null;
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "caller omitted",
+			change: (rule) => {
+				rule.current_user_can_bypass = undefined;
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "caller allowed",
+			change: (rule) => {
+				rule.current_user_can_bypass = "always";
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "public shape with partial rules",
+			change: (rule) => {
+				rule.bypass_actors = null;
+				rule.current_user_can_bypass = null;
+				rule.rules = (rule.rules as { type: string }[]).filter((entry) =>
+					["pull_request", "required_status_checks"].includes(entry.type),
+				);
+			},
+			reason: "caller bypass not verified",
+		},
+		{
+			name: "partial rules even with visible bypass",
+			change: (rule) => {
+				rule.rules = (rule.rules as { type: string }[]).filter((entry) => entry.type !== "deletion");
+			},
+			reason: "main ruleset types changed",
+		},
+	];
+
+	it("accepts complete privileged REST evidence and effective main rules", async () => {
+		await expect(verifyLivePolicy(fixture().api)).resolves.toBeUndefined();
+	});
+	it.each(["null", "missing"])("accepts %s only as UNVERIFIABLE with all other evidence intact", async (kind) => {
+		const { api, values } = fixture();
+		const rule = values[rulesetPath] as Record<string, unknown>;
+		if (kind === "null") rule.bypass_actors = null;
+		else values[rulesetPath] = Object.fromEntries(Object.entries(rule).filter(([key]) => key !== "bypass_actors"));
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await expect(fetchRcEvidence(api, witness)).resolves.toBeUndefined();
+			expect(warning).toHaveBeenCalledWith(expect.stringContaining("UNVERIFIABLE"));
+			expect(warning).not.toHaveBeenCalledWith(expect.stringContaining("verified empty"));
+		} finally {
+			warning.mockRestore();
+		}
 	});
 	it.each([
-		{ actor: "spralle" },
-		{ senderId: 806157 },
-		{ runId: 12346 },
-		{ attempt: 2 },
-		{ eventSha: tree },
-		{ workflowSha: tree },
-		{ checkoutSha: tree },
-		{ checkoutTree: commit },
-		{ workflowRef: "surikaterna/formbar/.github/workflows/ci.yml@refs/heads/main" },
-	])("denies runtime mismatch %o", async (change) => {
-		const { api } = fixture();
-		await expect(fetchRcEvidence(api, { ...witness, ...change }, now)).rejects.toThrow();
-	});
-	it.each([
-		{ updated_at: "2026-09-28T10:01:01Z" },
-		{ created_at: "2026-09-28T10:00:00Z", updated_at: "2026-09-28T10:00:00Z" },
-		{ user: { id: 1532734 } },
-		{ issue_url: `https://api.github.com/${repo}/issues/363` },
-		{ body: body.replace('"run_id":12345', '"run_id":99999') },
-		{ body: body.replace("non-JSON shape migration", "migration") },
-	])("denies wrong/edited GO %o", async (change) => {
-		const { values, api } = fixture();
-		values[`${repo}/issues/comments/456`] = { ...(values[`${repo}/issues/comments/456`] as object), ...change };
-		await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
-	});
-	it("denies missing, ambiguous, malformed and expired GO", async () => {
-		for (const comments of [
-			[],
-			[fixture().values[`${repo}/issues/comments/456`], fixture().values[`${repo}/issues/comments/456`]],
-			null,
-		]) {
-			const { values, api } = fixture();
-			values[`${repo}/issues/250/comments?per_page=100&page=1`] = comments;
-			await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
-		}
-		const { api } = fixture();
-		await expect(fetchRcEvidence(api, witness, new Date("2026-09-29T11:00:00Z"))).rejects.toThrow();
-	});
-	it("reads every comment page and denies truncated or ambiguous pagination", async () => {
-		const { values, api } = fixture();
-		const match = values[`${repo}/issues/comments/456`];
-		values[`${repo}/issues/250/comments?per_page=100&page=1`] = Array.from({ length: 100 }, (_, i) => ({
-			id: i + 1,
-			body: "not a GO",
-		}));
-		values[`${repo}/issues/250/comments?per_page=100&page=2`] = [match];
-		await expect(fetchRcEvidence(api, witness, now)).resolves.toEqual({ commentId: 456 });
-		delete values[`${repo}/issues/250/comments?per_page=100&page=2`];
-		await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
-	});
-	it("denies duplicate JSON keys, wrong package ranges and ambiguous GO body", async () => {
-		for (const changed of [
-			body.replace('"attempt":1', '"attempt":1,"attempt":1'),
-			body.replace("^0.14.3", "^0.14.2"),
-			"FINAL GO\nnot-json",
-		]) {
-			const { values, api } = fixture();
-			values[`${repo}/issues/250/comments?per_page=100&page=1`] = [
-				{ ...(values[`${repo}/issues/comments/456`] as object), body: changed },
-			];
-			values[`${repo}/issues/comments/456`] = { ...(values[`${repo}/issues/comments/456`] as object), body: changed };
-			await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
+		["main", `${repo}/branches/main`, "commit", { sha: tree }],
+		["CI", `${repo}/commits/${sha}/check-runs?per_page=100&page=1`, "total_count", 0],
+		["policy", rulesetPath, "enforcement", "disabled"],
+		["ref scope", rulesetPath, "conditions", { ref_name: { include: ["refs/heads/other"], exclude: [] } }],
+	] as const)("redaction cannot override %s drift", async (_name, path, key, value) => {
+		const { api, values } = fixture();
+		(values[rulesetPath] as Record<string, unknown>).bypass_actors = null;
+		(values[path] as Record<string, unknown>)[key] = value;
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await expect(fetchRcEvidence(api, witness)).rejects.toThrow();
+		} finally {
+			warning.mockRestore();
 		}
 	});
-	it("denies missing environment binding, incorrect reviewer and CI ambiguity", async () => {
-		for (const approval of [
-			{ state: "approved", user: { id: 806157 } },
-			{ state: "approved", user: { id: 1532734 }, environments: [{ id: 22904271021, name: "formbar-rc" }] },
-		]) {
-			const { values, api } = fixture();
-			values[`${repo}/actions/runs/${runId}/approvals`] = [approval];
-			await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
-		}
-		const { values, api } = fixture();
-		values[`${repo}/commits/${commit}/check-runs?per_page=100&page=1`] = { total_count: 2, check_runs: [ci, ci] };
-		await expect(fetchRcEvidence(api, witness, now)).rejects.toThrow();
+
+	it.each(cases)("denies $name without exposing response bodies", async ({ change, reason }) => {
+		const { api, values, get } = fixture();
+		const rule = values[rulesetPath] as Record<string, unknown>;
+		change(rule);
+		rule.secret_fixture_marker = "DO_NOT_LOG_TOKEN_OR_BODY";
+		const error = await verifyLivePolicy(api).then(
+			() => "accepted",
+			(failure: Error) => failure.message,
+		);
+		expect(error).toContain(reason);
+		expect(error).not.toContain("DO_NOT_LOG_TOKEN_OR_BODY");
+		if (reason !== "main ruleset types changed")
+			expect(
+				get.mock.calls.some(([path]) => path.includes("/rules/branches/main") || path.includes("/environments/")),
+			).toBe(false);
 	});
 });
