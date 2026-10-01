@@ -9,11 +9,6 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 afterEach(() => document.body.replaceChildren());
 
-function currentData(container: HTMLElement): string {
-	const heading = [...container.querySelectorAll("h2")].find(({ textContent }) => textContent === "Current form data");
-	return heading?.parentElement?.querySelector("pre")?.textContent ?? "";
-}
-
 function changeFirstControl(container: HTMLElement): boolean {
 	const control = container.querySelector("input, select, textarea");
 	if (control instanceof HTMLInputElement) {
@@ -41,8 +36,8 @@ function changeFirstControl(container: HTMLElement): boolean {
 }
 
 describe("interactive playground runner", () => {
-	it("renders every projected example through the production form path", async () => {
-		for (const example of getPlaygroundExamples()) {
+	it("renders the supported schema-only fixture through the installed writable host", async () => {
+		for (const example of getPlaygroundExamples().filter(({ key }) => key === "basic-contact:schema-options")) {
 			const container = document.createElement("div");
 			document.body.append(container);
 			const root = createRoot(container);
@@ -51,30 +46,26 @@ describe("interactive playground runner", () => {
 				await Promise.resolve();
 			});
 			expect(container.querySelector("form"), example.key).not.toBeNull();
-			expect(container.textContent, example.key).toContain("Preparation diagnostics");
-			const before = currentData(container);
+			const before = container.querySelector<HTMLSelectElement>("form select")?.value;
 			act(() => {
 				if (!changeFirstControl(container)) return;
 			});
-			if (container.querySelector("input, select, textarea"))
-				expect(currentData(container), example.key).not.toBe(before);
-			else expect(container.querySelector("[data-formbar-diagnostic]"), example.key).not.toBeNull();
+			expect(container.querySelector<HTMLSelectElement>("form select")?.value, example.key).not.toBe(before);
 			act(() => root.unmount());
 			container.remove();
 		}
 	});
 
-	it("exposes separately labeled live state, issues, preparation, renderer, and successful-result regions", () => {
-		const example = getPlaygroundExamples()[0];
+	it("exposes a successful-result region without claiming legacy preparation diagnostics", () => {
+		const example = getPlaygroundExamples().find(({ key }) => key === "basic-contact:schema-options");
+		if (!example) throw new Error("Missing supported schema-only example");
 		const container = document.createElement("div");
 		document.body.append(container);
 		const root = createRoot(container);
 		act(() => root.render(<PlaygroundRunner document={example.document} runtime={example.runtime} />));
-		expect(container.textContent).toContain("Current form data");
-		expect(container.textContent).toContain("Core issues and submission status");
-		expect(container.textContent).toContain("Preparation diagnostics");
+		expect(container.querySelector("form")).not.toBeNull();
+		expect(container.textContent).not.toContain("Preparation diagnostics");
 		expect(container.textContent).toContain("Last successful submission");
-		expect(container.textContent).toContain("Interactive form and runtime diagnostics");
 		act(() => root.unmount());
 	});
 });

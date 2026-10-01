@@ -7,24 +7,29 @@ proposals; they never publish.
 
 ## Operator steps
 
-1. Audit the source PR and pass normal protected-branch CI before merge. Source
-   delivery does **not** authorize publication; #250 remains release HOLD.
-2. On a separate owner instruction, `spralle` starts a **new** manual run of
+1. The owner authorizes all completed greenfield packages for publication, with
+   no archived release ceremony. Independently audit the integration/workflow
+   and pass normal production CI before merge. #317 still blocks this integration
+   until the required Kalada releases are available and installed normally.
+2. When those technical gates pass, `spralle` starts a **new** manual run of
    `release.yml` on `main` in `surikaterna/formbar`. Never rerun historical failed
    runs (including 36723897550). No SHA/GO input or deployment environment is used.
 3. The job checks out source, sets up Bun **1.2.21**, Node **22.23.2** and npm
    **11.20.0**, provisions the required offline test tools, then performs frozen
-   install → sequential package build → full tests. All seven named manifests
-   must share a well-formed `-rc.N` version (currently **0.23.0-rc.0**).
-4. The job records each stable `latest` tag, queries each exact candidate version,
+   install → sequential package build → full tests. All eight named manifests
+   must have well-formed `-rc.N` versions and a closed, compatible dependency graph.
+   Changesets linked groups are not fixed groups: the public breaking switch gives
+   declarative/from-schema/react-schema **1.0.0-rc.1**, FSX starts separately at
+   **0.1.0-rc.0**, and the other four remain **0.23.0-rc.0** in this proposal.
+4. The job records each `latest` tag (including its absence for new FSX), queries each exact candidate version,
    and skips matching existing name/version pairs under npm immutability. Only a
    structured npm `E404` failure permits publication. Other errors stop the job.
    Absent candidates publish directly from package directories with
    `npm publish --tag rc --access public --provenance`, in this order:
-   **expressions → core → declarative → from-schema → react → arbiter → react-schema**.
+   **expressions → core → declarative → fsx-authoring → from-schema → react → arbiter → react-schema**.
 5. Review normal npm stdout/stderr and the final registry records: exact name and
    version must match, `rc` must equal the candidate, and `latest` must be unchanged
-   for all seven. A mismatch or failure stops visibly. There is no failed PUT
+   for all eight; an absent `latest` must stay absent. A mismatch or failure stops visibly. There is no failed PUT
    retry, automatic tag repair, or GitHub tag/release requirement for RC npm tests.
    Investigate partial publication before requesting another new run.
 
@@ -42,5 +47,15 @@ Source tests do not certify private npm publisher settings or future registry
 acceptance. Matching existing versions are immutable skips, not custom signer
 proof. Registry absence does not establish whether a historical PUT occurred.
 No settings changes or mandatory admin-readback gate are part of this procedure.
+
+**New-package authentication is unresolved:** npm trusted publisher configuration
+for the existing seven does not prove first-publish capability for
+`@formbar/fsx-authoring`. The owner may need an initial credential-based package
+creation and then the package's trusted-publisher configuration. This workflow
+does not add a token fallback or assume that OIDC can create a nonexistent npm
+package. Any bootstrap must explicitly use `--tag rc --access public --provenance`
+and preserve an absent `latest`; never silently fall back to stable publication.
+
+See [integration preparation and pending dependency ownership](release-fsx-integration.md).
 
 Reference: [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/).

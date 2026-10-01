@@ -140,8 +140,9 @@ function fakeWriter(present: Set<string>, actions: string[]) {
 	};
 }
 
-function fixture(existing: readonly string[] = []) {
+function fixture(existing: readonly string[] = [], directory = tmpdir()) {
 	vi.resetAllMocks();
+	vi.spyOn(process, "cwd").mockReturnValue(directory);
 	vi.stubEnv("NPM_TOKEN", undefined);
 	vi.stubEnv("NODE_AUTH_TOKEN", undefined);
 	const present = new Set(existing);
@@ -163,7 +164,10 @@ function fixture(existing: readonly string[] = []) {
 	};
 }
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
+});
 
 function assertEffectiveNpmConfigs(
 	probes: Record<string, { stdout: string; stderr: string }> | undefined,
@@ -242,20 +246,17 @@ describe("#389 disabled synthetic seven-package sequence; no genuine OIDC/signat
 	);
 	it("denies an unexpected project npmrc or ambient NPM_TOKEN before exchange", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "formbar-rc-npmrc-deny-"));
-		const cwd = vi.spyOn(process, "cwd");
 		try {
 			await writeFile(join(directory, ".npmrc"), "registry=https://example.invalid/\n");
-			const f = fixture();
-			cwd.mockReturnValue(directory);
+			const f = fixture([], directory);
 			expect((await traceDisabledRc(run, f.candidates, f.settings)).status).toBe("STOPPED");
 			expect(f.writer.exchange).not.toHaveBeenCalled();
-			cwd.mockRestore();
 			const token = fixture();
 			vi.stubEnv("NPM_TOKEN", "forbidden");
 			expect((await traceDisabledRc(run, token.candidates, token.settings)).status).toBe("STOPPED");
 			expect(token.writer.exchange).not.toHaveBeenCalled();
 		} finally {
-			cwd.mockRestore();
+			vi.restoreAllMocks();
 			await rm(directory, { recursive: true, force: true });
 		}
 	});

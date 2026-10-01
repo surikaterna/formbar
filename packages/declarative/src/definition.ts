@@ -1,5 +1,6 @@
 import type { StoredComputation } from "./computations.js";
 import type { FormNode } from "./nodes.js";
+import type { PrepareKaladaV1Options, PreparedKaladaV1Definition } from "./validators/kalada-prepared-definition.js";
 
 export interface FormDefinition {
 	readonly version: 1;
@@ -9,4 +10,9 @@ export interface FormDefinition {
 	readonly submission?: { readonly hiddenValues: "include" | "omit-inactive" };
 }
 
-export type ValidatedFormDefinition = FormDefinition;
+/** Validated definitions retain the host's admission proof; a JSON copy is not validated. */
+export type ValidatedFormDefinition = FormDefinition & {
+	readonly prepared: PreparedKaladaV1Definition;
+};
+
+export type FormDefinitionAdmission = Omit<PrepareKaladaV1Options, "definition">;

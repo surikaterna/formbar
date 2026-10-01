@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { demos } from "../demos/index";
 import { getPlaygroundCompatibility } from "../playground/examples";
 import runtime from "../renderers/SchemaFormRuntime.tsx?raw";
+import installer from "../runtime/kalada-demo-install.ts?raw";
 
 const fixtureModules = import.meta.glob(
 	"../demos/{07-conditional-fields,12-survey-questionnaire,18-arbiter-visibility,21-arbiter-dynamic-sections}.ts",
@@ -24,13 +25,10 @@ describe("conditional demo architecture", () => {
 		expect(source).not.toMatch(/Object\.(?:keys|values|entries)\([^)]*properties|properties.*\.(?:map|forEach)/);
 	});
 
-	it("extends the sole schema host with one commit-phase released Arbiter plugin path", () => {
-		expect(runtime.match(/useSchemaForm</g)).toHaveLength(1);
-		expect(runtime.match(/<FormRenderer/g)).toHaveLength(1);
-		expect(runtime.match(/createArbiterPlugin\(\{/g)).toHaveLength(1);
-		expect(runtime).toMatch(/useEffect\(\(\) => \{[\s\S]*createArbiterPlugin/);
-		expect(runtime).toContain("[rules]");
-		expect(runtime).not.toMatch(/setFieldPolicy|createForm\(/);
+	it("does not silently install a legacy Arbiter plugin or positional state writes", () => {
+		expect(runtime).toContain("<FormRenderer host={installed.host}");
+		expect(installer).toContain("createKaladaV1Host({");
+		expect(`${runtime}\n${installer}`).not.toMatch(/createArbiterPlugin|setFieldPolicy|createForm\(/);
 	});
 
 	it("contains normalized policy records only in the two Arbiter fixtures", () => {

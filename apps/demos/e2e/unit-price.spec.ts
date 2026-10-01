@@ -14,7 +14,7 @@ function observeFailures(page: Page): string[] {
 
 async function verifyRoute(page: Page, route: string) {
 	await page.goto(route);
-	const form = page.locator('form[data-formbar-definition="arbiter-calculated"]');
+	const form = page.locator("form[data-kalada-v1]");
 	await expect(form).toBeVisible();
 	const price = form.getByLabel("Unit Price ($)");
 	const quantity = form.getByLabel("Quantity");

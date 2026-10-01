@@ -95,33 +95,26 @@ async function waitForRuntime(page: Page, route: ExpectedRoute): Promise<void> {
 	expect(variants).toBeDefined();
 	if ((variants?.length ?? 0) > 1) await expect(page.getByLabel("Example")).toHaveValue(route.preset);
 	else await expect(page.getByLabel("Example")).toHaveCount(0);
-	await expect(page.locator(`form[data-formbar-definition="${route.definitionId}"]`)).toBeVisible();
-	await expect(page.getByText("Preparation diagnostics", { exact: true })).toBeVisible();
+	if (route.diagnostic) await expect(page.getByRole("alert")).toContainText(/missing|MISSING|extension/i);
+	else await expect(page.getByLabel("Running preview").locator("form[data-kalada-v1]")).toBeVisible();
 }
 
 async function interactWithExpectedMarker(page: Page, route: ExpectedRoute): Promise<void> {
 	const preview = page.getByLabel("Running preview");
 	if (route.diagnostic) {
-		await expect(preview.locator(`[data-formbar-diagnostic="${route.diagnostic}"]`).first()).toBeVisible();
+		await expect(preview.getByRole("alert")).toBeVisible();
 		expect(await preview.locator("input, select, textarea").count()).toBe(0);
-		const status = preview.getByLabel("Core validation issues and submission status");
-		const result = preview.getByText("Last successful submission", { exact: true }).locator("..");
-		await expect(status).toContainText("Status: idle; 0 issue(s); pristine.");
-		await expect(result).toContainText("No successful submission yet.");
-		await preview.getByRole("button", { name: "Submit", exact: true }).click();
-		await expect(status).toContainText("Status: succeeded; 0 issue(s); pristine.");
-		await expect(result).toContainText('"missingWidget": ""');
+		await expect(preview.getByRole("button", { name: "Submit", exact: true })).toHaveCount(0);
 	} else {
 		const control = preview.locator("input:not([disabled]), select:not([disabled]), textarea:not([disabled])").first();
 		await expect(control).toBeVisible();
-		const dataPanel = page.getByText("Current form data", { exact: true }).locator("..");
-		const before = await dataPanel.textContent();
+		const lifecycle = preview.locator("[data-kalada-lifecycle]");
 		const tag = await control.evaluate((element) => element.tagName);
 		const type = await control.getAttribute("type");
 		if (tag === "SELECT") {
 			const options = await control.locator("option").count();
 			expect(options).toBeGreaterThan(1);
-			await control.selectOption({ index: route.preset === "schema-options" ? 2 : 1 });
+			await control.selectOption({ index: 1 });
 		} else if (type === "checkbox") {
 			if (await control.isChecked()) await control.uncheck();
 			else await control.check();
@@ -130,7 +123,7 @@ async function interactWithExpectedMarker(page: Page, route: ExpectedRoute): Pro
 			await expect(alternative).toBeVisible();
 			await alternative.check();
 		} else await control.fill(type === "number" || type === "range" ? "2" : "browser-value");
-		await expect(dataPanel).not.toHaveText(before ?? "");
+		await expect(lifecycle).toContainText("dirty: true");
 	}
 }
 
@@ -183,9 +176,9 @@ test("invalid schema apply is atomic, recovers, and advanced navigation remains 
 	await page.getByLabel("Full Name").fill("Last Valid");
 	await page.getByLabel("Email").fill("last-valid@example.com");
 	await page.getByRole("button", { name: "Submit" }).click();
-	const dataPanel = page.getByText("Current form data", { exact: true }).locator("..");
+	const name = page.getByLabel("Full Name");
 	const resultPanel = page.getByText("Last successful submission", { exact: true }).locator("..");
-	await expect(dataPanel).toContainText('"name": "Last Valid"');
+	await expect(name).toHaveValue("Last Valid");
 	await expect(resultPanel).toContainText('"name": "Last Valid"');
 
 	const form = page.getByLabel("Running preview").locator("form");
@@ -196,7 +189,7 @@ test("invalid schema apply is atomic, recovers, and advanced navigation remains 
 	await page.getByRole("button", { name: "Apply" }).click();
 	await expect(page.getByRole("alert")).toContainText("Schema is not valid Draft 2020-12");
 	await expect(form).toHaveAttribute("data-atomic-session", "last-valid");
-	await expect(dataPanel).toContainText('"name": "Last Valid"');
+	await expect(name).toHaveValue("Last Valid");
 	await expect(resultPanel).toContainText('"name": "Last Valid"');
 
 	await schemaEditor.fill(validSchema);
@@ -209,8 +202,8 @@ test("invalid schema apply is atomic, recovers, and advanced navigation remains 
 
 	await page.getByLabel("Demo").selectOption("custom-renderers");
 	await waitForRuntime(page, expectedRoutes[16]);
-	await page.getByRole("button", { name: /Quality Rating 1/ }).click();
-	await expect(page.getByText("Current form data", { exact: true }).locator("..")).toContainText('"qualityRating": 1');
+	await page.getByRole("button", { name: /Quality Rating: 1/ }).click();
+	await expect(page.getByRole("button", { name: /Quality Rating: 1/ })).toHaveAttribute("aria-pressed", "true");
 	await page.getByRole("tab", { name: /Schema/ }).press("End");
 	await expect(page.getByRole("tab", { name: /Initial Data/ })).toBeFocused();
 	await page.getByLabel("Demo").selectOption("custom-layout-types");

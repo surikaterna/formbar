@@ -10,6 +10,10 @@ export default defineConfig({
 	resolve: {
 		alias: [
 			{
+				find: /^@formbar\/declarative$/,
+				replacement: new URL("../../packages/declarative/src/index.ts", import.meta.url).pathname,
+			},
+			{
 				find: "@formbar/expressions",
 				replacement: new URL("../../packages/expressions/src/index.ts", import.meta.url).pathname,
 			},

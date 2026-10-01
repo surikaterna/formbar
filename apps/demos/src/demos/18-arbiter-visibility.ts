@@ -1,6 +1,7 @@
 import type { ArbiterPluginOptions } from "@formbar/arbiter";
-import type { Expression, FormDefinition, FormNode } from "@formbar/declarative";
+import type { DefinitionProgram as Expression, FormDefinition, FormNode } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+import { and, dataRef, equality, literal, present } from "./kalada-fixture-programs";
 
 type ArbiterRule = NonNullable<ArbiterPluginOptions["rules"]>[number];
 
@@ -25,15 +26,8 @@ export const arbiterVisibilityRules = [
 	policyRule("showOtherRegion", { country: { $in: ["UK", "DE"] } }, regionalSnapshot(false, false, true)),
 ] satisfies NonNullable<ArbiterPluginOptions["rules"]>;
 
-const countryRef: Expression = { kind: "ref", ref: { namespace: "data", segments: ["country"] } };
-const selectedCountry: Expression = {
-	kind: "op",
-	op: "and",
-	args: [
-		{ kind: "op", op: "exists", args: [countryRef] },
-		{ kind: "op", op: "neq", args: [countryRef, { kind: "literal", value: "" }] },
-	],
-};
+const countryRef = dataRef("country");
+const selectedCountry: Expression = and(present(countryRef), equality("not-equal", countryRef, literal("")));
 
 function field(id: string, path: string, widget: string, label: string): FormNode {
 	return { type: "field", id, binding: { namespace: "data", segments: [path] }, widget, label };

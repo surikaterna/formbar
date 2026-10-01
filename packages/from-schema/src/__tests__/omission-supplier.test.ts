@@ -1,98 +1,35 @@
-import { createForm } from "@formbar/core";
-import { projectBoundOmission } from "@formbar/declarative/internal/omission-supplier";
-import { describe, expect, it } from "vitest";
+import { expect, test } from "vitest";
 import { createSchemaForm, jsonSchemaProvider } from "../index.js";
+import { validationHost } from "./kalada-validation-host-408.js";
 
-describe("#327 prepared form-bound supplier", () => {
-	it("attaches to authored eager and deferred forms, not a different form or generated include default", () => {
-		const prepared = createSchemaForm(
-			{},
-			{
-				provider: jsonSchemaProvider(),
-				side: "input",
-				definition: {
-					version: 1,
-					id: "authored",
-					submission: { hiddenValues: "omit-inactive" },
-					root: {
-						type: "group",
-						id: "root",
-						children: [
-							{
-								type: "field",
-								id: "hidden",
-								widget: "text",
-								binding: { namespace: "data", segments: ["hidden"] },
-								visible: { kind: "literal", value: false },
-							},
-						],
-					},
-				},
-			},
-		);
-		for (const form of [
-			prepared.createForm({ initialData: { hidden: "draft" } }),
-			prepared.createDeferredForm({ initialData: { hidden: "draft" } }).form,
-		]) {
-			const capture = form.captureState();
-			const result = projectBoundOmission(form, capture);
-			expect(result?.data).toEqual({});
-			expect(result?.checkFinal({})).toBe(true);
-			expect(form.getState().data).toEqual({ hidden: "draft" });
-			form.dispose();
-		}
-		const generated = createSchemaForm(
-			{ type: "object", properties: { hidden: { type: "string" } } },
-			{
-				provider: jsonSchemaProvider(),
-				side: "input",
-				generation: {},
-			},
-		);
-		const form = generated.createForm({ initialData: { hidden: "draft" } });
-		expect(projectBoundOmission(form, form.captureState())?.data).toEqual({ hidden: "draft" });
-		form.dispose();
+test("host-owned omission candidate is FINAL-validated, not treated as validated draft", async () => {
+	const result = validationHost(undefined, {
+		omission: "omit-inactive",
+		validators: [
+			(data) =>
+				"name" in (data as { profile: object }).profile
+					? []
+					: [{ source: "extension", path: ["profile", "name"], message: "required on outgoing" }],
+		],
 	});
+	try {
+		const draft = result.host.snapshot().data;
+		expect(result.host.snapshot().controls.some((control) => control.nodeId === result.nameId)).toBe(false);
+		expect(await result.host.submit()).toEqual({ status: "denied" });
+		expect(result.installed.instances.values().next().value?.outgoing).toBeUndefined();
+		expect(result.host.snapshot().data).toEqual(draft);
+		result.installed.setHidden(false);
+		expect(result.host.snapshot().controls.some((control) => control.nodeId === result.nameId)).toBe(true);
+		expect(result.host.snapshot().data).toEqual(draft);
+		expect(await result.host.submit()).toEqual({ status: "submitted" });
+		expect(result.installed.instances.values().next().value?.outgoing).toEqual(draft);
+	} finally {
+		result.host.dispose();
+	}
+});
 
-	it("leaves required and conditional schema validation to a later FINAL candidate, not this projection", () => {
-		const prepared = createSchemaForm(
-			{
-				type: "object",
-				properties: { flag: { type: "boolean" }, hidden: { type: "string" } },
-				if: { properties: { flag: { const: true } } },
-				then: { required: ["hidden"] },
-			},
-			{
-				provider: jsonSchemaProvider(),
-				side: "input",
-				definition: {
-					version: 1,
-					id: "required",
-					submission: { hiddenValues: "omit-inactive" },
-					root: {
-						type: "group",
-						id: "root",
-						children: [
-							{
-								type: "field",
-								id: "hidden",
-								widget: "text",
-								binding: { namespace: "data", segments: ["hidden"] },
-								visible: { kind: "literal", value: false },
-							},
-						],
-					},
-				},
-			},
-		);
-		const draft = prepared.createForm({ initialData: { flag: true, hidden: "draft" } });
-		expect(draft.validate()).toEqual([]);
-		const projection = projectBoundOmission(draft, draft.captureState());
-		expect(projection?.data).toEqual({ flag: true });
-		const final = createForm({ initialData: projection?.data, validators: prepared.validators });
-		expect(final.validate().map((issue) => issue.path.segments)).toContainEqual(["hidden"]);
-		expect(draft.getState().data).toEqual({ flag: true, hidden: "draft" });
-		final.dispose();
-		draft.dispose();
-	});
+test("legacy omission supplier attachment is not available from retired entry", () => {
+	expect(() => createSchemaForm({}, { provider: jsonSchemaProvider(), side: "input", definition: {} })).toThrow(
+		/no longer supported/,
+	);
 });

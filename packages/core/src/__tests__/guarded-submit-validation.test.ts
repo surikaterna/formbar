@@ -1,7 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { prepareScopedAsyncHost } from "../../../declarative/src/scoped-async-host.js";
-import { prepareScopedSyncHost } from "../../../declarative/src/scoped-sync-host.js";
-import { validateFormDefinition } from "../../../declarative/src/validators/definition.js";
 import { attemptCanSubmit, rebaseAttemptIssues, renderableIssues } from "../attempt-issues.js";
 import type { Middleware, ValidatorFn } from "../contracts.js";
 import { createForm } from "../create-form.js";
@@ -13,6 +10,38 @@ import { registerScopedAsync } from "../scoped-async.js";
 import { FormStore } from "../store.js";
 import { createValidationCoordinator } from "../validation-coordinator.js";
 import { normalizeIssues } from "../validation.js";
+
+function includedAsyncHost(
+	validate: (input: {
+		data: unknown;
+		uiState: unknown;
+		stage?: string;
+		context?: unknown;
+		signal?: AbortSignal;
+	}) => Promise<{ code: string; message: string; severity: "error" }[]>,
+) {
+	return {
+		ids: new Set(["scoped"]),
+		instances: (
+			form: ReturnType<typeof createForm>,
+			capture: ReturnType<ReturnType<typeof createForm>["captureState"]>,
+			currentCapture?: ReturnType<ReturnType<typeof createForm>["captureState"]>,
+		) => ({
+			current: () => scopedCaptureCurrent(form, currentCapture ?? capture),
+			fields: [
+				{
+					id: "scoped",
+					fieldId: "included",
+					instanceKey: "included",
+					binding: { namespace: "data" as const, segments: ["included"] },
+					trigger: "onBlur" as const,
+					debounceMs: 99999,
+					validate,
+				},
+			],
+		}),
+	};
+}
 
 const issue = (code: string) => ({
 	code,
@@ -36,9 +65,14 @@ function fixture(
 		}) => Promise<ReturnType<typeof issue>[]>;
 	}[] = [],
 	keepForm = false,
+	ownedAsync = false,
 ) {
 	const runtime = keepForm
-		? new FormRuntime({ initialData: { hidden: "secret", included: "Ada" }, initialUiState: { tab: 1 } })
+		? new FormRuntime({
+				initialData: { hidden: "secret", included: "Ada" },
+				initialUiState: { tab: 1 },
+				...(ownedAsync ? { ownedScheduling: true } : {}),
+			})
 		: undefined;
 	const form =
 		runtime?.build() ?? createForm({ initialData: { hidden: "secret", included: "Ada" }, initialUiState: { tab: 1 } });
@@ -49,16 +83,19 @@ function fixture(
 	let revision = 0;
 	let active = true;
 	const controller = new AbortController();
-	const coordinator = createValidationCoordinator({
-		validators: asyncValidators,
-		getState: () => store.getState(),
-		updateState: (updater) => {
-			const tx = store.beginTransaction();
-			tx.mutate(updater);
-			store.commitTransaction(tx);
-		},
-		validatorTimeout: 15,
-	});
+	const coordinator =
+		ownedAsync && runtime
+			? (runtime as unknown as { coordinator: ReturnType<typeof createValidationCoordinator> }).coordinator
+			: createValidationCoordinator({
+					validators: asyncValidators,
+					getState: () => store.getState(),
+					updateState: (updater) => {
+						const tx = store.beginTransaction();
+						tx.mutate(updater);
+						store.commitTransaction(tx);
+					},
+					validatorTimeout: 15,
+				});
 	const context = {
 		action: { type: "submit" },
 		store,
@@ -185,31 +222,12 @@ describe("internal final candidate validator orchestration", () => {
 			store: FormStore<typeof options.initialData, typeof options.initialUiState>;
 			coordinator: ReturnType<typeof createValidationCoordinator>;
 		};
-		const definition = validateFormDefinition({
-			version: 1,
-			id: "final",
-			root: {
-				type: "field",
-				id: "included",
-				widget: "text",
-				binding: { namespace: "data", segments: ["included"] },
-			},
-		});
-		if (!definition.ok) throw new Error("Invalid definition");
 		registerScopedAsync(
 			form,
-			prepareScopedAsyncHost(definition.value, [
-				{
-					id: "scoped",
-					fieldId: "included",
-					trigger: "onBlur",
-					debounceMs: 99999,
-					validate: async (input) => {
-						seen.push(["scoped", input.data, input.uiState, input.stage, input.context]);
-						return [{ code: "scoped", message: "scoped", severity: "error" }];
-					},
-				},
-			]),
+			includedAsyncHost(async (input) => {
+				seen.push(["scoped", input.data, input.uiState, input.stage, input.context]);
+				return [{ code: "scoped", message: "scoped", severity: "error" }];
+			}),
 			["legacy"],
 		);
 		const captures = vi.spyOn(form, "captureState");
@@ -260,27 +278,25 @@ describe("internal final candidate validator orchestration", () => {
 		expect(captures).toHaveBeenCalledTimes(1);
 		form.dispose();
 	});
-	it("forwards final candidate cancellation to a prepared authored definition host on the same form", async () => {
+	it("forwards final candidate cancellation to a core scoped validator on the same form", async () => {
 		const f = fixture([], [], [], true);
-		const prepared = validateFormDefinition({
-			version: 1,
-			id: "authored",
-			root: { type: "field", id: "included", widget: "text", binding: { namespace: "data", segments: ["included"] } },
-		});
-		if (!prepared.ok) throw new Error("Invalid authored definition");
 		const observed: unknown[] = [];
-		registerScopedSync(
-			f.form,
-			prepareScopedSyncHost(prepared.value, [
-				{
-					fieldId: "included",
-					validate: (input) => {
-						observed.push(input);
-						return [{ code: "scoped", message: "scoped", severity: "error" }];
+		registerScopedSync(f.form, {
+			instances: (form, capture) => ({
+				current: () => scopedCaptureCurrent(form, capture),
+				fields: [
+					{
+						fieldId: "included",
+						instanceKey: "included",
+						binding: { namespace: "data", segments: ["included"] },
+						validate: (input) => {
+							observed.push(input);
+							return [{ code: "scoped", message: "scoped", severity: "error" }];
+						},
 					},
-				},
-			]),
-		);
+				],
+			}),
+		});
 		const result = await validateGuardedSubmitCandidate(
 			f.context,
 			f.guard,
@@ -301,6 +317,40 @@ describe("internal final candidate validator orchestration", () => {
 		expect(f.store.getState().attemptValidation?.issues[0]?.code).toBe("scoped");
 		f.controller.abort();
 		expect((observed[0] as { signal: AbortSignal }).signal.aborted).toBe(true);
+		f.form.dispose();
+		f.coordinator.dispose();
+	});
+	it("does not commit a late core scoped FINAL result after cancellation", async () => {
+		const f = fixture([], [], [], true, true);
+		let finish!: (issues: { code: string; message: string; severity: "error" }[]) => void;
+		const pending = new Promise<{ code: string; message: string; severity: "error" }[]>((resolve) => {
+			finish = resolve;
+		});
+		let started!: () => void;
+		const entered = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const validate = vi.fn(() => {
+			started();
+			return pending;
+		});
+		registerScopedAsync(f.form, includedAsyncHost(validate), []);
+		const run = validateGuardedSubmitCandidate(
+			f.context,
+			f.guard,
+			f.adapter,
+			f.coordinator,
+			"final",
+			[(value) => ({ ...(value as object), included: "Grace" })],
+			f.form,
+		);
+		await entered;
+		expect(validate).toHaveBeenCalledOnce();
+		f.controller.abort();
+		finish([{ code: "late", message: "late", severity: "error" }]);
+		expect(await run).toMatchObject({ ok: false });
+		expect(f.store.getState().attemptValidation).toBeUndefined();
+		expect(f.form.getState().data).toEqual({ hidden: "secret", included: "Ada" });
 		f.form.dispose();
 		f.coordinator.dispose();
 	});

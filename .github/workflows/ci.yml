@@ -67,6 +67,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # The production budget inventory compares against an audited ancestor.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -92,6 +95,9 @@ jobs:
         run: |
           rm -rf packages/*/dist
           bun run build
+
+      - name: Typecheck package project graph
+        run: bun run typecheck
 
       - name: Lint
         run: bun run lint

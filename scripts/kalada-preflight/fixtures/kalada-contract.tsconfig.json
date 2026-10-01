@@ -1,0 +1,6 @@
+{
+	"extends": "../../../tsconfig.json",
+	"compilerOptions": { "noEmit": true, "composite": false },
+	"files": ["kalada-contract.typecheck.ts"],
+	"include": []
+}

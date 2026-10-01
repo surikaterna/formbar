@@ -1,12 +1,9 @@
-import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { useState } from "react";
 import type { SchemaDemoFixture, SchemaDemoSource } from "../demos/baseline-contracts";
 import type { PlaygroundDocument } from "../playground/contracts";
 import { runtimeProfileIdsFor } from "../runtime/runtime-profile-selection";
 import { CodeBlock } from "./CodeBlock";
 import { SchemaFormRuntime } from "./SchemaFormRuntime";
-
-const provider = jsonSchemaProvider({ dialect: "draft-2020-12" });
 
 interface SchemaDemoHostProps {
 	readonly fixture: SchemaDemoFixture;
@@ -58,7 +55,7 @@ function PreparedDemo(props: {
 	const variants = props.source.definitionVariants;
 	const [variantKey, setVariantKey] = useState(variants?.[0].key);
 	const variant = variants?.find(({ key }) => key === variantKey) ?? variants?.[0];
-	const definition = variant?.definition ?? props.source.definition ?? generatedDefinition(props.source);
+	const definition = variant?.definition ?? props.source.definition ?? null;
 	const document: PlaygroundDocument = {
 		version: 2,
 		schema: props.source.schema,
@@ -77,9 +74,9 @@ function PreparedDemo(props: {
 				onSubmit={props.onSubmit}
 				showObservability
 			/>
-			<section className="mt-6 grid gap-4 lg:grid-cols-2" aria-label="Compiled source">
+			<section className="mt-6 grid gap-4 lg:grid-cols-2" aria-label="Source">
 				<CodeBlock title={props.source.label} code={props.source.schema} />
-				<CodeBlock title="Validated FormDefinition v1" code={definition} />
+				<CodeBlock title="Authored definition (V1 required)" code={definition} />
 			</section>
 		</>
 	);
@@ -102,8 +99,4 @@ function DefinitionChooser(props: {
 			</select>
 		</label>
 	);
-}
-
-function generatedDefinition(source: SchemaDemoSource) {
-	return createSchemaForm(source.schema, { provider, side: "input" }).definition;
 }

@@ -1,9 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../rc-publish-toolchain", () => ({ assertPinnedPublishTools: vi.fn() }));
+vi.mock("node:os", async (original) => {
+	const os = await original<typeof import("node:os")>();
+	return { ...os, tmpdir: vi.fn(os.tmpdir) };
+});
 const faults = vi.hoisted(() => ({ cleanup: false }));
 vi.mock("node:fs/promises", async (original) => {
 	const fs = await original<typeof import("node:fs/promises")>();
@@ -20,18 +24,25 @@ import { assertPinnedPublishTools } from "../rc-publish-toolchain";
 import { assertAuthWithheld, authLeakFixtures } from "./rc-auth-leak-fixtures";
 
 const original = { ...process.env };
+const fixtureParent = tmpdir();
 const fixtures: string[] = [];
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.mocked(assertPinnedPublishTools).mockReset();
+	vi.mocked(tmpdir).mockReturnValue(fixtureParent);
 	faults.cleanup = false;
 	process.env = { ...original };
 	for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 function fakeNpm(stderr: string, exit: number, stdout = ""): { root: string; calls: string } {
-	const root = mkdtempSync(join(tmpdir(), "rc-fake-npm-"));
+	const root = mkdtempSync(join(fixtureParent, "rc-fake-npm-"));
 	fixtures.push(root);
+	vi.spyOn(process, "cwd").mockReturnValue(root);
 	mkdirSync(join(root, "bin"));
+	mkdirSync(join(root, "tmp"));
+	// Vitest's replaced process.env does not change native os.tmpdir() in its worker.
+	vi.mocked(tmpdir).mockReturnValue(join(root, "tmp"));
 	const calls = join(root, "calls");
 	writeFileSync(
 		join(root, "bin/npm-cli.js"),
@@ -39,6 +50,7 @@ function fakeNpm(stderr: string, exit: number, stdout = ""): { root: string; cal
 	);
 	process.env = {
 		...original,
+		TMPDIR: join(root, "tmp"),
 		RC_NODE_BINARY: process.execPath,
 		RC_NPM_ROOT: root,
 		GITHUB_ACTIONS: "true",
@@ -50,6 +62,15 @@ function fakeNpm(stderr: string, exit: number, stdout = ""): { root: string; cal
 		ACTIONS_ID_TOKEN_REQUEST_TOKEN: "secret-oidc",
 	};
 	return { root, calls };
+}
+
+function assertOwnedStage(root: string, cleaned = true): void {
+	const env = JSON.parse(readFileSync(join(root, "env.json"), "utf8"));
+	expect(env.TMPDIR).toBe(env.HOME);
+	expect(dirname(env.HOME)).toBe(join(root, "tmp"));
+	expect(env.HOME).toMatch(/\/formbar-rc-publish-[^/]+$/);
+	expect(existsSync(env.HOME)).toBe(!cleaned);
+	if (cleaned) expect(readdirSync(join(root, "tmp"))).toEqual([]);
 }
 
 describe("production-only npm boundary", () => {
@@ -120,8 +141,7 @@ describe("production-only npm boundary", () => {
 			expect(env).not.toHaveProperty(key);
 	});
 	it("reports cleanup failure without exposing its raw cause", async () => {
-		fakeNpm("", 0);
-		const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-")));
+		const { root } = fakeNpm("", 0);
 		faults.cleanup = true;
 		let failure: unknown;
 		try {
@@ -131,10 +151,7 @@ describe("production-only npm boundary", () => {
 		} finally {
 			faults.cleanup = false;
 		}
-		for (const name of readdirSync(tmpdir()).filter(
-			(name) => name.startsWith("formbar-rc-publish-") && !before.has(name),
-		))
-			fixtures.push(join(tmpdir(), name));
+		assertOwnedStage(root, false);
 		expect(String(failure)).toContain("reason=cleanup-failure");
 		expect((failure as Error).stack).not.toContain("private-cleanup-cause");
 		expect(failure).not.toHaveProperty("cause");
@@ -144,9 +161,8 @@ describe("production-only npm boundary", () => {
 		async (controls) => {
 			const secret = "private-application-value";
 			const stderr = `npm error config collision ${secret} ${encodeURIComponent(secret)}\nnpm error https://user:private-url@host.invalid/path?token=private-query#private-fragment\nnpm error Authorization: Bearer private-bearer\nnpm error ghp_privateprefix npm_privateprefix eyJprivate.payload.signature\nnpm error ::warning:: useful final reason${controls ? "\x1b[31m\r\n::error::injected" : ""}`;
-			fakeNpm(stderr, 1, "private stdout");
+			const { root } = fakeNpm(stderr, 1, "private stdout");
 			process.env.APP_SECRET = secret;
-			const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
 			let failure: unknown;
 			try {
 				await publishProtected("@formbar/expressions", Buffer.from("fixture"));
@@ -160,7 +176,7 @@ describe("production-only npm boundary", () => {
 			expect(String(failure)).toContain("suppression=AUTH_MATERIAL_DETECTED");
 			expect(String(failure)).not.toContain("useful final reason");
 			expect(failure).not.toHaveProperty("cause");
-			expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
+			assertOwnedStage(root);
 		},
 	);
 
@@ -266,12 +282,11 @@ describe("production-only npm boundary", () => {
 	});
 
 	it.each(authLeakFixtures)("withholds actual fake-exec auth capture (%#) and cleans up", async (stderr) => {
-		const { calls } = fakeNpm(`npm error safe-before\n${stderr}\nnpm error safe-after`, 1);
-		const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
+		const { root, calls } = fakeNpm(`npm error safe-before\n${stderr}\nnpm error safe-after`, 1);
 		const failure = await publishProtected("@formbar/expressions", Buffer.from("fixture")).catch((error) => error);
 		assertAuthWithheld(failure);
 		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
-		expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
+		assertOwnedStage(root);
 	});
 
 	it.each([
@@ -286,8 +301,10 @@ describe("production-only npm boundary", () => {
 		["EPERM", "npm error code EPERM", "NPM_PERMISSION"],
 		["unknown", "npm error useful unknown failure https://user:secret@registry.invalid/", "NPM_UNKNOWN"],
 	])("sanitizes fake npm %s without exposing subprocess output", async (_, stderr, category) => {
-		const { calls } = fakeNpm(`${stderr}\nnpm error detail https://user:secret@registry.invalid/oidc?token=secret`, 1);
-		const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
+		const { root, calls } = fakeNpm(
+			`${stderr}\nnpm error detail https://user:secret@registry.invalid/oidc?token=secret`,
+			1,
+		);
 		let failure: unknown;
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
@@ -306,7 +323,7 @@ describe("production-only npm boundary", () => {
 		expect(spy).not.toHaveBeenCalled();
 		spy.mockRestore();
 		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
-		expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
+		assertOwnedStage(root);
 	});
 
 	it("classifies missing OIDC before spawning and without leaking URL", async () => {
@@ -320,8 +337,7 @@ describe("production-only npm boundary", () => {
 	it("redacts secret-bearing structured stdout and stderr while reporting only bounded byte counts", async () => {
 		const stdout = JSON.stringify({ error: { code: "E401", summary: "https://user:secret@registry.invalid/token" } });
 		const stderr = "npm error code E401\nnpm error detail secret-oidc";
-		const { calls } = fakeNpm(stderr, 1, stdout);
-		const before = readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"));
+		const { root, calls } = fakeNpm(stderr, 1, stdout);
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		let failure: unknown;
 		try {
@@ -342,7 +358,7 @@ describe("production-only npm boundary", () => {
 		expect(failure).not.toHaveProperty("cause");
 		expect(spy).not.toHaveBeenCalled();
 		expect(readFileSync(calls, "utf8")).toBe("attempt\n");
-		expect(readdirSync(tmpdir()).filter((name) => name.startsWith("formbar-rc-publish-"))).toEqual(before);
+		assertOwnedStage(root);
 	});
 	it("fails closed on competing JSON stdout while reporting exact bytes without exposing captured text", async () => {
 		const stdout = '[{"error":{"code":"E404","detail":"secret-token"}}]';

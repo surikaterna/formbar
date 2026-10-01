@@ -181,9 +181,12 @@ function reviewedChangelog(name: string, source: string): string {
 	const heading = `# @formbar/${name}\n\n`;
 	if (!source.startsWith(heading)) throw new Error(`unexpected baseline changelog ${name}`);
 	const section = `## ${rcVersion}\n\n${changelogSections[name]}\n\n`;
-	const versioned = source.startsWith(heading + section);
-	if (versioned) checkChangelog(name, source);
-	const history = source.slice(heading.length + (versioned ? section.length : 0));
+	// Archive fixtures retain the original RC section and hash-checked history, not newer release proposals.
+	const archivedStart = source.indexOf(`## ${rcVersion}\n`);
+	const archived = archivedStart > heading.length ? heading + source.slice(archivedStart) : source;
+	const versioned = archived.startsWith(heading + section);
+	if (versioned) checkChangelog(name, archived);
+	const history = archived.slice(heading.length + (versioned ? section.length : 0));
 	const result = heading + section + history;
 	checkChangelog(name, result);
 	return result;
@@ -209,6 +212,10 @@ export function versionedCheckout(
 		const path = join(checkout, "packages", name);
 		mkdirSync(path, { recursive: true });
 		const manifest = JSON.parse(readFileSync(join(root, "packages", name, "package.json"), "utf8"));
+		// Reconstruct the archived graph, not newly declared edges in the current major release.
+		manifest.dependencies = Object.fromEntries(
+			Object.entries(manifest.dependencies).filter(([dependency]) => !dependency.startsWith("@formbar/")),
+		);
 		manifest.version = variant === "wrong version" && name === "expressions" ? "0.23.0-rc.1" : rcVersion;
 		for (const dep of rcEdges[name]) manifest.dependencies[`@formbar/${dep}`] = `^${rcVersion}`;
 		writeFileSync(join(path, "package.json"), JSON.stringify(manifest));

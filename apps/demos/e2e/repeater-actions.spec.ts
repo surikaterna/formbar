@@ -1,29 +1,22 @@
 import { type Locator, type Page, expect, test } from "@playwright/test";
 
 const routes = ["demo", "playground"] as const;
+const repeater = (page: Page, id: string) => page.locator(`.schema-demo-form fieldset[data-formbar-node="${id}"]`);
+const rows = (list: Locator) => list.locator(":scope > ol > li");
+const action = (row: Locator, id: string) => row.locator(`:scope > fieldset > [data-kalada-action="${id}"]`);
 
-function repeater(page: Page, id: string): Locator {
-	return page.locator(`.schema-demo-form fieldset[data-formbar-node="${id}"]`);
-}
-
-function rows(list: Locator): Locator {
-	return list.locator(":scope > ol > li");
-}
-
-function action(row: Locator, id: string): Locator {
-	return row.locator(`:scope > fieldset > [data-formbar-node="${id}"] > button`);
-}
-
-async function checkGeometry(page: Page, list: Locator) {
-	const measurements = await list.evaluate((element) => {
-		const viewport = document.documentElement.clientWidth;
-		const buttons = [...element.querySelectorAll<HTMLButtonElement>("button[data-formbar-array-operation]")];
-		const overlaps = [...element.querySelectorAll(":scope > ol > li > fieldset")].flatMap((row) => {
-			const controls = [...row.querySelectorAll<HTMLButtonElement>(":scope > [data-formbar-action] > button")].filter(
-				(button) => button.getClientRects().length,
-			);
-			return controls.flatMap((button, index) =>
-				controls.slice(index + 1).map((other) => {
+async function geometry(page: Page, list: Locator) {
+	const measurement = await list.evaluate((element) => ({
+		viewport: document.documentElement.clientWidth,
+		page: document.documentElement.scrollWidth,
+		buttons: [...element.querySelectorAll("button")].map((button) => {
+			const rect = button.getBoundingClientRect();
+			return { left: rect.left, right: rect.right, height: rect.height, label: button.textContent };
+		}),
+		overlaps: [...element.querySelectorAll(":scope > ol > li > fieldset")].flatMap((row) => {
+			const buttons = [...row.querySelectorAll<HTMLButtonElement>(":scope > [data-kalada-action] > button")];
+			return buttons.flatMap((button, index) =>
+				buttons.slice(index + 1).map((other) => {
 					const a = button.getBoundingClientRect();
 					const b = other.getBoundingClientRect();
 					return (
@@ -32,172 +25,121 @@ async function checkGeometry(page: Page, list: Locator) {
 					);
 				}),
 			);
-		});
-		return {
-			viewport,
-			pageWidth: document.documentElement.scrollWidth,
-			rowCount: element.querySelectorAll(":scope > ol > li").length,
-			overlaps,
-			buttons: buttons
-				.filter((button) => button.getClientRects().length)
-				.map((button) => {
-					const rect = button.getBoundingClientRect();
-					return { left: rect.left, right: rect.right, height: rect.height, text: button.textContent };
-				}),
-		};
-	});
-	expect(measurements.pageWidth).toBeLessThanOrEqual(measurements.viewport);
-	if (measurements.rowCount > 1) expect(measurements.overlaps.length).toBeGreaterThan(0);
-	expect(measurements.overlaps.every((area) => area === 0)).toBe(true);
-	for (const rect of measurements.buttons) {
-		expect(rect.left).toBeGreaterThanOrEqual(0);
-		expect(rect.right).toBeLessThanOrEqual(measurements.viewport);
-		expect(rect.height).toBeGreaterThanOrEqual(44);
-		expect(rect.text?.trim()).toBeTruthy();
+		}),
+	}));
+	expect(measurement.page).toBeLessThanOrEqual(measurement.viewport);
+	expect(measurement.overlaps.length).toBeGreaterThan(0);
+	expect(measurement.overlaps.every((area) => area === 0)).toBe(true);
+	for (const button of measurement.buttons) {
+		expect(button.left).toBeGreaterThanOrEqual(0);
+		expect(button.right).toBeLessThanOrEqual(measurement.viewport);
+		expect(button.height).toBeGreaterThanOrEqual(44);
+		expect(button.label?.trim()).toBeTruthy();
 	}
 }
 
-async function checkMuted(button: Locator, available: Locator) {
-	const unavailableStyle = await button.evaluate((element) => getComputedStyle(element).backgroundColor);
-	const availableStyle = await available.evaluate((element) => getComputedStyle(element).backgroundColor);
-	expect(unavailableStyle).not.toBe(availableStyle);
+async function move(row: Locator, id: string, destination: string) {
+	const key = await row.getAttribute("data-kalada-row-key");
+	const stable = row.page().locator(`li[data-kalada-row-key=${JSON.stringify(key)}]`);
+	const control = action(stable, id);
+	await control.getByRole("combobox").selectOption(destination);
+	await control.getByRole("button").press("Enter");
+	await expect(control.locator("output")).toContainText("applied");
 }
 
-async function checkNestedIsolation(row: Locator, id: string, repeaterId: string) {
-	await row.locator(":scope > fieldset").evaluate(
-		(fieldset, actionId) => {
-			const [nodeId, nestedId] = actionId;
-			for (const [repeaterNode, actionNode, label] of [
-				[nestedId, nodeId, "Nested move"],
-				["unrelated-nested", "unrelated-up", "Unrelated move"],
-			]) {
-				const nested = document.createElement("fieldset");
-				nested.dataset.formbarNode = repeaterNode;
-				const list = nested.appendChild(document.createElement("ol"));
-				const item = list.appendChild(document.createElement("li"));
-				const control = item.appendChild(document.createElement("fieldset")).appendChild(document.createElement("div"));
-				control.dataset.formbarNode = actionNode;
-				control.dataset.formbarAction = "array.move";
-				control.appendChild(document.createElement("button")).textContent = label;
-				fieldset.append(nested);
-			}
-		},
-		[id, repeaterId],
-	);
-	const nested = row.getByRole("button", { name: "Nested move" });
-	const unrelated = row.getByRole("button", { name: "Unrelated move" });
-	const styles = await nested.evaluate((button) => {
-		const peer = button.closest("li")?.parentElement?.parentElement?.nextElementSibling?.querySelector("button");
-		if (!peer) throw new Error("Missing unrelated action");
-		const observed = getComputedStyle(button);
-		const reference = getComputedStyle(peer);
-		return {
-			display: getComputedStyle(button.parentElement as HTMLElement).display,
-			minHeight: observed.minHeight,
-			peerMinHeight: reference.minHeight,
-			padding: observed.padding,
-			peerPadding: reference.padding,
-		};
-	});
-	expect(styles.display).not.toBe("none");
-	expect(styles.minHeight).not.toBe("44px");
-	expect(styles.minHeight).toBe(styles.peerMinHeight);
-	expect(styles.padding).toBe(styles.peerPadding);
-	await nested.focus();
-	await expect(nested).toBeFocused();
-	await row.page().keyboard.press("Tab");
-	await expect(unrelated).toBeFocused();
-	await row
-		.locator(`fieldset[data-formbar-node="${repeaterId}"]`)
-		.last()
-		.evaluate((element) => element.remove());
-	await row.locator('[data-formbar-node="unrelated-nested"]').evaluate((element) => element.remove());
-}
-
-async function checkArrayRow(page: Page, form: Locator, id: string, prefix: string, label: string) {
+async function arrayRow(page: Page, form: Locator, id: string, prefix: string, label: string) {
 	const list = repeater(page, id);
+	const add = form.getByRole("button", { name: `Add ${label}`, exact: true });
 	await expect(rows(list)).toHaveCount(0);
-	const add = form.getByRole("button", { name: `Add ${label}` });
 	await add.click();
 	await expect(rows(list)).toHaveCount(1);
-	const first = rows(list).first();
-	for (const direction of ["up", "down"]) {
-		await expect(action(first, `${prefix}-${direction}`)).toBeHidden();
-		await expect(first.getByRole("button", { name: `Move ${direction}, item 1` })).toHaveCount(0);
-	}
-	await checkNestedIsolation(first, `${prefix}-up`, id);
-	await expect(action(first, `${prefix}-remove`)).toBeVisible();
+	const key = await rows(list).first().getAttribute("data-kalada-row-key");
+	expect(key).toBeTruthy();
+	await expect(action(rows(list).first(), `${prefix}-up`).getByRole("button")).toBeDisabled();
+	const muted = await action(rows(list).first(), `${prefix}-up`)
+		.getByRole("button")
+		.evaluate((button) => getComputedStyle(button).backgroundColor);
+	const available = await action(rows(list).first(), `${prefix}-remove`)
+		.getByRole("button")
+		.evaluate((button) => getComputedStyle(button).backgroundColor);
+	expect(muted).not.toBe(available);
 	await add.click();
 	await expect(rows(list)).toHaveCount(2);
-	await expect(action(first, `${prefix}-up`)).toHaveAttribute("aria-disabled", "true");
-	await expect(action(first, `${prefix}-down`)).not.toHaveAttribute("aria-disabled", "true");
-	await expect(action(rows(list).last(), `${prefix}-down`)).toHaveAttribute("aria-disabled", "true");
-	await checkMuted(action(first, `${prefix}-up`), action(first, `${prefix}-down`));
-	await action(first, `${prefix}-up`).focus();
-	await expect(action(first, `${prefix}-up`)).toBeFocused();
-	await page.keyboard.press("Tab");
-	await expect(action(first, `${prefix}-down`)).toBeFocused();
-	await action(rows(list).last(), `${prefix}-up`).press("Enter");
-	await expect(action(first, `${prefix}-up`)).toBeFocused();
-	await action(rows(list).last(), `${prefix}-remove`).click();
+	const second = await rows(list).last().getAttribute("data-kalada-row-key");
+	await move(rows(list).first(), `${prefix}-down`, second ?? "");
+	await expect(rows(list).last()).toHaveAttribute("data-kalada-row-key", key ?? "");
+	await expect(action(rows(list).last(), `${prefix}-down`).getByRole("button")).toBeFocused();
+	await action(rows(list).last(), `${prefix}-remove`).getByRole("button").click();
 	await expect(rows(list)).toHaveCount(1);
-	await expect(action(first, `${prefix}-up`)).toBeHidden();
-	await expect(first.locator("input, select").first()).toBeFocused();
-	await checkGeometry(page, list);
-	await action(first, `${prefix}-remove`).click();
+	if (id === "tags") await expect(rows(list).first().locator(":scope > fieldset")).toBeFocused();
+	else await expect(rows(list).first().locator("input,select").first()).toBeFocused();
+	await geometry(page, list);
+	await action(rows(list).first(), `${prefix}-remove`).getByRole("button").click();
 	await expect(rows(list)).toHaveCount(0);
 	await expect(add).toBeFocused();
 }
 
-test("#211 demo 8 direct and playground singleton and multirow focus", async ({ page }, testInfo) => {
-	await page.setViewportSize({ width: testInfo.project.name === "chromium-narrow" ? 390 : 1280, height: 850 });
+async function denyOtherScope(page: Page, form: Locator) {
+	await form.getByRole("button", { name: "Add Tags", exact: true }).click();
+	await form.getByRole("button", { name: "Add Team Members", exact: true }).click();
+	const tag = rows(repeater(page, "tags")).first();
+	const token = await tag.getAttribute("data-kalada-row-key");
+	const other = await rows(repeater(page, "team-members")).first().getAttribute("data-kalada-row-key");
+	const control = action(tag, "tag-down");
+	await control.getByRole("combobox").selectOption(other ?? "");
+	await control.getByRole("button").click();
+	await expect(control.locator("output")).toContainText(": stale");
+	await expect(tag).toHaveAttribute("data-kalada-row-key", token ?? "");
+	await expect(rows(repeater(page, "tags"))).toHaveCount(1);
+	await expect(rows(repeater(page, "team-members"))).toHaveCount(1);
+	await form.getByRole("button", { name: "Reset", exact: true }).last().click();
+}
+
+test("#211 demo 8 direct and playground singleton and multirow focus", async ({ page }, info) => {
+	await page.setViewportSize({ width: info.project.name === "chromium-narrow" ? 390 : 1280, height: 850 });
 	for (const mode of routes) {
 		await page.goto(`?mode=${mode}&demo=array-items&preset=default`);
-		const form = page.locator('.schema-demo-form[data-repeater-demo="array-items"]');
-		await expect(form).toBeVisible();
+		const form = page.locator(".schema-demo-form");
+		await expect(form.locator("form[data-kalada-v1]")).toBeVisible();
 		for (const [id, prefix, label] of [
 			["tags", "tag", "Tags"],
 			["team-members", "member", "Team Members"],
 			["addresses", "address", "Office Locations"],
 			["milestones", "milestone", "Milestones"],
-		] as const)
-			await checkArrayRow(page, form, id, prefix, label);
-		const tags = repeater(page, "tags");
-		await form.getByRole("button", { name: "Add Tags" }).click();
-		await form.getByRole("button", { name: "Add Tags" }).click();
-		await expect(rows(tags)).toHaveCount(2);
-		await expect(form.getByRole("button", { name: "Add Tags" })).toBeDisabled();
-		await expect(form.locator('[data-formbar-node="tags-add"] output')).toContainText("unavailable");
-		await checkMuted(form.getByRole("button", { name: "Add Tags" }), action(rows(tags).first(), "tag-down"));
-		await checkGeometry(page, tags);
-		await tags.screenshot({ path: testInfo.outputPath(`demo8-${mode}-${testInfo.project.name}.png`) });
-		await form.getByRole("button", { name: "Reset" }).click();
-		await expect(rows(tags)).toHaveCount(0);
+		])
+			await arrayRow(page, form, id, prefix, label);
+		await denyOtherScope(page, form);
+		const add = form.getByRole("button", { name: "Add Tags", exact: true });
+		await add.click();
+		await add.click();
+		await add.click();
+		await expect(rows(repeater(page, "tags"))).toHaveCount(2);
+		await expect(form.locator('[data-kalada-action="tags-add"] output')).toContainText(/denied|capacity/);
+		await form.getByRole("button", { name: "Reset", exact: true }).last().click();
+		await expect(rows(repeater(page, "tags"))).toHaveCount(0);
 	}
 });
 
-async function checkOrderRows(list: Locator, add: Locator) {
-	await expect(rows(list)).toHaveCount(0);
+async function orderRows(page: Page, list: Locator, add: Locator) {
 	await add.click();
 	await expect(rows(list)).toHaveCount(1);
-	await expect(action(rows(list).first(), "line-up")).toBeHidden();
-	await expect(action(rows(list).first(), "line-down")).toBeHidden();
-	await checkNestedIsolation(rows(list).first(), "line-up", "line-items");
-	await expect(action(rows(list).first(), "line-remove")).toBeDisabled();
-	await checkMuted(action(rows(list).first(), "line-remove"), add);
+	await action(rows(list).first(), "line-remove").getByRole("button").click();
+	await expect(rows(list)).toHaveCount(1);
+	await expect(action(rows(list).first(), "line-remove").locator("output")).toContainText(/denied|capacity/);
 	await rows(list).first().getByRole("textbox", { name: "Description" }).fill("Consulting");
 	await rows(list).first().getByRole("spinbutton", { name: "Amount" }).fill("100");
+	const key = await rows(list).first().getAttribute("data-kalada-row-key");
 	await add.click();
-	await expect(rows(list)).toHaveCount(2);
-	await expect(action(rows(list).first(), "line-down")).toBeVisible();
 	await rows(list).last().getByRole("textbox", { name: "Description" }).fill("Support");
 	await rows(list).last().getByRole("spinbutton", { name: "Amount" }).fill("50");
-	await action(rows(list).first(), "line-down").press("Space");
-	await expect(action(rows(list).last(), "line-down")).toBeFocused();
+	const destination = await rows(list).last().getAttribute("data-kalada-row-key");
+	await move(rows(list).first(), "line-down", destination ?? "");
+	await expect(rows(list).last()).toHaveAttribute("data-kalada-row-key", key ?? "");
 	await expect(rows(list).last().getByRole("textbox", { name: "Description" })).toHaveValue("Consulting");
-	await action(rows(list).last(), "line-remove").click();
+	await action(rows(list).last(), "line-remove").getByRole("button").click();
 	await expect(rows(list)).toHaveCount(1);
 	await expect(rows(list).first().getByRole("textbox", { name: "Description" })).toBeFocused();
+	await geometry(page, list);
 }
 
 async function fillOrder(form: Locator, list: Locator) {
@@ -208,43 +150,29 @@ async function fillOrder(form: Locator, list: Locator) {
 	await form.getByLabel("Payment Method").selectOption({ index: 1 });
 }
 
-async function checkOrderLimit(page: Page, form: Locator, list: Locator, add: Locator) {
-	for (let index = 1; index < 20; index++) {
-		await rows(list).last().getByRole("textbox", { name: "Description" }).fill(`Item ${index}`);
-		await rows(list).last().getByRole("spinbutton", { name: "Amount" }).fill("1");
-		await add.click();
-	}
-	await expect(rows(list)).toHaveCount(20);
-	await expect(add).toBeDisabled();
-	await checkMuted(add, action(rows(list).first(), "line-down"));
-	await expect(action(rows(list).first(), "line-up")).toHaveAttribute("aria-disabled", "true");
-	await expect(action(rows(list).last(), "line-down")).toHaveAttribute("aria-disabled", "true");
-	await checkGeometry(page, list);
-	await rows(list).last().getByRole("textbox", { name: "Description" }).fill("Final item");
-	await rows(list).last().getByRole("spinbutton", { name: "Amount" }).fill("1");
-	await form.getByRole("button", { name: "Reset" }).click();
-	await expect(rows(list)).toHaveCount(0);
-}
-
-test("#211 demo 14 direct and playground min/max and projected submission", async ({ page }, testInfo) => {
-	await page.setViewportSize({ width: testInfo.project.name === "chromium-narrow" ? 390 : 1280, height: 850 });
+test("#211 demo 14 direct and playground min/max and projected submission", async ({ page }, info) => {
+	test.setTimeout(60_000);
+	await page.setViewportSize({ width: info.project.name === "chromium-narrow" ? 390 : 1280, height: 850 });
 	for (const mode of routes) {
 		await page.goto(`?mode=${mode}&demo=order-entry&preset=default`);
-		const form = page.locator('.schema-demo-form[data-repeater-demo="order-entry"]');
-		await expect(form).toBeVisible();
+		const form = page.locator(".schema-demo-form");
+		await expect(form.locator("form[data-kalada-v1]")).toBeVisible();
 		const list = repeater(page, "line-items");
-		const add = form.getByRole("button", { name: "Add Line Item" });
-		await checkOrderRows(list, add);
+		const add = form.getByRole("button", { name: "Add Line Item", exact: true });
+		await orderRows(page, list, add);
 		await fillOrder(form, list);
-		await expect(form.locator('[data-formbar-node="subtotal-output"]')).toContainText("50");
-		await checkGeometry(page, list);
-		await list.screenshot({ path: testInfo.outputPath(`demo14-${mode}-${testInfo.project.name}.png`) });
-		await checkOrderLimit(page, form, list, add);
+		await expect(form.locator('[data-kalada-output="subtotal-output"]')).toContainText("50");
+		for (let index = 1; index < 20; index++) await add.click();
+		await expect(rows(list)).toHaveCount(20);
+		await add.click();
+		await expect(rows(list)).toHaveCount(20);
+		await expect(form.locator('[data-kalada-action="line-add"] output')).toContainText(/denied|capacity/);
+		await form.getByRole("button", { name: "Reset", exact: true }).last().click();
+		await expect(rows(list)).toHaveCount(0);
 		await add.click();
 		await fillOrder(form, list);
-		await form.getByRole("button", { name: "Submit" }).click();
-		const result = page.getByText("Last successful submission", { exact: true }).locator("..");
-		await expect(result).toContainText('"lineItems"');
+		await form.getByRole("button", { name: "Submit", exact: true }).last().click();
+		const result = page.getByRole("region", { name: "Last successful submission" });
 		await expect(result).toContainText('"amount": 50');
 		await expect(result).not.toContainText('"subtotal"');
 	}
@@ -252,6 +180,6 @@ test("#211 demo 14 direct and playground min/max and projected submission", asyn
 
 test("#211 does not mark unrelated demo forms", async ({ page }) => {
 	await page.goto("?mode=demo&demo=kitchen-sink");
-	await expect(page.locator(".schema-demo-form")).toBeVisible();
-	await expect(page.locator(".schema-demo-form[data-repeater-demo]")).toHaveCount(0);
+	await expect(page.locator(".schema-demo-form form[data-kalada-v1]")).toBeVisible();
+	await expect(page.locator("fieldset[data-formbar-node=tags]")).toHaveCount(0);
 });

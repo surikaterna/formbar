@@ -4,6 +4,8 @@ import type { Expression, FormDefinition, FormNode, ValidatedFormDefinition } fr
 import { createFormRuntime, validateFormDefinition } from "../index.js";
 import { binding, literal } from "./fixtures.js";
 
+export { installedField, installedOutput, program } from "./kalada-runtime-fixtures.js";
+
 export const dataRef = (segments: readonly (string | number)[], scope?: string): Expression => ({
 	kind: "ref",
 	ref: { namespace: "data", segments, ...(scope ? { scope } : {}) },

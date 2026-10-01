@@ -1,5 +1,5 @@
-import { validateFormDefinition } from "@formbar/declarative";
-import { createSchemaForm, jsonSchemaProvider, preflightJsonSchema } from "@formbar/from-schema";
+import { preflightJsonSchema } from "@formbar/from-schema";
+import { disposeDemoSession, installDemo } from "../runtime/kalada-demo-install";
 import {
 	PLAYGROUND_DOCUMENT_VERSION,
 	type PlaygroundDocument,
@@ -10,6 +10,7 @@ import {
 	type SourceKey,
 	TOTAL_LIMIT_BYTES,
 } from "./contracts";
+import { type PlaygroundRuntimeContext, standardPlaygroundContext } from "./runtime-context";
 
 export function stringifyDocument(document: PlaygroundDocument): PlaygroundSources {
 	return {
@@ -44,13 +45,9 @@ function validateShapes(values: Record<SourceKey, unknown>, errors: SourceErrors
 	if (!errors.definition && values.definition !== null && !isRecord(values.definition))
 		errors.definition = "Definition must be a JSON object or null (generate from schema)";
 	if (!errors.initialData && !isRecord(values.initialData)) errors.initialData = "Initial Data must be a JSON object";
-	if (!errors.definition && values.definition !== null) {
-		const result = validateFormDefinition(values.definition);
-		if (!result.ok) errors.definition = `Definition is invalid: ${result.diagnostics[0]?.message ?? "unknown error"}`;
-	}
 }
 
-function preflight(values: Record<SourceKey, unknown>, errors: SourceErrors): void {
+function preflight(values: Record<SourceKey, unknown>, errors: SourceErrors, context: PlaygroundRuntimeContext): void {
 	if (Object.keys(errors).length > 0) return;
 	const schema = values.schema as PlaygroundDocument["schema"];
 	const schemaResult = preflightJsonSchema(schema);
@@ -59,15 +56,20 @@ function preflight(values: Record<SourceKey, unknown>, errors: SourceErrors): vo
 		return;
 	}
 	try {
-		createSchemaForm(schema, {
-			provider: jsonSchemaProvider({ dialect: "draft-2020-12" }),
-			side: "input",
-			...(values.definition === null
-				? {}
-				: { definition: values.definition as NonNullable<PlaygroundDocument["definition"]> }),
-		});
+		const host = installDemo(
+			{ version: PLAYGROUND_DOCUMENT_VERSION, ...values } as PlaygroundDocument,
+			undefined,
+			context.profileIds,
+			context.initialUiState,
+			context.arbiterRules,
+		);
+		try {
+			host.snapshot();
+		} finally {
+			disposeDemoSession(host);
+		}
 	} catch (error) {
-		errors.schema = `Schema compilation failed: ${error instanceof Error ? error.message : String(error)}`;
+		errors.definition = error instanceof Error ? error.message : "Kalada V1 installation failed";
 	}
 }
 
@@ -75,7 +77,10 @@ export type ParseDocumentResult =
 	| { readonly ok: true; readonly document: PlaygroundDocument }
 	| { readonly ok: false; readonly errors: SourceErrors };
 
-export function parseDocument(sources: PlaygroundSources): ParseDocumentResult {
+export function parseDocument(
+	sources: PlaygroundSources,
+	context: PlaygroundRuntimeContext = standardPlaygroundContext,
+): ParseDocumentResult {
 	const errors: SourceErrors = {};
 	const total = SOURCE_KEYS.reduce((size, key) => size + new Blob([sources[key]]).size, 0);
 	if (total > TOTAL_LIMIT_BYTES) errors.schema = `All sources exceed ${TOTAL_LIMIT_BYTES.toLocaleString()} bytes`;
@@ -84,7 +89,7 @@ export function parseDocument(sources: PlaygroundSources): ParseDocumentResult {
 		unknown
 	>;
 	validateShapes(values, errors);
-	preflight(values, errors);
+	preflight(values, errors, context);
 	if (Object.keys(errors).length > 0) return { ok: false, errors };
 	return { ok: true, document: { version: PLAYGROUND_DOCUMENT_VERSION, ...values } as PlaygroundDocument };
 }

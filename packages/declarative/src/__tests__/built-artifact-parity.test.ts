@@ -23,8 +23,16 @@ beforeAll(async () => {
 
 describe("built public export parity", () => {
 	it("provides the same runtime values through ESM and CJS", () => {
-		expect(runtimeExports(esm)).toEqual(["createActionExecutor", "createFormRuntime", "validateFormDefinition"]);
+		expect(runtimeExports(esm)).toEqual([
+			"KALADA_V1_ARTIFACT",
+			"createActionExecutor",
+			"createFormRuntime",
+			"createKaladaV1Host",
+			"validateFormDefinition",
+		]);
 		expect(runtimeExports(cjs)).toEqual(runtimeExports(esm));
+		expect(esm.KALADA_V1_ARTIFACT).toMatch(/^@kalada\/core@0\.6\.0:[a-f0-9]{64}$/);
+		expect(cjs.KALADA_V1_ARTIFACT).toBe(esm.KALADA_V1_ARTIFACT);
 		expect(esm).not.toHaveProperty("sortDiagnostics");
 		expect(esm).not.toHaveProperty("copyJson");
 		expect(cjs).not.toHaveProperty("sortDiagnostics");
@@ -34,7 +42,18 @@ describe("built public export parity", () => {
 	it.each(declarations)("matches declared runtime values in %s", (declaration) => {
 		const exports = declarationExports(declaration);
 		expect(exports.runtime).toEqual(runtimeExports(esm));
-		expect(exports.all).toEqual(expect.arrayContaining(["Expression", "PropDefinitions", "Segment", "StateRef"]));
+		expect(exports.all).toEqual(
+			expect.arrayContaining([
+				"DefinitionProgram",
+				"ExtensionProps",
+				"FormDefinition",
+				"KaladaV1Host",
+				"Segment",
+				"StateRef",
+			]),
+		);
+		expect(exports.all).not.toContain("Expression");
+		expect(exports.all).not.toContain("PropDefinitions");
 		expect(exports.all).not.toContain("copyJson");
 		expect(exports.all).not.toContain("sortDiagnostics");
 	});

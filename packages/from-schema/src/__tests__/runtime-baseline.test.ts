@@ -1,122 +1,47 @@
-import type { FormDefinition, FormNode } from "@formbar/declarative";
-import { describe, expect, it } from "vitest";
-import { createRuntimeFieldBaseline, createSchemaForm, jsonSchemaProvider } from "../index.js";
+import { expect, test } from "vitest";
+import { createSchemaForm, jsonSchemaProvider } from "../index.js";
+import { validationHost } from "./kalada-validation-host-408.js";
 
-const provider = () => jsonSchemaProvider();
-
-describe("schema runtime baseline adaptation", () => {
-	it("keeps shared descriptor occurrences requiredness and titles occurrence-specific", () => {
-		const schema = {
-			type: "object",
-			properties: {
-				requiredName: { $ref: "#/$defs/name" },
-				optionalName: { $ref: "#/$defs/name" },
-			},
-			required: ["requiredName"],
-			$defs: { name: { type: "string", title: "Name" } },
-		};
-		const definition = authored([field("required", ["requiredName"]), field("optional", ["optionalName"])]);
-		const prepared = createSchemaForm(schema, { provider: provider(), side: "input", definition });
-		expect(prepared.baseline).toEqual([
-			{ nodeId: "required", required: true, label: "Name" },
-			{ nodeId: "optional", required: false, label: "Name" },
-		]);
-		expect(createRuntimeFieldBaseline(prepared.descriptors, prepared.definition)).toEqual(prepared.baseline);
-	});
-
-	it("returns frozen baselines for generated primitive, object, and nested-array fields", () => {
-		const prepared = createSchemaForm(
-			{
-				type: "object",
-				properties: {
-					orders: {
-						type: "array",
-						items: {
-							type: "object",
-							properties: {
-								lines: {
-									type: "array",
-									items: {
-										type: "object",
-										properties: { sku: { type: "string", title: "SKU" } },
-										required: ["sku"],
-									},
-								},
-							},
-							required: ["lines"],
-						},
-					},
-				},
-				required: ["orders"],
-			},
-			{ provider: provider(), side: "input" },
-		);
-		expect(prepared.baseline).toHaveLength(1);
-		expect(prepared.baseline[0]).toMatchObject({ required: true, label: "SKU" });
-		expect(Object.isFrozen(prepared.baseline)).toBe(true);
-		expect(Object.isFrozen(prepared.baseline[0])).toBe(true);
-
-		const primitive = createSchemaForm({ type: "string", title: "Root" }, { provider: provider(), side: "input" });
-		expect(primitive.baseline).toEqual([{ nodeId: primitive.definition.root.id, required: false, label: "Root" }]);
-	});
-
-	it("adapts authored nested repeater scopes and leaves unmatched fields without entries", () => {
-		const schema = {
-			type: "object",
-			properties: {
-				rows: {
-					type: "array",
-					items: { type: "object", properties: { value: { type: "number" } }, required: ["value"] },
-				},
-			},
-		};
-		const definition = authored([
-			{
-				type: "repeater",
-				id: "rows",
-				binding: binding(["rows"]),
-				scope: "row",
-				children: [{ ...field("value", ["value"]), binding: binding(["value"], "row") }],
-			},
-			field("unmatched", ["other"]),
-		]);
-		const prepared = createSchemaForm(schema, { provider: provider(), side: "input", definition });
-		expect(prepared.baseline).toEqual([{ nodeId: "value", required: true }]);
-	});
-
-	it("omits conflicting schema labels and emits a deterministic compilation diagnostic", () => {
-		const schema = {
-			type: "object",
-			properties: {
-				value: {
-					anyOf: [
-						{ type: "string", title: "A" },
-						{ type: "string", title: "B" },
-					],
-				},
-			},
-			required: ["value"],
-		};
-		const prepared = createSchemaForm(schema, {
-			provider: provider(),
-			side: "input",
-			definition: authored([field("value", ["value"])]),
-		});
-		expect(prepared.baseline).toEqual([{ nodeId: "value", required: true }]);
-		expect(prepared.diagnostics.compilation).toEqual([
-			expect.objectContaining({ code: "conflicting-baseline-label", nodeId: "value" }),
-		]);
-	});
+test("generated host control owns value and checked direct writes refresh the revision", async () => {
+	const result = validationHost();
+	try {
+		const before = result.host.snapshot();
+		const name = before.controls.find((control) => control.nodeId === result.nameId);
+		expect(name).toMatchObject({ value: "original", rendererId: "text" });
+		expect(name?.writers.value?.("Grace")).toEqual({ status: "applied" });
+		expect(result.host.snapshot().data.profile).toEqual({ name: "Grace" });
+		expect(result.host.snapshot().revision).not.toBe(before.revision);
+		expect(name?.writers.value?.("stale")).not.toEqual({ status: "applied" });
+		expect(await result.host.submit()).toEqual({ status: "submitted" });
+		expect(result.installed.instances.values().next().value?.outgoing).toEqual(result.host.snapshot().data);
+		expect(result.host.reset()).toMatchObject({ ok: true });
+		expect(result.host.snapshot().data.profile).toEqual({ name: "original" });
+	} finally {
+		result.host.dispose();
+	}
 });
 
-function authored(children: readonly FormNode[]): FormDefinition {
-	return { version: 1, id: "authored", root: { type: "group", id: "root", children } };
-}
+test("retired runtime baseline FormApi path fails before installation", () => {
+	expect(() => createSchemaForm({}, { provider: jsonSchemaProvider(), side: "input" })).toThrow(/no longer supported/);
+});
 
-function field(id: string, segments: readonly (string | number)[]): FormNode {
-	return { type: "field", id, binding: binding(segments), widget: "text" };
-}
-
-function binding(segments: readonly (string | number)[], scope?: string) {
-	return { namespace: "data", segments, ...(scope ? { scope } : {}) } as const;
-}
+test("nested row control keeps host identity across reorder and rejects its stale writer", async () => {
+	const result = validationHost();
+	try {
+		const original = result.host.snapshot().controls.find((item) => item.nodeId === result.quantityId);
+		expect(original?.value).toBe("child");
+		expect(original?.writers.value?.("edited")).toEqual({ status: "applied" });
+		const state = result.installed.instances.values().next().value;
+		if (!state) throw Error("missing host state");
+		expect(state.rows[0].nested[0].quantity).toBe("edited");
+		state.rows.reverse();
+		result.installed.bump(state);
+		const moved = result.host.snapshot().controls.find((item) => item.nodeId === result.quantityId);
+		expect(moved?.key).toBe(original?.key);
+		expect(original?.writers.value?.("stale")).not.toEqual({ status: "applied" });
+		expect(await result.host.submit()).toEqual({ status: "submitted" });
+		expect(state.outgoing).toEqual(result.host.snapshot().data);
+	} finally {
+		result.host.dispose();
+	}
+});

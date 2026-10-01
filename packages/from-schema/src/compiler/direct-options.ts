@@ -5,13 +5,18 @@ import type {
 	DescriptorOccurrence,
 	DescriptorValue,
 } from "../descriptors/contracts.js";
+import type { CompilationDiagnostic } from "../diagnostics.js";
 import { jsonPresentationHint } from "../json-presentation-hints.js";
-import type { CompilationContext } from "./compile-occurrence.js";
 import { directTypedEnum } from "./direct-typed-enum.js";
 import type { CompiledPresentation } from "./presentation.js";
 
 type Scalar = string | number | boolean | null;
 type Choice = { value: Scalar; title?: string; disabled?: boolean };
+
+interface CompilationContext {
+	readonly document: DescriptorDocument;
+	readonly diagnostics: CompilationDiagnostic[];
+}
 
 export function canonicalEnum(
 	document: DescriptorDocument,

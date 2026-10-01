@@ -1,12 +1,12 @@
 /* Only the authored Demo 17 trees opt out of the generic twelve-column section layout. */
-.schema-demo-form form[data-formbar-definition^="demo17-"] > [data-formbar-node],
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-panel"],
-form[data-formbar-definition^="demo17-"] section[data-formbar-node] > [data-formbar-node],
-form[data-formbar-definition^="demo17-"]
+.schema-demo-form form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) > [data-formbar-node],
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [data-kalada-control="inspection-panel"],
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) section[data-formbar-node] > [data-kalada-control],
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
 	[data-formbar-node="inspection-tabs"]
 	> [role="tabpanel"]
 	> [data-formbar-node],
-form[data-formbar-definition^="demo17-"]
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
 	[data-formbar-node="inspection-accordion"]
 	[role="region"]
 	> [data-formbar-node] {
@@ -15,8 +15,8 @@ form[data-formbar-definition^="demo17-"]
 	min-width: 0;
 }
 
-.schema-demo-form:has(form[data-formbar-definition^="demo17-"]) section[data-formbar-node],
-.schema-demo-form:has(form[data-formbar-definition^="demo17-"]) section[data-extension-node="inspection-panel"] {
+.schema-demo-form:has([data-extension-node="inspection-panel"]) section[data-formbar-node],
+.schema-demo-form:has([data-extension-node="inspection-panel"]) section[data-extension-node="inspection-panel"] {
 	display: block;
 	width: 100%;
 	min-width: 0;
@@ -24,19 +24,19 @@ form[data-formbar-definition^="demo17-"]
 	border-top: 1px solid var(--border);
 }
 
-.schema-demo-form:has(form[data-formbar-definition^="demo17-"]) section[data-extension-node="inspection-panel"] {
+.schema-demo-form:has([data-extension-node="inspection-panel"]) section[data-extension-node="inspection-panel"] {
 	padding: 0.75rem;
 }
 
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-panel"],
-form[data-formbar-definition^="demo17-"] [data-formbar-node^="grid-"],
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-tabs"],
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [data-kalada-control="inspection-panel"],
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [data-kalada-control^="grid-"],
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [data-formbar-node="inspection-tabs"],
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [data-formbar-node="inspection-accordion"] {
 	min-width: 0;
 	width: 100%;
 }
 
-form[data-formbar-definition^="demo17-"] section[data-formbar-node] > h2 {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) section[data-formbar-node] > h2 {
 	margin-bottom: 1rem;
 	font-size: 1.1rem;
 }
@@ -48,48 +48,54 @@ form[data-formbar-definition^="demo17-"] section[data-formbar-node] > h2 {
 	gap: 1rem;
 }
 
-form[data-formbar-definition^="demo17-"] [role="tablist"] {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="tablist"] {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.25rem;
 	border-bottom: 2px solid var(--border);
 }
 
-form[data-formbar-definition^="demo17-"] [role="tablist"] button,
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] h3 button {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="tablist"] button,
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
+	[data-formbar-node="inspection-accordion"]
+	h3
+	button {
 	background: var(--surface-elevated);
 	color: var(--foreground);
 	font-weight: 400;
 	text-align: left;
 }
 
-form[data-formbar-definition^="demo17-"] [role="tablist"] button {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="tablist"] button {
 	border: 1px solid var(--border);
 	border-bottom: 3px solid transparent;
 	border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 	padding: 0.65rem 0.85rem;
 }
 
-form[data-formbar-definition^="demo17-"] [role="tablist"] button[aria-selected="true"] {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="tablist"] button[aria-selected="true"] {
 	background: var(--accent);
 	border-bottom-color: var(--ring);
 	font-weight: 700;
 }
 
-form[data-formbar-definition^="demo17-"] [role="tabpanel"]:not([hidden]) {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="tabpanel"]:not([hidden]) {
 	width: 100%;
 	min-width: 0;
 	padding: 1.25rem 0;
 }
 
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] > div {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [data-formbar-node="inspection-accordion"] > div {
 	margin-top: 0.75rem;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-sm);
 	overflow: hidden;
 }
 
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] h3 button {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
+	[data-formbar-node="inspection-accordion"]
+	h3
+	button {
 	display: flex;
 	width: 100%;
 	align-items: center;
@@ -100,39 +106,48 @@ form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordio
 	padding: 0.85rem 1rem;
 }
 
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] h3 button::after {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
+	[data-formbar-node="inspection-accordion"]
+	h3
+	button::after {
 	content: "⌄";
 	font-size: 1.25rem;
 }
 
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] h3 button[aria-expanded="true"] {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
+	[data-formbar-node="inspection-accordion"]
+	h3
+	button[aria-expanded="true"] {
 	background: var(--accent);
 	font-weight: 700;
 	border-bottom: 2px solid var(--ring);
 }
 
-form[data-formbar-definition^="demo17-"]
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
 	[data-formbar-node="inspection-accordion"]
 	h3
 	button[aria-expanded="true"]::after {
 	content: "⌃";
 }
 
-form[data-formbar-definition^="demo17-"] [role="region"]:not([hidden]) {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="region"]:not([hidden]) {
 	width: 100%;
 	min-width: 0;
 	padding: 1rem;
 }
 
-form[data-formbar-definition^="demo17-"] [role="tablist"] button:focus-visible,
-form[data-formbar-definition^="demo17-"] [data-formbar-node="inspection-accordion"] h3 button:focus-visible {
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"]) [role="tablist"] button:focus-visible,
+form[data-kalada-v1]:has([data-extension-node="inspection-panel"])
+	[data-formbar-node="inspection-accordion"]
+	h3
+	button:focus-visible {
 	outline: 3px solid var(--ring);
 	outline-offset: -3px;
 	box-shadow: inset 0 0 0 2px var(--foreground);
 }
 
 @media (min-width: 48rem) {
-	.schema-demo-form:has(form[data-formbar-definition^="demo17-"]) section[data-extension-node="inspection-panel"] {
+	.schema-demo-form:has([data-extension-node="inspection-panel"]) section[data-extension-node="inspection-panel"] {
 		padding: 1.25rem;
 	}
 	.demo17-field-grid[data-columns="2"] {

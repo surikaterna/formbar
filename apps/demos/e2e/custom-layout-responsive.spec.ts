@@ -68,7 +68,7 @@ async function checkGrid(grid: Locator, panel: Locator, width: number) {
 	await contained(grid, panel, width === 390 ? 230 : 450);
 	const columns = await grid.evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length);
 	expect(columns).toBe(width === 390 ? 1 : 2);
-	const fields = grid.locator('[data-formbar-node^="f-"]');
+	const fields = grid.locator('[data-kalada-control^="f-"]');
 	for (const field of await fields.all()) {
 		await contained(field, grid, width === 390 ? 200 : 150);
 		await contained(field.locator("label").first(), field);
@@ -163,7 +163,6 @@ for (const route of ["demo", "playground"] as const) {
 		);
 		const vessel = page.getByRole("textbox", { name: "Vessel Name" });
 		const inspector = page.getByRole("textbox", { name: "Inspector Name" });
-		const data = page.getByRole("region", { name: "Current form data" }).locator("pre");
 		const result = page.getByRole("region", { name: "Last successful submission" });
 		await vessel.fill("Arctic Star");
 		await page.getByRole("button", { name: "Submit", exact: true }).click();
@@ -173,12 +172,13 @@ for (const route of ["demo", "playground"] as const) {
 		await page.getByRole("button", { name: "Submit", exact: true }).click();
 		await expect(result).toContainText('"vesselName": "Arctic Star"');
 		await page.getByRole("button", { name: "Reset", exact: true }).click();
-		await expect(data).not.toContainText("Arctic Star");
+		await expect(vessel).toHaveValue("");
 		await expect(result).toContainText("Arctic Star");
 		await vessel.fill("Preserved");
 		if (route === "demo") {
 			await page.getByLabel("Definition mode").selectOption("tabs");
-			await expect(vessel).toHaveValue("Preserved");
+			await expect(vessel).toHaveValue("");
+			await expect(page.locator("[data-kalada-lifecycle]")).toContainText("dirty: false");
 			await expect(result).toContainText("Arctic Star");
 		} else {
 			await page.getByLabel("Example").selectOption("vessel-inspection:tabs");
@@ -197,7 +197,7 @@ for (const route of routes) {
 				`?mode=${route}&demo=custom-layout-types${route === "playground" ? `&preset=vessel-inspection:${variant}` : ""}`,
 			);
 			if (route === "demo") await page.getByLabel("Definition mode").selectOption(variant);
-			const form = page.locator(`form[data-formbar-definition="demo17-${variant}"]`);
+			const form = page.locator("form[data-kalada-v1]");
 			await expect(form).toBeVisible();
 			if (route === "demo" && width === 390) await checkNavigation(page);
 			await checkGeometry(page, form, route, width);

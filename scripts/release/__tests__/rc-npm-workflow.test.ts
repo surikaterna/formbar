@@ -1,20 +1,37 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
+import { kaladaProductionDependencies, rcEdges, rcPackages, readRcPlan } from "../rc-workspace-plan.mjs";
 
 const source = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
 const workflow = YAML.parse(source);
 const job = workflow.jobs["publish-rc"];
-const packages = ["expressions", "core", "declarative", "from-schema", "react", "arbiter", "react-schema"];
+const packages = rcPackages;
 const version = "0.23.0-rc.0";
+const versions = Object.fromEntries(readRcPlan(process.cwd()).map(({ name, version }) => [name.slice(9), version]));
 type Call = { args: string[]; cwd: string; metadata: string[] };
 
 function prepareFixture(directory: string, scenario: string, changedVersion: string, changedName?: string) {
 	const bin = join(directory, "bin");
 	mkdirSync(bin);
+	mkdirSync(join(directory, "scripts/release"), { recursive: true });
+	copyFileSync(
+		resolve("scripts/release/rc-workspace-plan.mjs"),
+		join(directory, "scripts/release/rc-workspace-plan.mjs"),
+	);
+	mkdirSync(join(directory, ".changeset"));
+	writeFileSync(
+		join(directory, ".changeset/pre.json"),
+		JSON.stringify({
+			mode: "pre",
+			tag: "rc",
+			changesets: [],
+			initialVersions: Object.fromEntries(packages.map((name) => [`@formbar/${name}`, "0.0.0"])),
+		}),
+	);
 	for (const name of packages) {
 		const path = join(directory, "packages", name);
 		mkdirSync(path, { recursive: true });
@@ -22,7 +39,11 @@ function prepareFixture(directory: string, scenario: string, changedVersion: str
 			join(path, "package.json"),
 			JSON.stringify({
 				name: name === "react-schema" ? changedName || `@formbar/${name}` : `@formbar/${name}`,
-				version: scenario === "all-invalid" || name === "react-schema" ? changedVersion : version,
+				version: scenario === "all-invalid" || name === "react-schema" ? changedVersion : versions[name],
+				dependencies: {
+					...Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${versions[edge]}`])),
+					...kaladaProductionDependencies[`@formbar/${name}`],
+				},
 			}),
 		);
 	}
@@ -36,12 +57,12 @@ function prepareFixture(directory: string, scenario: string, changedVersion: str
 	}
 	const state = join(directory, "state.json");
 	const log = join(directory, "calls.jsonl");
-	writeFileSync(state, JSON.stringify({ scenario, version, published: [] }));
+	writeFileSync(state, JSON.stringify({ scenario, version, versions, published: [], tagReads: [] }));
 	writeFileSync(log, "");
 	return { bin, state, log };
 }
 
-function runWorkflowShell(scenario: string, changedVersion = version, changedName?: string) {
+function runWorkflowShell(scenario: string, changedVersion = versions["react-schema"], changedName?: string) {
 	const directory = mkdtempSync(join(tmpdir(), "formbar-manual-rc-"));
 	try {
 		const { bin, state, log } = prepareFixture(directory, scenario, changedVersion, changedName);
@@ -125,13 +146,13 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		for (const call of result.publications)
 			expect(call.args).toEqual(["publish", "--tag", "rc", "--access", "public", "--provenance"]);
 		for (const call of result.calls) expect(call.metadata).toEqual(["workflow_dispatch", "1245476636", "9478205"]);
-		expect(result.calls.slice(0, 7).map((call) => call.args)).toEqual(
-			packages.map((name) => ["view", `@formbar/${name}`, "dist-tags.latest", "--json"]),
+		expect(result.calls.slice(0, 8).map((call) => call.args)).toEqual(
+			packages.map((name) => ["view", `@formbar/${name}`, "dist-tags", "--json"]),
 		);
-		expect(result.calls.slice(7, 21).map((call) => call.args[0])).toEqual(packages.flatMap(() => ["view", "publish"]));
-		expect(result.calls.slice(21).map((call) => call.args)).toEqual(
+		expect(result.calls.slice(8, 24).map((call) => call.args[0])).toEqual(packages.flatMap(() => ["view", "publish"]));
+		expect(result.calls.slice(24).map((call) => call.args)).toEqual(
 			packages.flatMap((name) => [
-				["view", `@formbar/${name}@${version}`, "name", "version", "--json"],
+				["view", `@formbar/${name}@${versions[name]}`, "name", "version", "--json"],
 				["view", `@formbar/${name}`, "dist-tags", "--json"],
 			]),
 		);
@@ -160,7 +181,7 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(result.publications).toEqual([]);
 	});
 
-	it.each(["0.23.0", "0.23.0-rc.1", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
+	it.each(["0.23.0", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
 		"denies version %s before registry access",
 		(candidate) => {
 			const result = runWorkflowShell("absent", candidate);
@@ -169,12 +190,12 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		},
 	);
 	it("denies a mismatched package name before registry access", () => {
-		const result = runWorkflowShell("absent", version, "@formbar/other");
+		const result = runWorkflowShell("absent", versions["react-schema"], "@formbar/other");
 		expect(result.status).not.toBe(0);
 		expect(result.calls).toEqual([]);
 	});
 	it.each(["0.23.0", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
-		"denies seven equal but invalid versions %s",
+		"denies eight equal but invalid versions %s",
 		(candidate) => {
 			const result = runWorkflowShell("all-invalid", candidate);
 			expect(result.status).not.toBe(0);
@@ -185,8 +206,8 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		const result = runWorkflowShell("existing");
 		expect(result.status, result.stderr).toBe(0);
 		expect(result.publications).toEqual([]);
-		expect(result.stdout.match(/Skipping immutable existing/g)).toHaveLength(7);
-		expect(result.calls).toHaveLength(28);
+		expect(result.stdout.match(/Skipping immutable existing/g)).toHaveLength(8);
+		expect(result.calls).toHaveLength(32);
 	});
 	it.each([
 		"E403",
@@ -201,7 +222,7 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		const result = runWorkflowShell(scenario);
 		expect(result.status).not.toBe(0);
 		expect(result.publications).toEqual([]);
-		expect(result.calls).toHaveLength(8);
+		expect(result.calls).toHaveLength(9);
 	});
 	it("does not retry a failed PUT or attempt later packages", () => {
 		const result = runWorkflowShell("publish-failure");
@@ -209,12 +230,23 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(result.publications.map((call) => call.cwd)).toEqual(["expressions", "core"]);
 		expect(result.stderr).toContain("normal npm publish stderr");
 	});
+	it("does not mistake new-package authentication failure for registry absence", () => {
+		const result = runWorkflowShell("fsx-auth");
+		expect(result.status).not.toBe(0);
+		expect(result.publications).toEqual([]);
+		expect(result.calls).toHaveLength(4);
+	});
+	it("stops at failed FSX bootstrap without token fallback or publishing dependants", () => {
+		const result = runWorkflowShell("fsx-bootstrap-failure");
+		expect(result.status).toBe(17);
+		expect(result.publications.map(({ cwd }) => cwd)).toEqual(packages.slice(0, 4));
+	});
 	it.each(["wrong-rc", "moved-latest", "wrong-post-name", "wrong-post-version"])(
 		"fails postflight %s without repair",
 		(scenario) => {
 			const result = runWorkflowShell(scenario);
 			expect(result.status).not.toBe(0);
-			expect(result.publications).toHaveLength(7);
+			expect(result.publications).toHaveLength(8);
 			expect(result.calls.every((call) => ["view", "publish"].includes(call.args[0]))).toBe(true);
 		},
 	);

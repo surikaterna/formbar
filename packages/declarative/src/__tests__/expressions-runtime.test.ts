@@ -1,66 +1,84 @@
 import { describe, expect, it } from "vitest";
-import type { Expression, FormNode } from "../index.js";
-import { dataRef, definition, field, literal, node, op, runtime } from "./runtime-fixtures.js";
+import { createFormRuntime } from "../index.js";
+import { installedField, installedOutput, program } from "./kalada-runtime-fixtures.js";
 
-const operatorCases: readonly [string, Expression, boolean][] = [
-	["add", op("eq", op("add", literal(7), literal(3)), literal(10)), true],
-	["sub", op("eq", op("sub", literal(7), literal(3)), literal(4)), true],
-	["mul", op("eq", op("mul", literal(7), literal(3)), literal(21)), true],
-	["div", op("eq", op("div", literal(7), literal(2)), literal(3.5)), true],
-	["eq", op("eq", literal(3), literal(3)), true],
-	["neq", op("neq", literal(3), literal(4)), true],
-	["gt", op("gt", literal(4), literal(3)), true],
-	["gte", op("gte", literal(3), literal(3)), true],
-	["lt", op("lt", literal(3), literal(4)), true],
-	["lte", op("lte", literal(3), literal(3)), true],
-	["and", op("and", literal(true), literal(true)), true],
-	["or", op("or", literal(false), literal(true)), true],
-	["not", op("not", literal(false)), true],
-	["if", op("if", literal(true), literal(true), literal(false)), true],
-	["coalesce", op("coalesce", dataRef(["missing"]), literal(true)), true],
-	["exists", op("exists", dataRef(["present"])), true],
-];
+describe("host-installed Kalada V1 expression slots", () => {
+	it("evaluates a canonical literal and a host data read across revisions", () => {
+		const { runtime, state, host } = installedOutput({
+			kind: "ref",
+			ref: { namespace: "data", segments: ["profile", "name"] },
+		});
+		expect(runtime.snapshot().outputs[0]?.value).toBe("original");
+		state.field.value = "changed";
+		host.bump(state);
+		expect(runtime.snapshot().outputs[0]?.value).toBe("changed");
+		runtime.dispose();
+	});
 
-describe("expression runtime integration", () => {
-	it.each(operatorCases)(
-		"evaluates public standard-v1 %s through the expression service",
-		(_name, expression, expected) => {
-			const formDefinition = definition([field("value", ["present"], { visible: expression })]);
-			const { runtime: port } = runtime(formDefinition, { initialData: { present: 1 } });
-			expect(node(port, "value")?.visible).toBe(expected);
-		},
-	);
+	it.each([true, false])("selects Conditional.condition %s without deferring basic branching to #409", (choice) => {
+		const field = installedField();
+		const accepted = field.admitOutput({
+			version: 1,
+			id: "conditional",
+			root: {
+				type: "conditional",
+				id: "choice",
+				condition: program({ kind: "literal", value: choice }),
+				// biome-ignore lint/suspicious/noThenProperty: Serialized conditional branch, not a thenable.
+				then: [{ type: "output", id: "yes", value: program({ kind: "literal", value: "yes" }) }],
+				else: [{ type: "output", id: "no", value: program({ kind: "literal", value: "no" }) }],
+			},
+		});
+		expect(accepted.ok).toBe(true);
+		if (accepted.ok) {
+			const runtime = createFormRuntime({ definition: accepted.value });
+			expect(runtime.snapshot().outputs.map((output) => output.value)).toEqual([choice ? "yes" : "no"]);
+			runtime.dispose();
+		}
+		field.runtime.dispose();
+	});
 
-	it("applies the conservative failure matrix with contextual diagnostics", () => {
-		const conditional: FormNode = {
-			type: "conditional",
-			id: "choice",
-			condition: dataRef(["missing"]),
-			// biome-ignore lint/suspicious/noThenProperty: Serialized conditional branch fixture.
-			then: [field("yes", ["yes"])],
-			else: [field("no", ["no"])],
-		};
-		const formDefinition = definition([
-			field("closed", ["closed"], {
-				visible: dataRef(["missing"]),
-				disabled: { kind: "ref", ref: { namespace: "secret", segments: ["missing"] } },
-				readOnly: literal("bad" as never),
-				required: dataRef(["missing"]),
+	it("requires Boolean condition, not null or string truthiness", () => {
+		const field = installedField();
+		const accepted = field.admitOutput({
+			version: 1,
+			id: "nonboolean",
+			root: {
+				type: "conditional",
+				id: "choice",
+				condition: program({ kind: "literal", value: null }),
+				// biome-ignore lint/suspicious/noThenProperty: Serialized conditional branch, not a thenable.
+				then: [],
+				else: [],
+			},
+		});
+		expect(accepted.ok).toBe(true);
+		if (accepted.ok) {
+			const runtime = createFormRuntime({ definition: accepted.value });
+			expect(() => runtime.snapshot()).toThrow("root.condition: BOOLEAN_REQUIRED");
+			runtime.dispose();
+		}
+		field.runtime.dispose();
+	});
+
+	it("rejects a legacy operator at the exact condition slot instead of invoking Kuery", () => {
+		const field = installedField();
+		expect(
+			field.admitOutput({
+				version: 1,
+				id: "old",
+				root: {
+					type: "conditional",
+					id: "choice",
+					condition: { kind: "literal", value: true },
+					// biome-ignore lint/suspicious/noThenProperty: Serialized conditional branch, not a thenable.
+					then: [],
+				},
 			}),
-			conditional,
-		]);
-		const { runtime: port } = runtime(formDefinition, { initialData: { closed: "x", yes: 1, no: 2 } });
-		const closed = port.getSnapshot().fields.find((item) => item.instance.nodeId === "closed");
-		expect(closed).toMatchObject({ visible: false, disabled: true, readOnly: true, required: true });
-		expect(node(port, "choice")?.branch).toBe("none");
-		expect(node(port, "yes")?.visible).toBe(false);
-		expect(node(port, "no")?.visible).toBe(false);
-		expect(port.getSnapshot().diagnostics.map((item) => [item.nodeId, item.property, item.expressionCode])).toEqual([
-			["choice", "condition", "missing"],
-			["closed", "disabled", "denied"],
-			["closed", "readOnly", "type"],
-			["closed", "required", "missing"],
-			["closed", "visible", "missing"],
-		]);
+		).toMatchObject({
+			ok: false,
+			diagnostics: [{ path: ["root", "condition"], message: "RE-AUTHOR" }],
+		});
+		field.runtime.dispose();
 	});
 });

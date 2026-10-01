@@ -70,28 +70,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          packages=(expressions core declarative from-schema react arbiter react-schema)
-          version="$(node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const names = ['expressions', 'core', 'declarative', 'from-schema', 'react', 'arbiter', 'react-schema'];
-          const manifests = names.map(name => JSON.parse(readFileSync(`packages/${name}/package.json`)));
-          const version = manifests[0].version;
-          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.(0|[1-9]\d*)$/.test(version) ||
-              manifests.some((manifest, index) => manifest.version !== version || manifest.name !== `@formbar/${names[index]}`)) {
-            throw new Error('All seven named packages must have the same well-formed RC version');
-          }
-          console.log(version);
-          NODE
-          )"
           snapshot="$(mktemp -d)"
           trap 'rm -rf "$snapshot"' EXIT
-          for package in "${packages[@]}"; do
-            npm view "@formbar/$package" dist-tags.latest --json > "$snapshot/$package.latest"
+          node scripts/release/rc-workspace-plan.mjs > "$snapshot/plan"
+          while IFS=$'\t' read -r package version; do
+            if npm view "@formbar/$package" dist-tags --json > "$snapshot/$package.latest"; then
+              jq -e --arg package "$package" 'type == "object" and (if has("latest") then (.latest | type == "string" and length > 0) else $package == "fsx-authoring" end)' "$snapshot/$package.latest"
+            else
+              [[ "$package" == fsx-authoring ]]
+              jq -e '.error.code == "E404"' "$snapshot/$package.latest"
+              printf '{}\n' > "$snapshot/$package.latest"
+            fi
             printf '%s latest before: ' "@formbar/$package"
             cat "$snapshot/$package.latest"
-            jq -e 'type == "string" and length > 0' "$snapshot/$package.latest"
-          done
-          for package in "${packages[@]}"; do
+          done < "$snapshot/plan"
+          while IFS=$'\t' read -r package version; do
             if npm view "@formbar/$package@$version" name version --json > "$snapshot/exact.json"; then
               jq -e --arg name "@formbar/$package" --arg version "$version" '.name == $name and .version == $version' "$snapshot/exact.json"
               printf 'Skipping immutable existing %s@%s\n' "@formbar/$package" "$version"
@@ -99,12 +92,12 @@ jobs:
               jq -e '.error.code == "E404"' "$snapshot/exact.json"
               (cd "packages/$package" && npm publish --tag rc --access public --provenance)
             fi
-          done
-          for package in "${packages[@]}"; do
+          done < "$snapshot/plan"
+          while IFS=$'\t' read -r package version; do
             npm view "@formbar/$package@$version" name version --json > "$snapshot/exact.json"
             cat "$snapshot/exact.json"
             jq -e --arg name "@formbar/$package" --arg version "$version" '.name == $name and .version == $version' "$snapshot/exact.json"
             npm view "@formbar/$package" dist-tags --json > "$snapshot/tags.json"
             cat "$snapshot/tags.json"
-            jq -e --arg version "$version" --slurpfile latest "$snapshot/$package.latest" '.rc == $version and .latest == $latest[0]' "$snapshot/tags.json"
-          done
+            jq -e --arg version "$version" --slurpfile latest "$snapshot/$package.latest" '.rc == $version and (if ($latest[0] | has("latest")) then .latest == $latest[0].latest else (has("latest") | not) end)' "$snapshot/tags.json"
+          done < "$snapshot/plan"

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -54,7 +55,12 @@ async function childEnvironment() {
 		ACTIONS_ID_TOKEN_REQUEST_TOKEN: "test-only",
 	}))
 		vi.stubEnv(key, value);
-	await publishProtected("@formbar/expressions", Buffer.from("offline fixture"));
+	const cwd = vi.spyOn(process, "cwd").mockReturnValue(tmpdir());
+	try {
+		await publishProtected("@formbar/expressions", Buffer.from("offline fixture"));
+	} finally {
+		cwd.mockRestore();
+	}
 	// Remove the existing OIDC wiring from this test-only generator child, not from production.
 	return Object.fromEntries(Object.entries(capture.env).filter(([key]) => !key.startsWith("ACTIONS_ID_TOKEN_")));
 }

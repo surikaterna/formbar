@@ -1,0 +1,352 @@
+import { vi } from "vitest";
+import type {
+	DataContext,
+	DirectWriteRequest,
+	FormbarDataStrategyV1,
+	ReadScope,
+} from "../../../packages/declarative/src/validators/kalada-data-strategy.js";
+import { KALADA_RUNTIME_ARTIFACT } from "../../../packages/declarative/src/validators/kalada-private-runtime.js";
+import { registryData, rowData, submissionPorts } from "./row-submission-host.js";
+
+export type Node = {
+	id: string;
+	token: object;
+	revision: object;
+	value: string;
+	quantity: string;
+	children: string[];
+	denied: boolean;
+	readOnly: boolean;
+};
+export const node = (id: string, value: string): Node => ({
+	id,
+	token: {},
+	revision: {},
+	value,
+	quantity: `${value}-quantity`,
+	children: [],
+	denied: false,
+	readOnly: false,
+});
+export type TreeNode = Omit<Node, "children"> & { children: TreeNode[] };
+export type FormField = { value: string; missing: boolean; denied: boolean; readOnly: boolean };
+export type TreeState = { revision: object; roots: TreeNode[]; field: FormField; notify: () => void };
+export type RegistryVersion = { revision: object; roots: string[]; nodes: Map<string, Node>; field: FormField };
+export type RegistryState = { version: RegistryVersion; notify: () => void };
+export const receipt = () => ({ artifact: KALADA_RUNTIME_ARTIFACT, policyGeneration: "g1", policyFingerprint: "host" });
+export const referencePath = ["rows", { row: "outer" }, "nested", { row: "inner" }, "value"];
+export const quantityPath = ["rows", { row: "outer" }, "nested", { row: "inner" }, "quantity"];
+export const nonrowPath = ["profile", "name"];
+export const formField = (): FormField => ({ value: "original", missing: false, denied: false, readOnly: false });
+
+function readField(field: FormField) {
+	if (field.missing) return { status: "missing" } as const;
+	if (field.denied) return { status: "denied" } as const;
+	return { status: "found", value: field.value } as const;
+}
+
+function isNonrowRead(reference: { namespace: string; path: readonly unknown[] }, scope: ReadScope) {
+	return (
+		reference.namespace === "data" &&
+		JSON.stringify(reference.path) === JSON.stringify(nonrowPath) &&
+		scope.rows.length === 0
+	);
+}
+
+function rowField(reference: { namespace: string; path: readonly unknown[] }, scope: ReadScope) {
+	if (reference.namespace !== "data" || scope.rows.length !== 2) return undefined;
+	if (scope.rows[0]?.name !== "outer" || scope.rows[1]?.name !== "inner") return undefined;
+	if (scope.rows[0].token === scope.rows[1].token) return undefined;
+	const path = reference.path;
+	if (!Array.isArray(path) || path.length !== 5 || path[0] !== "rows" || path[2] !== "nested") return undefined;
+	for (const [position, name] of [
+		[1, "outer"],
+		[3, "inner"],
+	] as const) {
+		const segment = path[position];
+		if (!segment || typeof segment !== "object" || Array.isArray(segment)) return undefined;
+		if (Object.keys(segment).length !== 1 || !Object.hasOwn(segment, "row")) return undefined;
+		if ((segment as { row: unknown }).row !== name) return undefined;
+	}
+	if (path[4] === "value") return "value" as const;
+	if (path[4] === "quantity") return "quantity" as const;
+	return undefined;
+}
+
+export function validNonrow(request: DirectWriteRequest, context: DataContext, revision: object, field: FormField) {
+	if (request.expectedInstance !== context.instance) return "stale";
+	if (request.contract !== "formbar-direct-write-v1" || request.targetKind !== "non-repeater") return "invalid-target";
+	if (request.scope.rows.length || "expectedRowRevision" in request) return "invalid-target";
+	if (request.reference.namespace !== "data" || JSON.stringify(request.reference.path) !== JSON.stringify(nonrowPath))
+		return "invalid-target";
+	if (request.expectedRevision !== revision) return "stale";
+	if (field.missing) return "missing";
+	if (field.denied || field.readOnly) return "denied";
+	if (typeof request.value !== "string") return "invalid-target";
+	return undefined;
+}
+
+export function validTarget(request: DirectWriteRequest, context: DataContext) {
+	if (request.expectedInstance !== context.instance || request.contract !== "formbar-direct-write-v1") return "stale";
+	if (request.targetKind !== "row" || !request.scope.rows.length) return "invalid-target";
+	if (!rowField(request.reference, request.scope)) return "invalid-target";
+	return undefined;
+}
+
+export function serialHost() {
+	const states = new Map<object, TreeState>();
+	const notifications = vi.fn();
+	const state = (context: DataContext) => {
+		const result = states.get(context.instance);
+		if (!result) throw new Error("foreign instance");
+		return result;
+	};
+	const make = (id: string, value: string): TreeNode => ({ ...node(id, value), children: [] });
+	const resolve = (current: TreeState, scope: ReadScope) => {
+		let siblings = current.roots;
+		let found: TreeNode | undefined;
+		for (const binding of scope.rows) {
+			const matches = siblings.filter((candidate) => candidate.token === binding.token);
+			if (matches.length !== 1) return undefined;
+			found = matches[0];
+			siblings = found?.children ?? [];
+		}
+		return found;
+	};
+	const bump = (current: TreeState) => {
+		current.revision = {};
+		current.notify();
+	};
+	const submission = submissionPorts((context) => {
+		const current = state(context);
+		return { revision: current.revision, field: current.field, data: rowData(current.field, current.roots) };
+	});
+	const strategy: FormbarDataStrategyV1 = {
+		contract: "formbar-data-strategy-v1",
+		...submission.ports,
+		identity(context) {
+			if (!states.has(context.instance)) {
+				const first = make("first", "first");
+				first.children.push(make("child", "child"));
+				states.set(context.instance, {
+					revision: {},
+					field: formField(),
+					roots: [first, make("second", "second")],
+					notify: () => notifications(),
+				});
+			}
+			return receipt();
+		},
+		capture(context) {
+			const current = state(context);
+			const token = current.revision;
+			return {
+				instance: context.instance,
+				token,
+				read(reference, scope) {
+					if (current.revision !== token) return { status: "stale" };
+					if (isNonrowRead(reference, scope)) return readField(current.field);
+					const field = rowField(reference, scope);
+					if (!field) return { status: "missing" };
+					const found = resolve(current, scope);
+					return found ? { status: "found", value: found[field] } : { status: "missing" };
+				},
+				enumerateRows(parent, _binding, name) {
+					if (current.revision !== token) return { status: "stale" };
+					const source = name === "outer" ? current.roots : resolve(current, parent)?.children;
+					return source
+						? {
+								status: "found",
+								rows: source.map((item, order) => ({
+									token: item.token,
+									writeRevision: item.revision,
+									order,
+									scope: { rows: [...parent.rows, { name, token: item.token }] },
+								})),
+							}
+						: { status: "missing" };
+				},
+			};
+		},
+		current: (context) => state(context).revision,
+		subscribe(context, notify) {
+			state(context).notify = () => {
+				notifications();
+				notify();
+			};
+			return () => {
+				state(context).notify = () => {};
+			};
+		},
+		writeDirect(context, request) {
+			const current = state(context);
+			if (request.targetKind === "non-repeater") {
+				const invalid = validNonrow(request, context, current.revision, current.field);
+				if (invalid) return { status: invalid };
+				current.field.value = request.value as string;
+				bump(current);
+				return { status: "applied" };
+			}
+			const invalid = validTarget(request, context);
+			if (invalid) return { status: invalid };
+			const field = rowField(request.reference, request.scope);
+			if (!field) return { status: "invalid-target" };
+			if (request.expectedRevision !== current.revision) return { status: "stale" };
+			const parent = resolve(current, { rows: request.scope.rows.slice(0, 1) });
+			const child = resolve(current, request.scope);
+			if (!parent || !child) return { status: "missing" };
+			if (parent.denied || child.denied || parent.readOnly || child.readOnly) return { status: "denied" };
+			if (child.revision !== request.expectedRowRevision) return { status: "conflict" };
+			if (typeof request.value !== "string") return { status: "invalid-target" };
+			// Serial critical section: validation and mutation are synchronous with no callback until commit.
+			child[field] = request.value;
+			child.revision = {};
+			bump(current);
+			return { status: "applied" };
+		},
+	};
+	return { strategy, states, notifications, bump, ...submission };
+}
+
+export function versionedHost() {
+	const states = new Map<object, RegistryState>();
+	const notifications = vi.fn();
+	const state = (context: DataContext) => {
+		const result = states.get(context.instance);
+		if (!result) throw new Error("foreign instance");
+		return result;
+	};
+	const resolve = (version: RegistryVersion, scope: ReadScope) => {
+		let ids = version.roots;
+		let found: Node | undefined;
+		for (const binding of scope.rows) {
+			const matches = ids.map((id) => version.nodes.get(id)).filter((item) => item?.token === binding.token);
+			if (matches.length !== 1) return undefined;
+			found = matches[0];
+			ids = found?.children ?? [];
+		}
+		return found;
+	};
+	const submission = submissionPorts((context) => {
+		const { version } = state(context);
+		return {
+			revision: version.revision,
+			field: version.field,
+			data: registryData(version.field, version.roots, version.nodes),
+		};
+	});
+	const strategy: FormbarDataStrategyV1 = {
+		contract: "formbar-data-strategy-v1",
+		...submission.ports,
+		identity(context) {
+			if (!states.has(context.instance)) {
+				const first = { ...node("first", "first"), children: ["child"] };
+				states.set(context.instance, {
+					version: {
+						revision: {},
+						field: formField(),
+						roots: ["first", "second"],
+						nodes: new Map([
+							["first", first],
+							["second", node("second", "second")],
+							["child", node("child", "child")],
+						]),
+					},
+					notify: () => notifications(),
+				});
+			}
+			return receipt();
+		},
+		capture(context) {
+			const owner = state(context);
+			const version = owner.version;
+			return {
+				instance: context.instance,
+				token: version.revision,
+				read(reference, scope) {
+					if (owner.version !== version) return { status: "stale" };
+					if (isNonrowRead(reference, scope)) return readField(version.field);
+					const field = rowField(reference, scope);
+					if (!field) return { status: "missing" };
+					const found = resolve(version, scope);
+					return found ? { status: "found", value: found[field] } : { status: "missing" };
+				},
+				enumerateRows(parent, _binding, name) {
+					if (owner.version !== version) return { status: "stale" };
+					const ids = name === "outer" ? version.roots : resolve(version, parent)?.children;
+					return ids
+						? {
+								status: "found",
+								rows: ids.map((id, order) => {
+									const item = version.nodes.get(id) as Node;
+									return {
+										token: item.token,
+										writeRevision: item.revision,
+										order,
+										scope: { rows: [...parent.rows, { name, token: item.token }] },
+									};
+								}),
+							}
+						: { status: "missing" };
+				},
+			};
+		},
+		current: (context) => state(context).version.revision,
+		subscribe(context, notify) {
+			state(context).notify = () => {
+				notifications();
+				notify();
+			};
+			return () => {
+				state(context).notify = () => {};
+			};
+		},
+		writeDirect(context, request) {
+			const owner = state(context);
+			const version = owner.version;
+			if (request.targetKind === "non-repeater") {
+				const invalid = validNonrow(request, context, version.revision, version.field);
+				if (invalid) return { status: invalid };
+				owner.version = { ...version, revision: {}, field: { ...version.field, value: request.value as string } };
+				owner.notify();
+				return { status: "applied" };
+			}
+			const invalid = validTarget(request, context);
+			if (invalid) return { status: invalid };
+			const field = rowField(request.reference, request.scope);
+			if (!field) return { status: "invalid-target" };
+			if (request.expectedRevision !== version.revision) return { status: "stale" };
+			const parent = resolve(version, { rows: request.scope.rows.slice(0, 1) });
+			const child = resolve(version, request.scope);
+			if (!parent || !child) return { status: "missing" };
+			if (parent.denied || child.denied || parent.readOnly || child.readOnly) return { status: "denied" };
+			if (child.revision !== request.expectedRowRevision) return { status: "conflict" };
+			if (typeof request.value !== "string") return { status: "invalid-target" };
+			// No old node or version is modified before the single owner pointer swap.
+			const nodes = new Map(version.nodes);
+			nodes.set(child.id, { ...child, [field]: request.value, revision: {} });
+			owner.version = { revision: {}, roots: version.roots, nodes, field: version.field };
+			owner.notify();
+			return { status: "applied" };
+		},
+	};
+	return {
+		strategy,
+		...submission,
+		states,
+		notifications,
+		change(instance: object, edit: (draft: RegistryVersion) => void) {
+			const owner = states.get(instance);
+			if (!owner) throw new Error("foreign instance");
+			const draft = {
+				revision: {},
+				field: { ...owner.version.field },
+				roots: [...owner.version.roots],
+				nodes: new Map([...owner.version.nodes].map(([id, item]) => [id, { ...item, children: [...item.children] }])),
+			};
+			edit(draft);
+			owner.version = draft;
+			owner.notify();
+		},
+	};
+}

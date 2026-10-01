@@ -1,5 +1,4 @@
 import type { FormDefinition } from "@formbar/declarative";
-import { createSchemaForm, jsonSchemaProvider } from "@formbar/from-schema";
 import { CodeBlock } from "./CodeBlock";
 
 interface CompilationPreviewProps {
@@ -9,23 +8,18 @@ interface CompilationPreviewProps {
 }
 
 export function CompilationPreview({ schema, definition, initialData }: CompilationPreviewProps) {
-	const prepared = createSchemaForm<Record<string, unknown>, Record<string, unknown>>(schema, {
-		provider: jsonSchemaProvider({ dialect: "draft-2020-12" }),
-		side: "input",
-		...(definition ? { definition } : {}),
-	});
 	return (
 		<main className="mx-auto max-w-6xl p-6 md:p-10">
 			<section className="rounded-lg border border-info bg-info-background p-4">
 				<h1 className="text-xl font-bold">Schema compilation preview</h1>
-				<p className="mt-2 text-sm text-muted-foreground">
-					This playground remains a read-only compiler view. Numbered demos use the interactive production renderer.
+				<p role="alert" className="mt-2 text-sm text-muted-foreground">
+					The Kalada V1 compiler is available, but this preview has no app-installed data strategy or host policy. These
+					are legacy sources, not a validated Kalada definition or an interactive form.
 				</p>
 			</section>
 			<div className="mt-6 grid gap-4 lg:grid-cols-2">
-				<CodeBlock title="Validated FormDefinition v1" code={prepared.definition} />
-				<CodeBlock title="Descriptor document and evidence" code={prepared.descriptors} />
-				<CodeBlock title="Separated diagnostics" code={prepared.diagnostics} />
+				<CodeBlock title="JSON Schema source" code={schema} />
+				<CodeBlock title="Legacy definition source (unvalidated)" code={definition ?? null} />
 				<CodeBlock title="Initial data (read-only)" code={initialData ?? {}} />
 			</div>
 		</main>

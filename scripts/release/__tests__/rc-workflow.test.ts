@@ -129,7 +129,7 @@ describe("#397 archived preflight boundary (not an active release gate)", () => 
 		try {
 			const output = join(dir, "rc-preflight.mjs");
 			execFileSync(
-				"bun",
+				process.env.RC_BUN_BINARY ?? "bun",
 				[
 					"build",
 					"scripts/release/rc-preflight-entry.ts",

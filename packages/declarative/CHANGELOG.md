@@ -1,5 +1,23 @@
 # @formbar/declarative
 
+## 1.0.0-rc.1
+
+### Major Changes
+
+- 4879fcc: Replace serialized FormDefinition V1 Kuery expression slots and positional FormApi rendering with canonical Kalada V1 data programs, host-installed policy and strategy-owned reads, writes, rows, and submission. Existing definitions must be re-authored; there is no implicit adapter or dual engine.
+
+### Patch Changes
+
+- da0a748: Reject malformed strategy identity receipts using own data descriptors without invoking accessors during public admission or runtime installation checks.
+- da0a748: Accept publicly checked scoped primitive whole-item native and custom writers independently of alias spelling, whitespace, or grouping. Preserve exact typed item metadata, lexical scope, schema admission, and live row-token/revision authorization.
+- 8e27ed2: Keep private non-repeater direct writes behind statically checked Kalada WRITE locations and host-owned use-time authorization. No public write API is enabled.
+- ee71f85: Stage the private per-instance Kalada read strategy, #291 host-owned atomic whole-data submission capture and strategy-backed custom prop projection without changing the public V1 runtime, package exports or dependency graph. The public major switch and installed renderer remain #376 after #317.
+- abda3ac: Add a private host-owned atomic direct-write request for unscoped non-repeater data targets without enabling public write controls.
+- 8998ab4: Gate private repeater write callbacks on scoped static WRITE evidence and host-owned row identity and use-time authorization. No public write control is enabled.
+- eee4541: Add a private, capture-bound row enumeration port for host-installed Kalada data strategies without enabling public V1 or repeater writes.
+- da5c817: Define a private, versioned host-owned atomic direct-write contract for stable repeater row identities without enabling public write controls.
+- ee9d850: Add private Kalada V1 full-definition admission with public reference-codec validation, typed symbolic path and computation graph checks, and immutable host-supplied registry/schema/UI authority. This stages Formbar dependency analysis without changing public V1 validation or runtime behavior; the public breaking switch and major Changesets remain #376.
+
 ## 0.23.0-rc.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/declarative",
-	"version": "0.23.0-rc.0",
+	"version": "1.0.0-rc.1",
 	"type": "module",
 	"description": "Framework-neutral serialized form definition contracts",
 	"license": "MIT",
@@ -53,6 +53,8 @@
 	},
 	"dependencies": {
 		"@formbar/core": "^0.23.0-rc.0",
-		"@formbar/expressions": "^0.23.0-rc.0"
+		"@formbar/expressions": "^0.23.0-rc.0",
+		"@kalada/core": "0.6.0",
+		"@kalada/syntax": "0.1.0"
 	}
 }

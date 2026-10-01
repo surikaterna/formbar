@@ -1,5 +1,25 @@
 # @formbar/from-schema
 
+## 1.0.0-rc.1
+
+### Major Changes
+
+- 4879fcc: Replace serialized FormDefinition V1 Kuery expression slots and positional FormApi rendering with canonical Kalada V1 data programs, host-installed policy and strategy-owned reads, writes, rows, and submission. Existing definitions must be re-authored; there is no implicit adapter or dual engine.
+
+### Patch Changes
+
+- Updated dependencies [da0a748]
+- Updated dependencies [da0a748]
+- Updated dependencies [8e27ed2]
+- Updated dependencies [ee71f85]
+- Updated dependencies [abda3ac]
+- Updated dependencies [8998ab4]
+- Updated dependencies [eee4541]
+- Updated dependencies [da5c817]
+- Updated dependencies [4879fcc]
+- Updated dependencies [ee9d850]
+  - @formbar/declarative@1.0.0-rc.1
+
 ## 0.23.0-rc.0
 
 ### Minor Changes

@@ -1,11 +1,7 @@
 import type { ArbiterPluginOptions } from "@formbar/arbiter";
-import type { Expression, FormDefinition, FormNode } from "@formbar/declarative";
+import type { DefinitionProgram as Expression, FormDefinition, FormNode } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
-
-const dataRef = (path: string): Expression => ({ kind: "ref", ref: { namespace: "data", segments: [path] } });
-const uiRef = (path: string): Expression => ({ kind: "ref", ref: { namespace: "ui", segments: [path] } });
-const literal = (value: string | number): Expression => ({ kind: "literal", value });
-const operation = (op: string, ...args: Expression[]): Expression => ({ kind: "op", op, args });
+import { dataRef, literal, numeric, uiRef } from "./kalada-fixture-programs";
 
 function field(id: string, path: string, label: string): Extract<FormNode, { type: "field" }> {
 	return { type: "field", id, binding: { namespace: "data", segments: [path] }, widget: "number", label };
@@ -15,9 +11,9 @@ function output(id: string, label: string, value: Expression, format: "plain" | 
 	return { type: "output", id, label, value, format };
 }
 
-const subtotal = operation("mul", dataRef("quantity"), dataRef("unitPrice"));
-const discount = operation("mul", subtotal, literal(0.1));
-const discountedTotal = operation("sub", subtotal, discount);
+const subtotal = numeric("multiply", dataRef("quantity"), dataRef("unitPrice"));
+const discount = numeric("multiply", subtotal, literal(0.1));
+const discountedTotal = numeric("subtract", subtotal, discount);
 const showDiscount = uiRef("showBulkDiscount");
 
 export const arbiterCalculatedRules = [

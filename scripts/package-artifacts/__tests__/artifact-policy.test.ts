@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { consumed, initialVersions, rcEdges, rcPackages, rcVersion } from "../../release/rc-reviewed-plan";
+import { consumed, initialVersions, rcVersion } from "../../release/rc-reviewed-plan";
+import { kaladaProductionDependencies, rcEdges, rcPackages } from "../../release/rc-workspace-plan.mjs";
 import { npmPackDryRun } from "../npm-pack";
 import { type PackageManifest, packagePolicies } from "../policy";
 import {
@@ -19,6 +20,12 @@ const temporaryDirectories: string[] = [];
 const policy = packagePolicies.find(({ directory }) => directory === "core");
 if (!policy) throw new Error("core package policy is required");
 const standardFiles = ["LICENSE", "README.md", "package.json"];
+const activePreFixture = {
+	mode: "pre",
+	tag: "rc",
+	initialVersions: { ...initialVersions, "@formbar/fsx-authoring": "0.0.0" },
+	changesets: consumed,
+};
 
 function temporaryDirectory(name: string): string {
 	const directory = mkdtempSync(resolve(tmpdir(), `formbar-${name}-`));
@@ -151,22 +158,29 @@ describe("package artifact policy", () => {
 		);
 		expect(() => validateRcDependencies(policy, manifest("0.14.3", "^0.22.2"), versions)).not.toThrow();
 	});
-	it("binds the seven RC manifest graph to the reviewed pre.json plan", () => {
-		const root = temporaryDirectory("seven-rc-plan");
+	it("binds the eight RC manifest graph to the active workspace plan", () => {
+		const root = temporaryDirectory("eight-rc-plan");
 		mkdirSync(resolve(root, ".changeset"));
-		const pre = { mode: "pre", tag: "rc", initialVersions, changesets: consumed };
+		const pre = activePreFixture;
 		const prePath = resolve(root, ".changeset/pre.json");
 		const manifests = rcPackages.map((name) => ({
 			name: `@formbar/${name}`,
 			version: rcVersion,
-			dependencies: Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${rcVersion}`])),
+			dependencies: {
+				...Object.fromEntries(rcEdges[name].map((edge) => [`@formbar/${edge}`, `^${rcVersion}`])),
+				...kaladaProductionDependencies[`@formbar/${name}`],
+			},
 		})) as PackageManifest[];
 		writeFileSync(prePath, JSON.stringify(pre));
+		for (const manifest of manifests) {
+			mkdirSync(resolve(root, `packages/${manifest.name.slice(9)}`), { recursive: true });
+			writeFileSync(resolve(root, `packages/${manifest.name.slice(9)}/package.json`), JSON.stringify(manifest));
+		}
 		expect(() => validateRcPlan(root, manifests)).not.toThrow();
-		expect(() => validateRcPlan(root, manifests.slice(1))).toThrow(/incomplete seven-package/);
+		expect(() => validateRcPlan(root, manifests.slice(1))).toThrow(/incomplete eight-package/);
 		expect(() =>
 			validateRcPlan(root, [...manifests, { name: "@formbar/extra", version: rcVersion } as PackageManifest]),
-		).toThrow(/incomplete seven-package/);
+		).toThrow(/incomplete eight-package/);
 		for (const changed of [
 			{ ...manifests[0], version: "0.14.3" },
 			{ ...manifests[1], dependencies: { "@formbar/expressions": "^0.14.3" } },
@@ -181,8 +195,8 @@ describe("package artifact policy", () => {
 		}
 		for (const forged of [
 			{ ...pre, mode: "exit" },
-			{ ...pre, changesets: consumed.slice(1) },
-			{ ...pre, initialVersions: { ...initialVersions, "@formbar/expressions": "0.99.0" } },
+			{ ...pre, changesets: [...consumed, consumed[0]] },
+			{ ...pre, initialVersions: { ...pre.initialVersions, "@formbar/expressions": undefined } },
 			{ ...pre, injected: true },
 		]) {
 			writeFileSync(prePath, JSON.stringify(forged));

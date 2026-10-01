@@ -1,15 +1,15 @@
-import type { Expression, FieldNode, FormDefinition, FormNode, ResponsiveSpan } from "@formbar/declarative";
+import type {
+	DefinitionProgram as Expression,
+	FieldNode,
+	FormDefinition,
+	FormNode,
+	ResponsiveSpan,
+} from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+import { and, dataRef, equality, literal, present } from "./kalada-fixture-programs";
 
-const contactRef: Expression = { kind: "ref", ref: { namespace: "data", segments: ["contactForFollowUp"] } };
-export const followUpCondition: Expression = {
-	kind: "op",
-	op: "and",
-	args: [
-		{ kind: "op", op: "exists", args: [contactRef] },
-		{ kind: "op", op: "eq", args: [contactRef, { kind: "literal", value: true }] },
-	],
-};
+const contactRef = dataRef("contactForFollowUp");
+export const followUpCondition: Expression = and(present(contactRef), equality("equal", contactRef, literal(true)));
 const half = { base: "full", md: 6 } satisfies ResponsiveSpan;
 
 function field(

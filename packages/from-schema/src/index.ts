@@ -28,12 +28,14 @@ export type {
 	CompileDefaultFormDefinitionOptions,
 	CompileDefaultFormDefinitionResult,
 } from "./compiler/compile-default-definition.js";
-export { compileDefaultFormDefinition } from "./compiler/compile-default-definition.js";
 export {
-	type CreateSchemaFormOptions,
+	compileDefaultFormDefinition,
+	compileDefaultKaladaV1Definition,
+} from "./compiler/compile-default-definition.js";
+export {
+	type CreateKaladaSchemaFormOptions,
+	createKaladaSchemaForm,
 	createSchemaForm,
-	InvalidFormDefinitionError,
-	type SchemaFormResult,
 } from "./create-schema-form.js";
 export type {
 	CompilationDiagnostic,

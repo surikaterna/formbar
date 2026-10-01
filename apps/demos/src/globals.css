@@ -180,13 +180,15 @@
 
 .schema-demo-form form > [data-formbar-node],
 .schema-demo-form fieldset[data-formbar-node],
-.schema-demo-form section {
+.schema-demo-form section[data-formbar-node] {
 	display: grid;
 	grid-template-columns: repeat(12, minmax(0, 1fr));
 	gap: 1rem;
 }
 
-.schema-demo-form [data-formbar-node] > [data-formbar-node] {
+.schema-demo-form
+	[data-formbar-node]
+	> :is([data-formbar-node], [data-kalada-control], [data-kalada-output], [data-kalada-action]) {
 	grid-column: span var(--formbar-span-base, 12);
 }
 
@@ -203,15 +205,15 @@
 }
 
 /* The cue mirrors the rendered native control, including conditional policy updates. */
-.schema-demo-form [data-formbar-node]:has(> :is(input, select, textarea)[aria-required="true"]) > label::after,
-.schema-demo-form [data-formbar-node] > fieldset:has(input[aria-required="true"]) > legend::after {
+.schema-demo-form [data-kalada-control]:has(> :is(input, select, textarea)[aria-required="true"]) > label::after,
+.schema-demo-form [data-kalada-control]:has(input[aria-required="true"]) > span[id$="-label"]::after {
 	content: " (required)";
 	color: oklch(0.82 0.12 75);
 	font-size: 0.85em;
 	font-weight: 600;
 }
 
-.schema-demo-form [data-formbar-node]:has(> :is(input, select, textarea, fieldset)) > ul {
+.schema-demo-form [data-kalada-control] > span[id$="-issues"] {
 	margin-top: 0.4rem;
 	padding-left: 1.4rem;
 	list-style: disc;
@@ -229,19 +231,19 @@
 	outline-offset: 2px;
 }
 
-.schema-demo-form [data-formbar-error-summary] {
+.schema-demo-form [data-kalada-issue-summary] {
 	border: 1px solid oklch(0.78 0.15 25);
 	border-radius: var(--radius-sm);
 	padding: 1rem;
 	color: oklch(0.85 0.09 25);
 }
 
-.schema-demo-form [data-formbar-error-summary] a {
+.schema-demo-form [data-kalada-issue-summary] a {
 	text-decoration: underline;
 	text-underline-offset: 0.2em;
 }
 
-.schema-demo-form [data-formbar-error-summary] a:focus-visible {
+.schema-demo-form [data-kalada-issue-summary] a:focus-visible {
 	outline: 2px solid var(--ring);
 	outline-offset: 2px;
 }
@@ -253,7 +255,9 @@
 }
 
 @media (min-width: 48rem) {
-	.schema-demo-form [data-formbar-node] > [data-formbar-node] {
+	.schema-demo-form
+		[data-formbar-node]
+		> :is([data-formbar-node], [data-kalada-control], [data-kalada-output], [data-kalada-action]) {
 		grid-column: span var(--formbar-span-md, var(--formbar-span-base, 12));
 	}
 }

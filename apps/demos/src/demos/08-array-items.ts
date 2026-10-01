@@ -1,5 +1,6 @@
 import type { Binding, FormDefinition, FormNode, JsonValue } from "@formbar/declarative";
 import type { SchemaDemoFixture } from "./baseline-contracts";
+import { literal } from "./kalada-fixture-programs";
 
 const disabledBackendOption = Object.freeze({ value: "backend", title: "Back end", disabled: true });
 const tagSchemaOptions = Object.freeze(["frontend", disabledBackendOption]);
@@ -17,7 +18,6 @@ const roleOptions = Object.freeze([
 
 const binding = (path: string): Binding => ({ namespace: "data", segments: [path] });
 const scoped = (scope: string, ...segments: string[]): Binding => ({ namespace: "data", segments, scope });
-const literal = (value: JsonValue) => ({ kind: "literal" as const, value });
 
 function field(id: string, target: Binding, widget: string, label: string): FormNode {
 	return { type: "field", id, binding: target, widget, label };

@@ -23,6 +23,7 @@
         "@formbar/from-schema": "workspace:*",
         "@formbar/react": "workspace:*",
         "@formbar/react-schema": "workspace:*",
+        "@kalada/core": "0.6.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
       },
@@ -38,10 +39,10 @@
     },
     "packages/arbiter": {
       "name": "@formbar/arbiter",
-      "version": "0.15.0",
+      "version": "0.23.0-rc.0",
       "dependencies": {
-        "@formbar/core": "^0.15.0",
-        "@formbar/expressions": "^0.14.3",
+        "@formbar/core": "^0.23.0-rc.0",
+        "@formbar/expressions": "^0.23.0-rc.0",
       },
       "devDependencies": {
         "@arbitre/core": "^0.3.1",
@@ -54,33 +55,35 @@
     },
     "packages/core": {
       "name": "@formbar/core",
-      "version": "0.15.0",
+      "version": "0.23.0-rc.0",
       "dependencies": {
-        "@formbar/expressions": "^0.14.3",
+        "@formbar/expressions": "^0.23.0-rc.0",
       },
     },
     "packages/declarative": {
       "name": "@formbar/declarative",
-      "version": "0.15.1",
+      "version": "1.0.0-rc.1",
       "dependencies": {
-        "@formbar/core": "^0.15.0",
-        "@formbar/expressions": "^0.14.3",
+        "@formbar/core": "^0.23.0-rc.0",
+        "@formbar/expressions": "^0.23.0-rc.0",
+        "@kalada/core": "0.6.0",
+        "@kalada/syntax": "0.1.0",
       },
     },
     "packages/expressions": {
       "name": "@formbar/expressions",
-      "version": "0.14.3",
+      "version": "0.23.0-rc.0",
       "dependencies": {
         "kuery": "^2.1.1",
       },
     },
     "packages/from-schema": {
       "name": "@formbar/from-schema",
-      "version": "0.15.3",
+      "version": "1.0.0-rc.1",
       "dependencies": {
-        "@formbar/core": "^0.15.0",
-        "@formbar/declarative": "^0.15.0",
-        "@formbar/expressions": "^0.14.3",
+        "@formbar/core": "^0.23.0-rc.0",
+        "@formbar/declarative": "^1.0.0-rc.1",
+        "@formbar/expressions": "^0.23.0-rc.0",
         "@scheman/core": "^2.0.0",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
@@ -99,12 +102,22 @@
         "zod",
       ],
     },
+    "packages/fsx-authoring": {
+      "name": "@formbar/fsx-authoring",
+      "version": "0.1.0-rc.0",
+      "dependencies": {
+        "@formbar/declarative": "^1.0.0-rc.1",
+        "@formbar/expressions": "^0.23.0-rc.0",
+        "@kalada/provider-routing": "0.1.0",
+        "@kalada/syntax": "0.1.0",
+      },
+    },
     "packages/react": {
       "name": "@formbar/react",
-      "version": "0.15.0",
+      "version": "0.23.0-rc.0",
       "dependencies": {
-        "@formbar/core": "^0.15.0",
-        "@formbar/expressions": "^0.14.3",
+        "@formbar/core": "^0.23.0-rc.0",
+        "@formbar/expressions": "^0.23.0-rc.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -119,12 +132,13 @@
     },
     "packages/react-schema": {
       "name": "@formbar/react-schema",
-      "version": "0.15.3",
+      "version": "1.0.0-rc.1",
       "dependencies": {
-        "@formbar/core": "^0.15.0",
-        "@formbar/declarative": "^0.15.0",
-        "@formbar/from-schema": "^0.15.3",
-        "@formbar/react": "^0.15.0",
+        "@formbar/core": "^0.23.0-rc.0",
+        "@formbar/declarative": "^1.0.0-rc.1",
+        "@formbar/expressions": "^0.23.0-rc.0",
+        "@formbar/from-schema": "^1.0.0-rc.1",
+        "@formbar/react": "^0.23.0-rc.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -309,6 +323,8 @@
 
     "@formbar/from-schema": ["@formbar/from-schema@workspace:packages/from-schema"],
 
+    "@formbar/fsx-authoring": ["@formbar/fsx-authoring@workspace:packages/fsx-authoring"],
+
     "@formbar/react": ["@formbar/react@workspace:packages/react"],
 
     "@formbar/react-schema": ["@formbar/react-schema@workspace:packages/react-schema"],
@@ -325,7 +341,11 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@kalada/core": ["@kalada/core@0.1.0", "", {}, "sha512-e0HRQSe+4o9L1rt05VTFHC4v3fWZJcDHm2mLPJfsC3tE0mcdXfpVdlURbgOlh5yjZmc/UsG8wsAkXrt/Xyz+oQ=="],
+    "@kalada/core": ["@kalada/core@0.6.0", "", {}, "sha512-KE+Bkgw04bUrC7S15n0qRdteUYdZ5G7l9s8kP0JKc/0lf8jc9MYPZ7c+5CDne2pmTPUQo+lAfiedx8HTEVoxTg=="],
+
+    "@kalada/provider-routing": ["@kalada/provider-routing@0.1.0", "", {}, "sha512-R+i+4MzyKC70859QpfZHzDWYtA6OFvCp35Ncn5kBb/qkhpWBSbhH1jnnJO85WVarjQSJIg3j0r1We0lkaNQVyg=="],
+
+    "@kalada/syntax": ["@kalada/syntax@0.1.0", "", { "dependencies": { "@kalada/core": "^0.6.0" } }, "sha512-KTZvBKqLQmheP15VHNY9OzOAZS+QAS4EckuOR87av1gRnfk26VaZgf0OnbnFsmzpGXdJLDMO1VC1j8OFRWtExw=="],
 
     "@manypkg/find-root": ["@manypkg/find-root@1.1.0", "", { "dependencies": { "@babel/runtime": "^7.5.5", "@types/node": "^12.7.1", "find-up": "^4.1.0", "fs-extra": "^8.1.0" } }, "sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA=="],
 
@@ -916,6 +936,8 @@
     "@tailwindcss/oxide-wasm32-wasi/@tybys/wasm-util": ["@tybys/wasm-util@0.10.2", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg=="],
 
     "@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
+
+    "kuery/@kalada/core": ["@kalada/core@0.1.0", "", {}, "sha512-e0HRQSe+4o9L1rt05VTFHC4v3fWZJcDHm2mLPJfsC3tE0mcdXfpVdlURbgOlh5yjZmc/UsG8wsAkXrt/Xyz+oQ=="],
 
     "micromatch/picomatch": ["picomatch@2.3.2", "", {}, "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="],
 

@@ -1,0 +1,40 @@
+{
+	"name": "@formbar/fsx-authoring",
+	"version": "0.1.0-rc.0",
+	"type": "module",
+	"description": "Trusted FSX authoring compiler for canonical Formbar V1 definitions",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/surikaterna/formbar.git",
+		"directory": "packages/fsx-authoring"
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		}
+	},
+	"files": ["dist"],
+	"sideEffects": false,
+	"scripts": {
+		"build": "tsc --noEmit",
+		"build:dist": "tsup",
+		"test": "vitest run --root ../.. packages/fsx-authoring/src/__tests__"
+	},
+	"dependencies": {
+		"@formbar/declarative": "^1.0.0-rc.1",
+		"@formbar/expressions": "^0.23.0-rc.0",
+		"@kalada/syntax": "0.1.0",
+		"@kalada/provider-routing": "0.1.0"
+	}
+}

@@ -87,24 +87,47 @@ describe("trusted runtime profile resolution", () => {
 		expect(runtimeProfileIdsFor({}, {})).toEqual(["formbar.standard.v1"]);
 	});
 
-	it("keeps nested editor profile-like data inert and outside runtime selection", () => {
-		const example = getPlaygroundExamples()[0];
+	it("installs an explicitly registered trusted widget for a schema-only profile fixture", () => {
+		const example = getPlaygroundExamples().find(({ key }) => key === "basic-contact:schema-options");
+		if (!example) throw new Error("Missing supported schema-only example");
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		const fixtureDocument = {
+			...example.document,
+			schema: {
+				type: "object",
+				properties: { rating: { type: "integer", "x-formbar": { widget: "demo16.rating" } } },
+			},
+			initialData: { rating: 1 },
+		};
+		act(() => root.render(<SchemaFormRuntime document={fixtureDocument} profileIds={["demo16.trusted-widgets.v1"]} />));
+		expect(container.querySelector('[data-widget="demo16.rating"]')).not.toBeNull();
+		act(() => root.unmount());
+	});
+
+	it("rejects unattested nested editor profile-like data without changing runtime selection", () => {
+		const example = getPlaygroundExamples().find(({ key }) => key === "basic-contact:schema-options");
+		if (!example) throw new Error("Missing supported schema-only example");
 		const session = createPlaygroundSession(example.document);
 		const nested = JSON.stringify({ nested: { profileIds: hostileProfileIds } });
 		const applied = applySources(updateSource(session, "initialData", nested));
-		expect(applied.errors).toEqual({});
-		expect(applied.applied.initialData).toEqual({ nested: { profileIds: hostileProfileIds } });
+		expect(applied.errors.definition).toBeTruthy();
+		expect(applied.applied).toBe(session.applied);
 		expect(example.runtime.profileIds).toEqual(["formbar.standard.v1"]);
 	});
 
 	it.each(hostileProfileIds)("renders no form for tampered profile prop %j", (profileId) => {
-		const example = getPlaygroundExamples()[0];
+		const example = getPlaygroundExamples().find(({ key }) => key === "basic-contact:schema-options");
+		if (!example) throw new Error("Missing supported schema-only example");
 		const container = document.createElement("div");
 		document.body.append(container);
 		const root = createRoot(container);
 		act(() => root.render(<SchemaFormRuntime document={example.document} profileIds={[profileId as never]} />));
 		expect(container.textContent).toContain("Trusted runtime profile rejected");
-		expect(container.textContent).toContain(`"profileId": "${profileId}"`);
+		expect(JSON.parse((container.textContent ?? "").split("Trusted runtime profile rejected: ")[1])).toEqual([
+			{ code: "unknown-profile", profileId },
+		]);
 		expect(container.querySelector("form")).toBeNull();
 		act(() => root.unmount());
 	});

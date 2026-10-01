@@ -20,7 +20,8 @@ export type DefinitionDiagnosticCode =
 	| "duplicate-computation-id"
 	| "duplicate-computation-target"
 	| "self-dependency"
-	| "computation-cycle";
+	| "computation-cycle"
+	| "kalada-admission";
 
 export interface DefinitionDiagnostic {
 	readonly code: DefinitionDiagnosticCode;

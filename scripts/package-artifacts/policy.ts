@@ -10,6 +10,7 @@ export const packagePolicies: readonly PackagePolicy[] = [
 	{ directory: "expressions", name: "@formbar/expressions", manifestFiles: ["dist", "docs"] },
 	{ directory: "core", name: "@formbar/core", manifestFiles: distOnly },
 	{ directory: "declarative", name: "@formbar/declarative", manifestFiles: distOnly },
+	{ directory: "fsx-authoring", name: "@formbar/fsx-authoring", manifestFiles: distOnly },
 	{ directory: "from-schema", name: "@formbar/from-schema", manifestFiles: distOnly },
 	{ directory: "react", name: "@formbar/react", manifestFiles: distOnly },
 	{ directory: "arbiter", name: "@formbar/arbiter", manifestFiles: distOnly },

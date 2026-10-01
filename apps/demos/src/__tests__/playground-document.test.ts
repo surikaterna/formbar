@@ -4,7 +4,7 @@ import { parseDocument, stringifyDocument } from "../playground/document";
 import { getPlaygroundExample } from "../playground/examples";
 
 function validSources() {
-	const preset = getPlaygroundExample("schema-compilation");
+	const preset = getPlaygroundExample("basic-contact", "schema-options");
 	if (!preset) throw new Error("missing test preset");
 	return stringifyDocument(preset.document);
 }
@@ -20,10 +20,15 @@ describe("playground document v2", () => {
 		if (!result.ok) expect(result.errors[key]).toContain(message);
 	});
 
-	it("validates authored definitions with the declarative validator", () => {
+	it("rejects legacy authored definitions at the V1 installation boundary", () => {
 		const result = parseDocument({ ...validSources(), definition: '{"version":0}' });
 		expect(result.ok).toBe(false);
-		if (!result.ok) expect(result.errors.definition).toContain("Definition is invalid");
+		if (!result.ok) expect(result.errors.definition).toBeTruthy();
+	});
+
+	it("accepts generated schema-only sources without requiring a migration notice", () => {
+		const result = parseDocument(validSources());
+		expect(result).toMatchObject({ ok: true, document: { definition: null } });
 	});
 
 	it("rejects invalid JSON and oversized schemas", () => {

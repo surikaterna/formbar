@@ -1,11 +1,6 @@
-/* These direct root branches are the only owners of the demo array toolbars. */
-.schema-demo-form[data-repeater-demo="array-items"]
-	> form[data-formbar-definition="array-items"]
-	> fieldset[data-formbar-node="root"],
-.schema-demo-form[data-repeater-demo="order-entry"]
-	> form[data-formbar-definition="order-entry"]
-	> fieldset[data-formbar-node="root"]
-	> section[data-formbar-node="payment"] {
+/* Only direct branches own these toolbars; nested repeaters keep their own layout. */
+.schema-demo-form form[data-kalada-v1] > fieldset[data-formbar-node="root"],
+.schema-demo-form form[data-kalada-v1] > fieldset[data-formbar-node="root"] > section[data-formbar-node="payment"] {
 	> fieldset:is(
 			[data-formbar-node="tags"],
 			[data-formbar-node="team-members"],
@@ -13,24 +8,18 @@
 			[data-formbar-node="milestones"],
 			[data-formbar-node="line-items"]
 		) {
-		> [data-formbar-repeater-status] {
-			grid-column: 1 / -1;
-			color: var(--muted-foreground);
-			font-size: 0.875rem;
-		}
-
-		> ol {
+		> :is(ol, [data-formbar-empty]) {
 			grid-column: 1 / -1;
 			min-width: 0;
+		}
+		> ol {
 			list-style: none;
 			padding: 0;
 			margin: 0;
 			display: grid;
 			gap: 0.75rem;
-
 			> li {
 				min-width: 0;
-
 				> fieldset {
 					display: grid;
 					grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -39,61 +28,30 @@
 					padding: 0.75rem;
 					border: 1px solid var(--border);
 					border-radius: var(--radius);
-
-					> [data-formbar-node]:not([data-formbar-action]) {
+					> [data-kalada-control] {
 						grid-column: 1 / -1;
 						min-width: 0;
 					}
-
-					> [data-formbar-action] {
+					> [data-kalada-action] {
 						grid-column: span 4;
 						min-width: 0;
-						> button {
+						> :is(button, select) {
 							width: 100%;
+						}
+						> output {
+							overflow-wrap: anywhere;
 						}
 					}
 				}
 			}
 		}
 	}
-
-	> :is(
-			[data-formbar-node="tags-add"],
-			[data-formbar-node="team-members-add"],
-			[data-formbar-node="addresses-add"],
-			[data-formbar-node="milestones-add"],
-			[data-formbar-node="line-add"]
-		)[data-formbar-action="array.append"] {
+	> [data-kalada-action$="-add"] {
 		grid-column: 1 / -1;
 		min-width: 0;
-
-		> button {
-			width: auto;
-			min-width: min(100%, 10rem);
-		}
 	}
-
-	/* Only direct native wrappers, never actions inside a nested row or repeater. */
-	> fieldset:is(
-			[data-formbar-node="tags"],
-			[data-formbar-node="team-members"],
-			[data-formbar-node="addresses"],
-			[data-formbar-node="milestones"],
-			[data-formbar-node="line-items"]
-		)
-		> ol
-		> li
-		> fieldset
-		> [data-formbar-action^="array."]
-		> button,
-	> :is(
-			[data-formbar-node="tags-add"],
-			[data-formbar-node="team-members-add"],
-			[data-formbar-node="addresses-add"],
-			[data-formbar-node="milestones-add"],
-			[data-formbar-node="line-add"]
-		)[data-formbar-action="array.append"]
-		> button {
+	> [data-kalada-action$="-add"] > button,
+	> fieldset > ol > li > fieldset > [data-kalada-action] > button {
 		min-height: 44px;
 		padding: 0.55rem 0.75rem;
 		border-radius: var(--radius-sm);
@@ -104,60 +62,19 @@
 			outline: 2px solid var(--ring);
 			outline-offset: 2px;
 		}
-		&:is(:disabled, [aria-disabled="true"]) {
+		&:disabled {
 			background: var(--muted);
 			color: var(--muted-foreground);
 			border: 1px solid var(--border-alt);
 			cursor: not-allowed;
 		}
 	}
-
 	@media (max-width: 640px) {
-		> fieldset:is(
-				[data-formbar-node="tags"],
-				[data-formbar-node="team-members"],
-				[data-formbar-node="addresses"],
-				[data-formbar-node="milestones"],
-				[data-formbar-node="line-items"]
-			)
-			> ol
-			> li
-			> fieldset {
-			> [data-formbar-action="array.move"] {
-				grid-column: span 6;
-			}
-			> [data-formbar-action="array.remove"] {
-				grid-column: span 12;
-			}
+		> fieldset > ol > li > fieldset > [data-kalada-action] {
+			grid-column: span 6;
 		}
-	}
-
-	/* A move cannot succeed for the only direct row; hide its wrapper and status. */
-	> fieldset[data-formbar-node="tags"]
-		> ol
-		> li:only-child
-		> fieldset
-		> :is([data-formbar-node="tag-up"], [data-formbar-node="tag-down"]),
-	> fieldset[data-formbar-node="team-members"]
-		> ol
-		> li:only-child
-		> fieldset
-		> :is([data-formbar-node="member-up"], [data-formbar-node="member-down"]),
-	> fieldset[data-formbar-node="addresses"]
-		> ol
-		> li:only-child
-		> fieldset
-		> :is([data-formbar-node="address-up"], [data-formbar-node="address-down"]),
-	> fieldset[data-formbar-node="milestones"]
-		> ol
-		> li:only-child
-		> fieldset
-		> :is([data-formbar-node="milestone-up"], [data-formbar-node="milestone-down"]),
-	> fieldset[data-formbar-node="line-items"]
-		> ol
-		> li:only-child
-		> fieldset
-		> :is([data-formbar-node="line-up"], [data-formbar-node="line-down"]) {
-		display: none;
+		> fieldset > ol > li > fieldset > [data-kalada-action$="-remove"] {
+			grid-column: span 12;
+		}
 	}
 }

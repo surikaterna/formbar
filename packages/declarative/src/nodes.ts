@@ -1,14 +1,28 @@
-import type { Expression, PropDefinitions } from "@formbar/expressions";
+import type { JsonValue, StateRef } from "@formbar/expressions";
+import type { KaladaV1Program } from "@kalada/core";
 import type { Binding } from "./bindings.js";
 import type { NodePresentation } from "./presentation.js";
+import type { KaladaReference } from "./validators/kalada-program.js";
 
-export type ExtensionProps = PropDefinitions;
+export type DefinitionProgram = KaladaV1Program<KaladaReference>;
+export type ExtensionProps = Readonly<
+	Record<
+		string,
+		| { readonly mode: "literal"; readonly value: JsonValue }
+		| { readonly mode: "read"; readonly expression: DefinitionProgram }
+		| {
+				readonly mode: "write";
+				readonly reference: StateRef & { readonly namespace: "data" };
+				readonly expression?: never;
+		  }
+	>
+>;
 
 export interface BaseNode {
 	readonly id: string;
-	readonly visible?: Expression;
-	readonly disabled?: Expression;
-	readonly readOnly?: Expression;
+	readonly visible?: DefinitionProgram;
+	readonly disabled?: DefinitionProgram;
+	readonly readOnly?: DefinitionProgram;
 	readonly presentation?: NodePresentation;
 }
 
@@ -31,7 +45,7 @@ export interface FieldNode extends BaseNode {
 	readonly binding: Binding;
 	readonly widget: string;
 	readonly label?: string;
-	readonly required?: Expression;
+	readonly required?: DefinitionProgram;
 	readonly props?: ExtensionProps;
 }
 
@@ -51,7 +65,7 @@ export interface ActionNode extends BaseNode {
 	readonly type: "action";
 	readonly action: string;
 	readonly label?: string;
-	readonly payload?: Expression;
+	readonly payload?: DefinitionProgram;
 	readonly concurrency?: ActionConcurrency;
 	readonly target?: Binding;
 	readonly props?: ExtensionProps;
@@ -61,7 +75,7 @@ export type OutputFormat = "plain" | "number" | "currency-usd" | "percent";
 
 export interface OutputNode extends BaseNode {
 	readonly type: "output";
-	readonly value: Expression;
+	readonly value: DefinitionProgram;
 	readonly label?: string;
 	readonly format?: OutputFormat;
 	readonly props?: ExtensionProps;
@@ -69,7 +83,7 @@ export interface OutputNode extends BaseNode {
 
 export interface ConditionalNode extends BaseNode {
 	readonly type: "conditional";
-	readonly condition: Expression;
+	readonly condition: DefinitionProgram;
 	readonly then: readonly FormNode[];
 	readonly else?: readonly FormNode[];
 }
