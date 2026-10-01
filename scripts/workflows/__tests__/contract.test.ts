@@ -3,12 +3,16 @@ import type { WorkflowStep } from "./fixtures";
 import { expectedWorkflowRef, guardStep, loadWorkflow, loadWorkflowSource, workflowCases } from "./fixtures";
 
 const recoveryInputs = ["expected_main_sha", "recovery_issue"];
+const historyCases = [
+	{ file: "ci.yml", job: "ci" },
+	{ file: "release.yml", job: "publish-rc" },
+] as const;
 
 function expectCheckout(file: string, checkout: WorkflowStep | undefined) {
 	expect(checkout).toEqual({
 		name: "Checkout",
 		uses: "actions/checkout@v5",
-		...(file === "ci.yml" ? { with: { "fetch-depth": 0 } } : {}),
+		...(historyCases.some((entry) => entry.file === file) ? { with: { "fetch-depth": 0 } } : {}),
 	});
 	expect(JSON.stringify(checkout)).not.toContain("inputs.");
 }
@@ -67,28 +71,34 @@ describe("recovery workflow permissions contract", () => {
 });
 
 describe("checkout history contract", () => {
-	it.each(workflowCases)("requires only CI full history and forbids checkout refs in $file", async ({ file, job }) => {
+	it.each([...historyCases, { file: "pages.yml", job: "build" }])(
+		"requires exact checkout history/options in $file",
+		async ({ file, job }) => {
+			const workflow = await loadWorkflow(file);
+			const checkout = workflow.jobs[job].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+			expectCheckout(file, checkout);
+		},
+	);
+
+	it.each(historyCases)("rejects missing/shallow history, refs and extra config in $file", async ({ file, job }) => {
 		const workflow = await loadWorkflow(file);
 		const checkout = workflow.jobs[job].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
-		expectCheckout(file, checkout);
+		for (const options of [
+			{ name: "missing full history", options: undefined },
+			{ name: "empty options", options: {} },
+			{ name: "default shallow history", options: { "fetch-depth": 1 } },
+			{ name: "nonzero depth", options: { "fetch-depth": 2 } },
+			{ name: "string depth", options: { "fetch-depth": "0" } },
+			{ name: "extra option", options: { "fetch-depth": 0, "fetch-tags": true } },
+			{ name: "explicit ref", options: { "fetch-depth": 0, ref: "main" } },
+			{ name: "input-derived ref", options: { "fetch-depth": 0, ref: "${{ inputs.expected_main_sha }}" } },
+		]) {
+			expect(() => expectCheckout(file, { ...checkout, with: options.options }), options.name).toThrow();
+		}
+		expect(() => expectCheckout(file, { ...checkout, env: { ACTOR: "other" } })).toThrow();
 	});
 
-	it.each([
-		{ name: "missing full history", options: undefined },
-		{ name: "empty options", options: {} },
-		{ name: "default shallow history", options: { "fetch-depth": 1 } },
-		{ name: "nonzero depth", options: { "fetch-depth": 2 } },
-		{ name: "string depth", options: { "fetch-depth": "0" } },
-		{ name: "extra option", options: { "fetch-depth": 0, "fetch-tags": true } },
-		{ name: "explicit ref", options: { "fetch-depth": 0, ref: "main" } },
-		{ name: "input-derived ref", options: { "fetch-depth": 0, ref: "${{ inputs.expected_main_sha }}" } },
-	])("rejects CI checkout with $name", async ({ options }) => {
-		const workflow = await loadWorkflow("ci.yml");
-		const checkout = workflow.jobs.ci.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
-		expect(() => expectCheckout("ci.yml", { ...checkout, with: options })).toThrow();
-	});
-
-	it("does not extend the CI history exception to Pages", async () => {
+	it("does not extend full history to Pages", async () => {
 		const workflow = await loadWorkflow("pages.yml");
 		const checkout = workflow.jobs.build.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
 		expect(() => expectCheckout("pages.yml", { ...checkout, with: { "fetch-depth": 0 } })).toThrow();
