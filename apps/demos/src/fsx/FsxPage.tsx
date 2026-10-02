@@ -11,7 +11,7 @@ export function FsxPage(props: {
 }) {
 	const Page = props.demo ? "div" : "main";
 	return (
-		<Page className="min-h-screen bg-background">
+		<Page className="fsx-page min-h-screen min-w-0 bg-background">
 			{props.onSelect && props.onClose ? (
 				<PlaygroundHeader
 					demoId={props.demoId}
