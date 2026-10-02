@@ -3,6 +3,7 @@ import { PlaygroundToolbar, PlaygroundWorkspace } from "../playground/Playground
 import { copySource, downloadJson } from "../playground/source-export";
 import { FsxDiagnostics } from "./FsxDiagnostics";
 import { FsxPreview } from "./FsxPreview";
+import { FsxSourceEditor, type FsxSourceHandle } from "./FsxSourceEditor";
 import type { FsxExample } from "./registry";
 import { useFsxSession } from "./use-fsx-session";
 
@@ -78,14 +79,14 @@ function SourceSummary({ example }: { readonly example: FsxExample }) {
 }
 
 function SourcePanel({ session, example }: Omit<WorkspaceProps, "demo">) {
-	const editor = useRef<HTMLTextAreaElement>(null);
+	const editor = useRef<FsxSourceHandle>(null);
 	const [active, setActive] = useState<"source" | "data">("source");
 	return (
 		<>
-			<TextEditor
-				label="FSX source"
+			<FsxSourceEditor
 				value={session.source}
 				onChange={session.setSource}
+				onApply={(text) => session.apply(text)}
 				editor={editor}
 				onFocus={() => setActive("source")}
 			/>
@@ -115,7 +116,7 @@ function SourceActions({
 	return (
 		<>
 			<PlaygroundToolbar
-				onApply={session.apply}
+				onApply={() => session.apply()}
 				onReset={session.reset}
 				applyLabel="Compile and Apply"
 				onCopy={() => copySource(session[active], setStatus)}

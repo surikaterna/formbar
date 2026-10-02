@@ -119,6 +119,19 @@ it("failed drafts retain the applied preview, successful Apply revokes old write
 	});
 });
 
+it("Apply reads source and JSON edits synchronously before React renders the next draft", async () => {
+	const view = mount();
+	await act(async () => {
+		const session = view.current();
+		session.setSource(fsxExamples[0].source.replace("Customer", "Latest"));
+		session.setData(JSON.stringify({ name: "Grace", quantity: 3, unitPrice: 4 }));
+		session.apply();
+	});
+	expect(view.current().applied.source).toContain("Latest");
+	expect(view.hosts.at(-1)?.snapshot().data).toMatchObject({ name: "Grace", quantity: 3 });
+	expect(view.current().dirty).toBe(false);
+});
+
 it.each([
 	{ id: "quantity", value: -1 },
 	{ id: "name", value: "" },
