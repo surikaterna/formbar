@@ -8,6 +8,7 @@ export type {
 	FsxCompileOptions,
 	FsxCompileResult,
 	FsxDiagnostic,
+	FsxDiagnosticLocation,
 	Reference,
 	RendererDescriptor,
 	SourceEntry,

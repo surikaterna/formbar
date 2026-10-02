@@ -26,6 +26,12 @@ export interface FsxDiagnostic {
 	readonly message: string;
 	readonly path: string;
 	readonly range?: SourceRange;
+	readonly related?: readonly FsxDiagnosticLocation[];
+}
+export interface FsxDiagnosticLocation {
+	readonly message: string;
+	readonly path: string;
+	readonly range?: SourceRange;
 }
 export interface RendererDescriptor {
 	readonly renderer: string;

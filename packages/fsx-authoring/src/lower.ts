@@ -4,12 +4,13 @@ import { custom } from "./custom.js";
 import { fail } from "./errors.js";
 import { direct, read, recordWriter } from "./expressions.js";
 import type { Environment, WriterState } from "./expressions.js";
+import { declareId } from "./ids.js";
 import type { Element, FsxCompileOptions, SourceEntry } from "./types.js";
 
 export class FsxLowerer {
 	readonly map: SourceEntry[] = [];
 	readonly writers: WriterState = { sources: Object.create(null), locations: Object.create(null) };
-	private readonly ids = new Set<string>();
+	private readonly ids: Parameters<typeof declareId>[1] = new Map();
 	private readonly aliases = new Set<string>();
 	constructor(private readonly options: FsxCompileOptions) {
 		for (const name of [...Object.keys(options.references), ...Object.keys(options.locations)]) this.aliases.add(name);
@@ -36,10 +37,7 @@ export class FsxLowerer {
 		};
 	}
 	private id(element: Element, path: string): string {
-		const id = literal(element, "id", path);
-		if (!id || this.ids.has(id))
-			fail("DUPLICATE_OR_INVALID_ID", `${path}.id`, attribute(element, "id", path).valueRange);
-		this.ids.add(id);
+		const id = declareId(element, this.ids);
 		mapAttribute(this.map, element, "id", `${path}.id`);
 		return id;
 	}

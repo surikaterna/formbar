@@ -1,7 +1,7 @@
-import type { FsxDiagnostic } from "@formbar/fsx-authoring";
 import { type RefObject, useId, useRef, useState } from "react";
 import { PlaygroundToolbar, PlaygroundWorkspace } from "../playground/PlaygroundShell";
 import { copySource, downloadJson } from "../playground/source-export";
+import { FsxDiagnostics } from "./FsxDiagnostics";
 import { FsxPreview } from "./FsxPreview";
 import type { FsxExample } from "./registry";
 import { useFsxSession } from "./use-fsx-session";
@@ -30,29 +30,6 @@ function TextEditor(props: {
 				className="w-full rounded border p-3 font-mono text-sm"
 			/>
 		</div>
-	);
-}
-
-function Diagnostics(props: {
-	readonly diagnostics: readonly FsxDiagnostic[];
-	readonly editor: RefObject<HTMLTextAreaElement | null>;
-}) {
-	const select = (diagnostic: FsxDiagnostic) => {
-		if (!diagnostic.range || !props.editor.current) return;
-		props.editor.current.focus();
-		props.editor.current.setSelectionRange(diagnostic.range.start, diagnostic.range.end);
-	};
-	return (
-		<ul aria-label="Source diagnostics">
-			{props.diagnostics.map((diagnostic, index) => (
-				<li key={`${index}-${diagnostic.code}`}>
-					<button type="button" onClick={() => select(diagnostic)} disabled={!diagnostic.range}>
-						{diagnostic.code}: {diagnostic.message} — {diagnostic.path}{" "}
-						{diagnostic.range ? `UTF-16 [${diagnostic.range.start}, ${diagnostic.range.end})` : "(no source range)"}
-					</button>
-				</li>
-			))}
-		</ul>
 	);
 }
 
@@ -124,7 +101,7 @@ function SourcePanel({ session, example }: Omit<WorkspaceProps, "demo">) {
 				{session.dirty ? "Unapplied draft — previous successful preview remains active." : "Source applied."}{" "}
 				Source-only Apply preserves live data; edited initial JSON replaces it.
 			</p>
-			<Diagnostics diagnostics={session.diagnostics} editor={editor} />
+			<FsxDiagnostics diagnostics={session.diagnostics} editor={editor} />
 		</>
 	);
 }

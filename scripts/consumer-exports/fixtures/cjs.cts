@@ -14,6 +14,15 @@ import * as expressions from "@formbar/expressions";
 const parsedRef: expressions.StateRef = expressions.parseRef({ namespace: "data", segments: ["0", 0], scope: "row" });
 const unscopedRef: expressions.StateRef = expressions.parseRef({ namespace: "data", segments: ["0", 0] });
 import * as fromSchema from "@formbar/from-schema";
+import type { FsxDiagnostic, FsxDiagnosticLocation } from "@formbar/fsx-authoring";
+const firstId: FsxDiagnosticLocation = { message: "First declaration", path: "root.id", range: { start: 9, end: 12 } };
+export const duplicateId: FsxDiagnostic = {
+	code: "DUPLICATE_ID",
+	message: "Choose a unique ID",
+	path: "root.children[0].id",
+	related: [firstId],
+};
+export const oldDiagnostic: FsxDiagnostic = { code: "OTHER", message: "Existing consumer", path: "root" };
 import * as react from "@formbar/react";
 import * as reactSchema from "@formbar/react-schema";
 const scoped: fromSchema.DefinitionFieldValidator<{ name: string }, object> = {
