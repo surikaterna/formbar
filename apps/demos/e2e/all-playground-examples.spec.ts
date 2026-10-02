@@ -134,7 +134,7 @@ test("selector cardinality and order match the independent route fixture", async
 		.getByLabel("Demo")
 		.locator("option")
 		.evaluateAll((options) => options.map((option) => option.getAttribute("value")));
-	expect(demoOptions).toEqual(expectedSelectors.map(([demoId]) => demoId));
+	expect(demoOptions).toEqual([...expectedSelectors.map(([demoId]) => demoId), "fsx-quote", "fsx-line-items"]);
 	for (const [demoId, presets] of expectedSelectors) {
 		await page.goto(routeUrl({ demoId, preset: presets[0], definitionId: "selector-check" }));
 		const selector = page.getByLabel("Example");

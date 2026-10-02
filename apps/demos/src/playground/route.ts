@@ -19,7 +19,15 @@ export function readRoute(
 ): AppRoute {
 	const requestedDemo = url.searchParams.get("demo");
 	if (url.searchParams.get("mode") === "fsx")
-		return { mode: "fsx", demoId: requestedDemo && fsxIds.includes(requestedDemo) ? requestedDemo : fsxIds[0] };
+		return {
+			mode: "playground",
+			demoId: `fsx-${requestedDemo && fsxIds.includes(requestedDemo) ? requestedDemo : fsxIds[0]}`,
+		};
+	if (fsxIds.some((id) => `fsx-${id}` === requestedDemo))
+		return {
+			mode: url.searchParams.get("mode") === "playground" ? "playground" : "demo",
+			demoId: requestedDemo as string,
+		};
 	const demoId = requestedDemo && demoIds.includes(requestedDemo) ? requestedDemo : (demoIds[0] ?? "");
 	const requestedPlayground = url.searchParams.get("mode") === "playground";
 	const entry = compatibility.find((candidate) => candidate.demoId === demoId && candidate.support === "full");

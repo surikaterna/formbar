@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { demos } from "../demos/registry";
-import { Button } from "../ui";
 import { PlaygroundRunner } from "./PlaygroundRunner";
+import { PlaygroundHeader, PlaygroundToolbar, PlaygroundWorkspace } from "./PlaygroundShell";
 import { PreviewErrorBoundary } from "./PreviewErrorBoundary";
 import { SourceEditor } from "./SourceEditor";
 import { type PlaygroundExample, SOURCE_KEYS, type SourceKey } from "./contracts";
@@ -15,6 +14,7 @@ import {
 	updateCurrentSource,
 	updateSource,
 } from "./session";
+import { copySource, downloadJson } from "./source-export";
 import { discardDraft, saveDraft } from "./storage";
 import { usePlaygroundSession } from "./use-playground-session";
 
@@ -25,8 +25,6 @@ interface PlaygroundPageProps {
 	readonly onDemoChange: (demoId: string) => void;
 	readonly onPresetChange: (variant: string) => void;
 }
-
-const buttonClass = "border-border bg-secondary text-secondary-foreground hover:bg-accent";
 
 export function PlaygroundPage(props: PlaygroundPageProps) {
 	const example = getPlaygroundExample(props.demoId, props.variant);
@@ -58,12 +56,12 @@ function Playground(props: PlaygroundPageProps & { readonly example: PlaygroundE
 					{props.example.display.description}
 				</p>
 			) : null}
-			<Toolbar
+			<PlaygroundToolbar
 				onApply={apply}
 				onFormat={() => formatActive(session, active, setSession, setStatus)}
 				onReset={reset}
-				onCopy={() => copyActive(session.sources[active], setStatus)}
-				onDownload={() => download(props.example, session.applied)}
+				onCopy={() => copySource(session.sources[active], setStatus)}
+				onDownload={() => downloadJson(session.applied, `formbar-${props.example.demoId}.json`)}
 			/>
 			<output aria-live="polite" className="sr-only">
 				{status}
@@ -94,7 +92,7 @@ function Workspace(props: {
 	readonly apply: () => void;
 }) {
 	return (
-		<div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-2">
+		<PlaygroundWorkspace>
 			<section className="flex min-h-[32rem] flex-col border-r border-border bg-card">
 				<SourceEditor
 					active={props.active}
@@ -119,38 +117,19 @@ function Workspace(props: {
 					/>
 				</PreviewErrorBoundary>
 			</section>
-		</div>
+		</PlaygroundWorkspace>
 	);
 }
 
 function Header(props: PlaygroundPageProps & { readonly example: PlaygroundExample }) {
 	const variants = getExamplesForDemo(props.example.demoId);
 	return (
-		<header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-3">
-			<Button className={buttonClass} onClick={props.onClose}>
-				← Demo
-			</Button>
-			<div className="mr-auto min-w-52">
-				<h1 className="font-bold">Interactive playground</h1>
-				<p className="text-xs text-muted-foreground">
-					Document v{props.example.document.version}; production renderer and runtime.
-				</p>
-			</div>
-			<label className="text-sm font-medium">
-				Demo
-				<select
-					className="ml-2"
-					value={props.example.demoId}
-					onChange={(event) => props.onDemoChange(event.currentTarget.value)}
-				>
-					<optgroup label="Numbered demos">
-						{demos.filter(({ number }) => number !== undefined).map(demoOption)}
-					</optgroup>
-					<optgroup label="Other examples">
-						{demos.filter(({ number }) => number === undefined).map(demoOption)}
-					</optgroup>
-				</select>
-			</label>
+		<PlaygroundHeader
+			demoId={props.demoId}
+			onClose={props.onClose}
+			onDemoChange={props.onDemoChange}
+			description={`Document v${props.example.document.version}; production renderer and runtime.`}
+		>
 			{variants.length > 1 ? (
 				<label className="text-sm font-medium">
 					Example
@@ -168,44 +147,7 @@ function Header(props: PlaygroundPageProps & { readonly example: PlaygroundExamp
 					</select>
 				</label>
 			) : null}
-		</header>
-	);
-}
-
-function demoOption(demo: (typeof demos)[number]) {
-	return (
-		<option key={demo.id} value={demo.id}>
-			{demo.number ? `${demo.number}. ` : ""}
-			{demo.title.replace(/^\d+\.\s*/, "")}
-		</option>
-	);
-}
-
-function Toolbar(props: {
-	readonly onApply: () => void;
-	readonly onFormat: () => void;
-	readonly onReset: () => void;
-	readonly onCopy: () => void;
-	readonly onDownload: () => void;
-}) {
-	return (
-		<div className="flex flex-wrap gap-2 border-b border-border bg-card px-4 py-2">
-			<Button className="border-primary bg-primary text-primary-foreground" onClick={props.onApply}>
-				Apply
-			</Button>
-			<Button className={buttonClass} onClick={props.onFormat}>
-				Format active
-			</Button>
-			<Button className={buttonClass} onClick={props.onReset}>
-				Reset example
-			</Button>
-			<Button className={buttonClass} onClick={props.onCopy}>
-				Copy active
-			</Button>
-			<Button className={buttonClass} onClick={props.onDownload}>
-				Download document
-			</Button>
-		</div>
+		</PlaygroundHeader>
 	);
 }
 
@@ -253,22 +195,4 @@ function formatActive(
 	} catch {
 		notify(`${active} is not valid JSON.`);
 	}
-}
-
-async function copyActive(source: string, notify: (value: string) => void) {
-	try {
-		await navigator.clipboard.writeText(source);
-		notify("Source copied.");
-	} catch {
-		notify("Clipboard unavailable.");
-	}
-}
-
-function download(example: PlaygroundExample, document: PlaygroundExample["document"]) {
-	const url = URL.createObjectURL(new Blob([formatJson(document)], { type: "application/json" }));
-	const anchor = window.document.createElement("a");
-	anchor.href = url;
-	anchor.download = `formbar-${example.demoId}.json`;
-	anchor.click();
-	URL.revokeObjectURL(url);
 }

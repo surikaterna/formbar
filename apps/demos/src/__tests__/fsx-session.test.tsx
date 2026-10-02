@@ -62,8 +62,10 @@ const writer = (host: KaladaV1Host, id = "quantity") =>
 	host.snapshot().controls.find(({ nodeId }) => nodeId === id)?.writers.value;
 
 it("SSR renders both real presets without installation errors", () => {
-	for (const { id } of fsxExamples) {
-		const html = renderToString(<FsxPage demoId={id} onSelect={() => {}} onClose={() => {}} />);
+	for (const example of fsxExamples) {
+		const html = renderToString(
+			<FsxPage demoId={`fsx-${example.id}`} example={example} onSelect={() => {}} onClose={() => {}} />,
+		);
 		expect(html).toContain("data-kalada-v1");
 		expect(html).not.toContain('role="alert"');
 	}
@@ -72,8 +74,8 @@ it("SSR renders both real presets without installation errors", () => {
 it("hydrates two FSX pages with stable unique IDs and no recoverable errors", async () => {
 	const tree = (
 		<StrictMode>
-			<FsxPage demoId="quote" onSelect={() => {}} onClose={() => {}} />
-			<FsxPage demoId="line-items" onSelect={() => {}} onClose={() => {}} />
+			<FsxPage demoId="fsx-quote" example={fsxExamples[0]} onSelect={() => {}} onClose={() => {}} />
+			<FsxPage demoId="fsx-line-items" example={fsxExamples[1]} onSelect={() => {}} onClose={() => {}} />
 		</StrictMode>
 	);
 	const container = document.createElement("div");

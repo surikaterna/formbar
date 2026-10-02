@@ -2,9 +2,12 @@ import { expect, test } from "@playwright/test";
 
 test("FSX navigation, reactive quote, source apply, diagnostics and reset", async ({ page }) => {
 	await page.goto("?mode=demo&demo=basic-contact");
-	await page.getByRole("button", { name: "Experimental FSX playground" }).click();
-	await expect(page).toHaveURL(/mode=fsx&demo=quote/);
-	await expect(page.getByRole("heading", { name: "Experimental FSX live playground" })).toBeVisible();
+	if (await page.getByRole("button", { name: /Browse demos/ }).isVisible())
+		await page.getByRole("button", { name: /Browse demos/ }).click();
+	await page.getByRole("button", { name: /Reactive quote/ }).click();
+	await page.getByRole("button", { name: "Open in Playground" }).click();
+	await expect(page).toHaveURL(/mode=playground&demo=fsx-quote/);
+	await expect(page.getByRole("heading", { name: "Interactive playground" })).toBeVisible();
 	await page.getByLabel("Quantity", { exact: true }).fill("6");
 	await expect(page.locator("output").filter({ hasText: "75" })).toBeVisible();
 	await expect(page.locator("output").filter({ hasText: "Bulk order" })).toBeVisible();
@@ -69,12 +72,12 @@ test("FSX repeaters write, reorder, remove, submit and survive deep-link/popstat
 	await expect(page.getByLabel("Description", { exact: true })).toHaveCount(1);
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	await expect(page.getByRole("region", { name: "Last successful submission" })).toContainText("Consulting");
-	await page.getByLabel("FSX example").selectOption("quote");
+	await page.getByLabel("Demo", { exact: true }).selectOption("fsx-quote");
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("2");
 	await page.goBack();
 	await expect(page.getByLabel("Description", { exact: true }).first()).toHaveValue("Design");
 	await page.reload();
-	await expect(page.getByLabel("FSX example")).toHaveValue("line-items");
+	await expect(page.getByLabel("Demo", { exact: true })).toHaveValue("fsx-line-items");
 });
 
 for (const invalid of [
@@ -200,7 +203,7 @@ test("FSX null transfers survive repeated source revisions and retire on Reset/p
 	await expect(page.locator("[data-kalada-v1]")).toContainText("denied");
 	await page.getByRole("button", { name: "Reset example" }).click();
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("2");
-	await page.getByLabel("FSX example").selectOption("line-items");
+	await page.getByLabel("Demo", { exact: true }).selectOption("fsx-line-items");
 	await expect(page.getByLabel("Amount", { exact: true }).first()).toHaveValue("20");
 	await page.goBack();
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("2");

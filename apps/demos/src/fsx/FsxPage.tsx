@@ -1,35 +1,31 @@
+import { PlaygroundHeader } from "../playground/PlaygroundShell";
 import { FsxEditor } from "./FsxEditor";
-import { fsxExamples } from "./registry";
+import type { FsxExample } from "./registry";
 
 export function FsxPage(props: {
 	readonly demoId: string;
-	readonly onSelect: (id: string) => void;
-	readonly onClose: () => void;
+	readonly example: FsxExample;
+	readonly demo?: boolean;
+	readonly onSelect?: (id: string) => void;
+	readonly onClose?: () => void;
 }) {
-	const example = fsxExamples.find(({ id }) => id === props.demoId) ?? fsxExamples[0];
-	const selectorId = useId();
+	const Page = props.demo ? "div" : "main";
 	return (
-		<main className="min-h-screen p-4 md:p-8">
-			<header className="mb-6">
-				<button type="button" onClick={props.onClose}>
-					Back to JSON Schema demos
-				</button>
-				<h1 className="text-2xl font-bold">Experimental FSX live playground</h1>
-				<p>
-					fsx-v1-experimental — source is not JavaScript. Fixed app-owned schemas and installed permissions; JSON is
-					data, not authority.
-				</p>
-				<label htmlFor={selectorId}>FSX example </label>
-				<select id={selectorId} value={example.id} onChange={(event) => props.onSelect(event.target.value)}>
-					{fsxExamples.map(({ id, title }) => (
-						<option key={id} value={id}>
-							{title}
-						</option>
-					))}
-				</select>
-			</header>
-			<FsxEditor key={example.id} example={example} />
-		</main>
+		<Page className="min-h-screen bg-background">
+			{props.onSelect && props.onClose ? (
+				<PlaygroundHeader
+					demoId={props.demoId}
+					onDemoChange={props.onSelect}
+					onClose={props.onClose}
+					description="Experimental FSX · fsx-v1-experimental"
+				/>
+			) : (
+				<h1 className="p-4 text-2xl font-bold">{props.example.title} — Experimental FSX</h1>
+			)}
+			<p className="border-b px-4 py-3 text-sm">
+				FSX source is not JavaScript. Fixed app-owned schemas and installed permissions; JSON is data, not authority.
+			</p>
+			<FsxEditor key={props.example.id} example={props.example} demo={props.demo ?? false} />
+		</Page>
 	);
 }
-import { useId } from "react";

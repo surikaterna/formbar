@@ -1,6 +1,9 @@
 export const productionBase = "d6de555a024053d835827bb4501c63d5cca50da2";
 export const productionInventory = [
 	"apps/demos/src/App.tsx",
+	"apps/demos/src/catalogue.ts",
+	"apps/demos/src/playground/PlaygroundShell.tsx",
+	"apps/demos/src/playground/source-export.ts",
 	"apps/demos/src/playground/route.ts",
 	"apps/demos/src/fsx/FsxEditor.tsx",
 	"apps/demos/src/fsx/FsxPage.tsx",
