@@ -1,5 +1,7 @@
 import type { FsxDiagnostic } from "@formbar/fsx-authoring";
-import { type RefObject, useId, useRef } from "react";
+import { type RefObject, useId, useRef, useState } from "react";
+import { PlaygroundToolbar, PlaygroundWorkspace } from "../playground/PlaygroundShell";
+import { copySource, downloadJson } from "../playground/source-export";
 import { FsxPreview } from "./FsxPreview";
 import type { FsxExample } from "./registry";
 import { useFsxSession } from "./use-fsx-session";
@@ -9,6 +11,7 @@ function TextEditor(props: {
 	readonly value: string;
 	readonly onChange: (value: string) => void;
 	readonly editor?: RefObject<HTMLTextAreaElement | null>;
+	readonly onFocus: () => void;
 }) {
 	const id = useId();
 	return (
@@ -19,6 +22,7 @@ function TextEditor(props: {
 			<textarea
 				id={id}
 				ref={props.editor}
+				onFocus={props.onFocus}
 				value={props.value}
 				onChange={(event) => props.onChange(event.target.value)}
 				rows={14}
@@ -52,40 +56,101 @@ function Diagnostics(props: {
 	);
 }
 
-export function FsxEditor({ example }: { readonly example: FsxExample }) {
+export function FsxEditor({ example, demo = false }: { readonly example: FsxExample; readonly demo?: boolean }) {
 	const session = useFsxSession(example);
-	const editor = useRef<HTMLTextAreaElement>(null);
+	return <FsxWorkspace example={example} demo={demo} session={session} />;
+}
+
+interface WorkspaceProps {
+	readonly example: FsxExample;
+	readonly demo: boolean;
+	readonly session: ReturnType<typeof useFsxSession>;
+}
+
+function FsxWorkspace({ example, demo, session }: WorkspaceProps) {
 	const { applied } = session;
 	return (
-		<div className="grid gap-6 lg:grid-cols-2">
-			<section>
-				<TextEditor label="FSX source" value={session.source} onChange={session.setSource} editor={editor} />
-				<TextEditor label="Initial JSON data" value={session.data} onChange={session.setData} />
-				<div className="flex gap-4 py-3">
-					<button type="button" onClick={session.apply}>
-						Compile and Apply
-					</button>
-					<button type="button" onClick={session.reset}>
-						Reset example
-					</button>
-				</div>
-				<p aria-live="polite">
-					Preview: applied revision {applied.revision}.{" "}
-					{session.dirty ? "Unapplied draft — previous successful preview remains active." : "Source applied."}{" "}
-					Source-only Apply preserves live data; edited initial JSON replaces it.
-				</p>
-				<Diagnostics diagnostics={session.diagnostics} editor={editor} />
+		<PlaygroundWorkspace className="gap-6 p-4">
+			<section aria-label="FSX sources">
+				{demo ? <SourceSummary example={example} /> : <SourcePanel session={session} example={example} />}
 			</section>
-			{applied.result.ok ? (
-				<FsxPreview
-					key={applied.revision}
-					document={applied.result.document}
-					onHost={session.onHost}
-					owner={session.owner}
-				/>
-			) : (
-				<p role="alert">{applied.result.diagnostics.map(({ message }) => message).join("; ")}</p>
-			)}
-		</div>
+			<section aria-label="Running preview">
+				{applied.result.ok ? (
+					<FsxPreview
+						key={applied.revision}
+						document={applied.result.document}
+						onHost={session.onHost}
+						owner={session.owner}
+					/>
+				) : (
+					<p role="alert">{applied.result.diagnostics.map(({ message }) => message).join("; ")}</p>
+				)}
+			</section>
+		</PlaygroundWorkspace>
+	);
+}
+
+function SourceSummary({ example }: { readonly example: FsxExample }) {
+	return (
+		<details>
+			<summary>Source and initial JSON</summary>
+			<pre className="overflow-auto whitespace-pre-wrap">{example.source}</pre>
+			<pre className="overflow-auto">{JSON.stringify(example.data, null, 2)}</pre>
+		</details>
+	);
+}
+
+function SourcePanel({ session, example }: Omit<WorkspaceProps, "demo">) {
+	const editor = useRef<HTMLTextAreaElement>(null);
+	const [active, setActive] = useState<"source" | "data">("source");
+	return (
+		<>
+			<TextEditor
+				label="FSX source"
+				value={session.source}
+				onChange={session.setSource}
+				editor={editor}
+				onFocus={() => setActive("source")}
+			/>
+			<TextEditor
+				label="Initial JSON data"
+				value={session.data}
+				onChange={session.setData}
+				onFocus={() => setActive("data")}
+			/>
+			<SourceActions session={session} example={example} active={active} />
+			<p aria-live="polite">
+				Preview: applied revision {session.applied.revision}.{" "}
+				{session.dirty ? "Unapplied draft — previous successful preview remains active." : "Source applied."}{" "}
+				Source-only Apply preserves live data; edited initial JSON replaces it.
+			</p>
+			<Diagnostics diagnostics={session.diagnostics} editor={editor} />
+		</>
+	);
+}
+
+function SourceActions({
+	session,
+	example,
+	active,
+}: Omit<WorkspaceProps, "demo"> & { readonly active: "source" | "data" }) {
+	const [status, setStatus] = useState("");
+	return (
+		<>
+			<PlaygroundToolbar
+				onApply={session.apply}
+				onReset={session.reset}
+				applyLabel="Compile and Apply"
+				onCopy={() => copySource(session[active], setStatus)}
+				onDownload={() =>
+					downloadJson(
+						{ format: "fsx-source-and-initial-data", source: session.source, initialJson: session.data },
+						`formbar-fsx-${example.id}-draft.json`,
+					)
+				}
+				downloadLabel="Download FSX + initial JSON"
+			/>
+			<output aria-live="polite">{status}</output>
+		</>
 	);
 }

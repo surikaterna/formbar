@@ -219,9 +219,9 @@ describe("app-owned FSX installation", () => {
 	});
 	it("canonicalizes only registered deep links without changing JSON routes", () => {
 		const url = new URL("https://example.com/formbar/?mode=fsx&demo=line-items&preset=bad");
-		expect(readRoute(url, ["contact"], [])).toEqual({ mode: "fsx", demoId: "line-items" });
+		expect(readRoute(url, ["contact"], [])).toEqual({ mode: "playground", demoId: "fsx-line-items" });
 		const result = resolveRoute(url, { mode: "fsx", demoId: "unknown" }, ["contact"], []);
-		expect(result.route).toEqual({ mode: "fsx", demoId: "quote" });
+		expect(result.route).toEqual({ mode: "playground", demoId: "fsx-quote" });
 		expect(result.url.searchParams.has("preset")).toBe(false);
 		expect(readRoute(new URL("https://example.com/?demo=contact"), ["contact"], [])).toEqual({
 			mode: "demo",

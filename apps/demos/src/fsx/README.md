@@ -1,18 +1,35 @@
 # Experimental FSX playground
 
-The demo app has two source-first examples, separate from the JSON Schema
-playground. Open **Experimental FSX playground** from the demo toolbar, or use:
+The shared demo catalogue includes two source-first **FSX (experimental)** entries
+alongside the JSON Schema demos. Each has a writable Demo preview and source
+summary, and the same **Open in Playground** action. The common playground header
+groups JSON/schema and FSX examples; switching formats starts the selected preset's
+own session and defaults, and **← Demo** returns to that same selected demo.
 
-- `/formbar/?mode=fsx&demo=quote` — native scalar writes, guarded numeric `Output`,
+- `/formbar/?mode=playground&demo=fsx-quote` — native scalar writes, guarded numeric `Output`,
   and a reactive `Conditional`.
-- `/formbar/?mode=fsx&demo=line-items` — object rows (`line`) and whole primitive
+- `/formbar/?mode=playground&demo=fsx-line-items` — object rows (`line`) and whole primitive
   rows (`tagEntry`), scoped typed output, host-owned move/remove controls, and
   submission.
 
 These query URLs work with the existing Pages base without server routing.
-Unknown FSX IDs canonicalize to `quote`; JSON demo/playground routes retain their
-existing meaning. This feature is **fsx-v1-experimental**, not JavaScript/JSX or
-a stable language promise.
+`?mode=demo&demo=fsx-quote|fsx-line-items` selects the corresponding sidebar demo.
+Already deployed `?mode=fsx&demo=quote|line-items` URLs remain aliases and are
+canonicalized to the shared playground URL without adding a history entry.
+Unknown legacy FSX IDs retain the old fallback to quote; unknown canonical IDs
+use the existing first-JSON-demo fallback. Unrelated query/hash/base state is
+preserved, but never grants permissions. JSON routes and preset semantics retain
+their existing meaning. This feature is **fsx-v1-experimental**, not JavaScript/JSX
+or a stable language promise.
+
+The shared shell is navigation/presentation only. JSON Document v1 and FSX source,
+models, compilation and sessions remain distinct. **Copy active** copies the last
+focused FSX source or initial JSON editor. **Download FSX + initial JSON** exports
+the draft strings in an explicitly labeled source/data bundle (even invalid JSON
+can be saved); it is not a Document v1 export or a format conversion. FSX has no
+Format action. JSON's Schema/Definition/Initial Data tabs and formatting remain
+unchanged. Switching examples intentionally retires the old live preview rather
+than transferring data or authority between formats.
 
 ## Editing and lifecycle
 
@@ -85,8 +102,8 @@ and exact lexical item/property evidence. Editable JSON supplies values only;
 unsafe keys and invalid schema data fail closed. No schema/profile/policy editor
 or custom renderer is installed here.
 
-`compile.ts` calls the public `@formbar/fsx-authoring` entry (workspace version
-`0.1.0-rc.0`) with an app-owned strategy and fixed admission policy. Compilation
+`compile.ts` calls the public `@formbar/fsx-authoring` entry
+with an app-owned strategy and fixed admission policy. Compilation
 may inspect identity metadata, not read/capture/write/evaluate runtime data.
 There is no second parser, grammar, or test-fixture authority in the app.
 
