@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+const port = Number(process.env.FORMBAR_PLAYWRIGHT_PORT || 4173);
+const baseURL = `http://127.0.0.1:${port}/formbar/`;
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -9,7 +11,7 @@ export default defineConfig({
 	retries: 0,
 	reporter: "line",
 	use: {
-		baseURL: "http://127.0.0.1:4173/formbar/",
+		baseURL,
 		...(executablePath ? { launchOptions: { executablePath } } : {}),
 		trace: "retain-on-failure",
 	},
@@ -18,8 +20,8 @@ export default defineConfig({
 		{ name: "chromium-narrow", use: { ...devices["Pixel 5"] } },
 	],
 	webServer: {
-		command: "bun run build && bun run preview --host 127.0.0.1 --port 4173",
-		url: "http://127.0.0.1:4173/formbar/",
+		command: `bun run build && bun run preview --host 127.0.0.1 --port ${port} --strictPort`,
+		url: baseURL,
 		reuseExistingServer: false,
 		timeout: 120_000,
 	},

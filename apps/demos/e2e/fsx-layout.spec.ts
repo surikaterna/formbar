@@ -1,4 +1,5 @@
 import { type Page, expect, test } from "@playwright/test";
+import { fillSource, sourceText } from "./fsx-editor-helpers";
 
 async function expectComfortableRows(page: Page) {
 	const preview = page.getByRole("region", { name: "Running preview", exact: true });
@@ -67,7 +68,7 @@ test("Line-item source Apply preserves draft and keyboard actions remain usable"
 	await page.goto("?mode=playground&demo=fsx-line-items");
 	await page.getByLabel("Description", { exact: true }).first().fill("Draft description");
 	const editor = page.getByLabel("FSX source", { exact: true });
-	await editor.fill((await editor.inputValue()).replace('label="Description"', 'label="Work"'));
+	await fillSource(editor, (await sourceText(editor)).replace('label="Description"', 'label="Work"'));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByLabel("Work", { exact: true }).first()).toHaveValue("Draft description");
 	const move = page.getByRole("button", { name: "Move row" }).first();

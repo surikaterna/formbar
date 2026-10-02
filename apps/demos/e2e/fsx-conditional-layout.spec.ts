@@ -1,15 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import { type Page, type TestInfo, expect, test } from "@playwright/test";
+import { fillSource, sourceText } from "./fsx-editor-helpers";
 
 async function applyConditional(page: Page, insideGroup: boolean) {
 	await page.goto("?mode=playground&demo=fsx-line-items");
 	const editor = page.getByLabel("FSX source", { exact: true });
 	const conditional = '<Conditional id="conditional" condition={true}>$1</Conditional>';
-	const source = (await editor.inputValue()).replace(
+	const source = (await sourceText(editor)).replace(
 		/(<Field id="description"[^\n]+\/>\s*<Field id="amount"[^\n]+\/>)/,
 		insideGroup ? `<Group id="work">${conditional}</Group>` : conditional,
 	);
-	await editor.fill(source);
+	await fillSource(editor, source);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toBeEmpty();
 	await expect(page.getByLabel("Description", { exact: true }).first()).toHaveValue("Design");

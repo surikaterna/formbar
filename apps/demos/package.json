@@ -11,6 +11,11 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@codemirror/autocomplete": "6.20.3",
+		"@codemirror/commands": "6.11.1",
+		"@codemirror/lint": "6.9.7",
+		"@codemirror/state": "6.7.6",
+		"@codemirror/view": "6.43.13",
 		"@formbar/arbiter": "workspace:*",
 		"@formbar/core": "workspace:*",
 		"@formbar/declarative": "workspace:*",
@@ -19,6 +24,7 @@
 		"@formbar/react": "workspace:*",
 		"@formbar/react-schema": "workspace:*",
 		"@kalada/core": "0.6.0",
+		"@kalada/codemirror": "0.2.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},

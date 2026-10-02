@@ -1,13 +1,14 @@
 import { type Page, expect, test } from "@playwright/test";
+import { fillSource, sourceText } from "./fsx-editor-helpers";
 
 async function applyGroups(page: Page) {
 	await page.goto("?mode=playground&demo=fsx-line-items");
 	await page.getByLabel("Description", { exact: true }).first().fill("Retained work");
 	const editor = page.getByLabel("FSX source", { exact: true });
-	const source = (await editor.inputValue())
+	const source = (await sourceText(editor))
 		.replace(/(<Field id="description"[^\n]+\/>)/, '<Group id="group-description" label="Work">$1</Group>')
 		.replace(/(<Field id="amount"[^\n]+\/>)/, '<Group id="group-amount" label="Cost">$1</Group>');
-	await editor.fill(source);
+	await fillSource(editor, source);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toBeEmpty();
 	await expect(page.getByLabel("Description", { exact: true }).first()).toHaveValue("Retained work");
@@ -60,7 +61,8 @@ test("compiled sibling Groups own their fields without overlap at narrow, tablet
 test("nested Group and Conditional wrappers keep existing bound repeaters and outputs contained", async ({ page }) => {
 	const source = await applyGroups(page);
 	const editor = page.getByLabel("FSX source", { exact: true });
-	await editor.fill(
+	await fillSource(
+		editor,
 		source
 			.replace(
 				'<Repeater id="lines"',

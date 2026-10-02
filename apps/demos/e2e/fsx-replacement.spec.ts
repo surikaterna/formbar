@@ -1,4 +1,5 @@
 import { type CDPSession, type Page, expect, test } from "@playwright/test";
+import { fillSource, sourceSelection, sourceText } from "./fsx-editor-helpers";
 
 async function rootListeners(cdp: CDPSession) {
 	const { result } = await cdp.send("Runtime.evaluate", {
@@ -37,7 +38,7 @@ for (const demo of ["quote", "line-items"]) {
 		await page.goto(`?mode=fsx&demo=${demo}`);
 		const preview = page.getByRole("region", { name: "Applied FSX preview", exact: true });
 		const editor = page.getByLabel("FSX source", { exact: true });
-		const source = await editor.inputValue();
+		const source = await sourceText(editor);
 		const label = demo === "quote" ? "Customer" : "Description";
 		const field = demo === "quote" ? "Quantity" : "Amount";
 		await page.getByLabel(field, { exact: true }).first().fill("4");
@@ -46,7 +47,7 @@ for (const demo of ["quote", "line-items"]) {
 		const counts: unknown[] = [];
 		for (let iteration = 0; iteration < 20; iteration++) {
 			const oldForm = await preview.locator("form").elementHandle();
-			await editor.fill(revisionSource(source, label, iteration));
+			await fillSource(editor, revisionSource(source, label, iteration));
 			await page.getByRole("button", { name: "Compile and Apply" }).click();
 			await expect(page.getByLabel(`Revision ${iteration}`, { exact: true }).first()).toBeVisible();
 			await expect(preview).toHaveCount(1);
@@ -75,18 +76,18 @@ test("failed/rapid Apply, null drafts, data replacement, Reset and cross-format 
 	page.on("pageerror", (error) => errors.push(error.message));
 	await page.goto("?mode=fsx&demo=quote");
 	const editor = page.getByLabel("FSX source", { exact: true });
-	const source = await editor.inputValue();
+	const source = await sourceText(editor);
 	await page.getByLabel("Quantity", { exact: true }).fill("");
-	await editor.fill(source.replace("Customer", "Client"));
+	await fillSource(editor, source.replace("Customer", "Client"));
 	await page.getByRole("button", { name: "Compile and Apply" }).dblclick();
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("");
 	await singlePreview(page);
 	const retained = await page.locator("form").elementHandle();
-	await editor.fill("<Form broken>");
+	await fillSource(editor, "<Form broken>");
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await singlePreview(page);
 	expect(await retained?.evaluate((node) => node.isConnected)).toBe(true);
-	await editor.fill(source);
+	await fillSource(editor, source);
 	await page.getByLabel("Initial JSON data", { exact: true }).fill('{"name":"Grace","quantity":3,"unitPrice":4}');
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByLabel("Customer", { exact: true })).toHaveValue("Grace");
@@ -112,7 +113,7 @@ test("duplicate ID messages link both exact UTF-16 declarations and expire when 
 	const editor = page.getByLabel("FSX source", { exact: true });
 	const text =
 		'<Form id="quote" defaultLanguage="Kalada"><Output id="astral" value={"😀"}/><Field id="quantity" widget="number" value={quantity}/><Field id="quantity" widget="number" value={quantity}/></Form>';
-	await editor.fill(text);
+	await fillSource(editor, text);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	const diagnostics = page.getByRole("list", { name: "Source diagnostics" });
 	await expect(diagnostics.getByRole("button").first()).toHaveText(
@@ -120,15 +121,12 @@ test("duplicate ID messages link both exact UTF-16 declarations and expire when 
 	);
 	await expect(diagnostics.locator("details").first()).not.toHaveAttribute("open", "");
 	await diagnostics.getByRole("button").first().click();
-	expect(await editor.evaluate((node) => node.selectionStart)).toBe(text.lastIndexOf('"quantity"'));
+	expect((await sourceSelection(editor))[0]).toBe(text.lastIndexOf('"quantity"'));
 	const first = diagnostics.getByRole("button", { name: "First declared on <Field> here." });
 	await first.focus();
 	await page.keyboard.press("Enter");
-	expect(await editor.evaluate((node) => [node.selectionStart, node.selectionEnd])).toEqual([
-		text.indexOf('"quantity"'),
-		text.indexOf('"quantity"') + 10,
-	]);
-	await editor.fill(text.replace('id="astral"', 'id="new"'));
+	expect(await sourceSelection(editor)).toEqual([text.indexOf('"quantity"'), text.indexOf('"quantity"') + 10]);
+	await fillSource(editor, text.replace('id="astral"', 'id="new"'));
 	await expect(diagnostics).toBeEmpty();
 	await singlePreview(page);
 });
@@ -137,11 +135,10 @@ test("untrusted ID text is rendered as text, not diagnostic HTML", async ({ page
 	await page.goto("?mode=fsx&demo=quote");
 	const id = '<img src=x onerror="window.idExecuted=true">';
 	const value = JSON.stringify(id);
-	await page
-		.getByLabel("FSX source", { exact: true })
-		.fill(
-			`<Form id="quote" defaultLanguage="Kalada"><Output id=${value} value={"one"}/><Output id=${value} value={"two"}/></Form>`,
-		);
+	await fillSource(
+		page.getByLabel("FSX source", { exact: true }),
+		`<Form id="quote" defaultLanguage="Kalada"><Output id=${value} value={"one"}/><Output id=${value} value={"two"}/></Form>`,
+	);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	const diagnostics = page.getByRole("list", { name: "Source diagnostics" });
 	await expect(diagnostics.getByRole("button").first()).toContainText(JSON.stringify(id));
@@ -155,10 +152,10 @@ test("changing Form.id cannot reuse the sealed live draft and retains exactly on
 }) => {
 	await page.goto("?mode=fsx&demo=quote");
 	const editor = page.getByLabel("FSX source", { exact: true });
-	const source = await editor.inputValue();
+	const source = await sourceText(editor);
 	await page.getByLabel("Quantity", { exact: true }).fill("4");
 	const retained = await page.locator("form").elementHandle();
-	await editor.fill(source.replace('id="quote"', 'id="different-form"'));
+	await fillSource(editor, source.replace('id="quote"', 'id="different-form"'));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toContainText("Foreign draft preset or form");
 	await singlePreview(page);

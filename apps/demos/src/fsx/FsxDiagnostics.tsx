@@ -1,5 +1,6 @@
 import type { FsxDiagnostic, FsxDiagnosticLocation } from "@formbar/fsx-authoring";
 import type { RefObject } from "react";
+import type { FsxSourceHandle } from "./FsxSourceEditor";
 
 function LocationDetails({ location, code }: { readonly location: FsxDiagnosticLocation; readonly code?: string }) {
 	return (
@@ -13,12 +14,11 @@ function LocationDetails({ location, code }: { readonly location: FsxDiagnosticL
 
 export function FsxDiagnostics(props: {
 	readonly diagnostics: readonly FsxDiagnostic[];
-	readonly editor: RefObject<HTMLTextAreaElement | null>;
+	readonly editor: RefObject<FsxSourceHandle | null>;
 }) {
 	const select = (location: FsxDiagnosticLocation) => {
 		if (!location.range || !props.editor.current) return;
-		props.editor.current.focus();
-		props.editor.current.setSelectionRange(location.range.start, location.range.end);
+		props.editor.current.select(location.range.start, location.range.end);
 	};
 	return (
 		<ul aria-label="Source diagnostics">
