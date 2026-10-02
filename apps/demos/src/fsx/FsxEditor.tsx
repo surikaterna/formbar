@@ -47,7 +47,7 @@ interface WorkspaceProps {
 function FsxWorkspace({ example, demo, session }: WorkspaceProps) {
 	const { applied } = session;
 	return (
-		<PlaygroundWorkspace className="gap-6 p-4">
+		<PlaygroundWorkspace className={`fsx-workspace gap-6 p-4 ${demo ? "fsx-workspace-demo" : ""}`}>
 			<section aria-label="FSX sources">
 				{demo ? <SourceSummary example={example} /> : <SourcePanel session={session} example={example} />}
 			</section>

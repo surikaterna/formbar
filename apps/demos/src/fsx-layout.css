@@ -1,0 +1,122 @@
+.fsx-page {
+	container-type: inline-size;
+}
+
+/* A collapsed Demo summary must not reserve an editor column. */
+.fsx-workspace {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.fsx-workspace > section,
+.fsx-workspace .schema-demo-form fieldset,
+.fsx-workspace
+	.schema-demo-form
+	:is([data-formbar-node], [data-kalada-node], [data-kalada-control], [data-kalada-output], [data-kalada-action]) {
+	min-width: 0;
+	/* A parent's placement must not become its children's placement. */
+	--formbar-span-base: initial;
+	--formbar-span-md: initial;
+}
+
+.fsx-workspace .schema-demo-form [data-kalada-node] {
+	display: grid;
+	grid-template-columns: repeat(12, minmax(0, 1fr));
+	gap: 1rem;
+}
+
+/* Twelve fixed gutters must not exceed a deliberately narrow, explicit span. */
+.fsx-workspace .schema-demo-form :is(fieldset, section[data-formbar-node], [data-kalada-node]) {
+	column-gap: min(1rem, 2%);
+}
+
+.fsx-workspace .schema-demo-form :is(input, select, textarea, button) {
+	min-width: 0;
+	max-width: 100%;
+}
+
+.fsx-workspace .schema-demo-form :is(label, legend, output, button) {
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
+.fsx-workspace pre {
+	max-width: 100%;
+	overflow: auto;
+}
+
+/* Split only when the page can fit a readable editor and a comfortable form. */
+@container (min-width: 64rem) {
+	.fsx-workspace:not(.fsx-workspace-demo) {
+		grid-template-columns: minmax(24rem, 2fr) minmax(32rem, 3fr);
+	}
+}
+
+/* Lists are structural grid children, not a one-column field. */
+.fsx-workspace .schema-demo-form fieldset > ol {
+	grid-column: 1 / -1;
+	min-width: 0;
+	display: grid;
+	gap: 1rem;
+	list-style: none;
+	padding: 0;
+}
+
+.fsx-workspace .schema-demo-form ol > li > fieldset {
+	display: grid;
+	grid-template-columns: repeat(12, minmax(0, 1fr));
+	gap: 0.75rem;
+	column-gap: min(0.75rem, 2%);
+	padding: 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+/* Structural nodes own a span just like fields, including conditional wrappers. */
+.fsx-workspace
+	.schema-demo-form
+	:is(fieldset, section[data-formbar-node], [data-kalada-node])
+	> :is([data-formbar-node], [data-kalada-node], [data-kalada-control], [data-kalada-output], [data-kalada-action]) {
+	grid-column: span var(--formbar-span-base, 12);
+}
+
+.fsx-workspace .schema-demo-form ol > li > fieldset > [data-kalada-action] {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.fsx-workspace .schema-demo-form [data-kalada-output] > div {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.fsx-workspace .schema-demo-form [data-kalada-action] > select {
+	flex: 1 1 12rem;
+	min-width: 0;
+	width: 0;
+}
+
+.fsx-workspace .schema-demo-form button {
+	min-height: 44px;
+	padding: 0.55rem 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	white-space: normal;
+}
+
+.fsx-workspace .schema-demo-form button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+@media (min-width: 48rem) {
+	.fsx-workspace
+		.schema-demo-form
+		:is(fieldset, section[data-formbar-node], [data-kalada-node])
+		> :is([data-formbar-node], [data-kalada-node], [data-kalada-control], [data-kalada-output], [data-kalada-action]) {
+		grid-column: span var(--formbar-span-md, var(--formbar-span-base, 12));
+	}
+}

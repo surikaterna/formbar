@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import "./globals.css";
 import "./demo17.css";
 import "./repeater-actions.css";
+import "./fsx-layout.css";
 import { catalogue, catalogueIds } from "./catalogue";
 import { FsxPage } from "./fsx/FsxPage";
 import { PlaygroundPage } from "./playground/PlaygroundPage";
