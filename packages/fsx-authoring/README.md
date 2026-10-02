@@ -111,6 +111,16 @@ Alias diagnostics retain physical authoring child indexes, including nested Alia
 constructs. Emitted declaration indexes and source maps separately count only
 flattened declarations; transparent aliases never manufacture definition nodes.
 
+Element IDs (including `Form.id`) remain globally unique, static nonempty strings
+of at most 256 UTF-16 units, excluding `__proto__`, `constructor`, and `prototype`.
+Unicode, spaces, and punctuation are permitted by the public V1 identifier contract.
+Distinct IDs may address the same field, subject to existing admission ownership.
+ID diagnostics use `MISSING_ID`, `NON_STATIC_ID`, `EMPTY_ID`, `INVALID_ID`, and
+`DUPLICATE_ID`; these replace the previous generic attribute/ID codes for ID errors.
+The optional `FsxDiagnostic.related` array supplies structured message/path/range
+locations. For duplicates it points to the first ID's exact value declaration,
+including a first `Form.id`; consumers must not parse message text for locations.
+
 Kalada typing is its public syntax contract: use explicitly typed reference
 names for scalar operations, including scoped read references such as `quantity`.
 Writable property evidence does not manufacture a richer guest read type.

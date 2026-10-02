@@ -49,14 +49,11 @@ describe("trusted FSX experimental compiler", () => {
 		expect(compileFsx(text, options)).toEqual(first);
 	});
 	it.each([
-		['<Form defaultLanguage="Kalada"/>', "MISSING_ATTRIBUTE"],
+		['<Form defaultLanguage="Kalada"/>', "MISSING_ID"],
 		['<Form id="f"/>', "MISSING_ATTRIBUTE"],
 		['<Form id="f" id="g" defaultLanguage="Kalada"/>', "DUPLICATE_ATTRIBUTE"],
 		['<Form id="f" defaultLanguage="Kuery"/>', "UNKNOWN_DEFAULT_LANGUAGE"],
-		[
-			'<Form id="f" defaultLanguage="Kalada"><Field id="f" value={name} widget="text"/></Form>',
-			"DUPLICATE_OR_INVALID_ID",
-		],
+		['<Form id="f" defaultLanguage="Kalada"><Field id="f" value={name} widget="text"/></Form>', "DUPLICATE_ID"],
 		[
 			'<Form id="f" defaultLanguage="Kalada"><Field id="x" value={name + 1} widget="text"/></Form>',
 			"KALADA_SYNTAX_WRITE_INELIGIBLE",
