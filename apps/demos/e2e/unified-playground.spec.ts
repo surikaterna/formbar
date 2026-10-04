@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import { fillSource, sourceSelection, sourceText } from "./fsx-editor-helpers";
 
 test("shared sidebar, shell and keyboard selector preserve the selected demo across JSON and FSX", async ({
 	page,
@@ -61,25 +62,24 @@ test("legacy aliases canonicalize and diagnostics remain keyboard-ranged in the 
 	await page.goto("?mode=fsx&demo=quote&preset=untrusted&profile=untrusted#docs");
 	await expect(page).toHaveURL(/mode=playground&demo=fsx-quote&profile=untrusted#docs/);
 	const editor = page.getByLabel("FSX source", { exact: true });
-	const original = await editor.inputValue();
-	await editor.fill(original.replace("value={name}", "value={unregistered}"));
+	const original = await sourceText(editor);
+	await fillSource(editor, original.replace("value={name}", "value={unregistered}"));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	const diagnostic = page.getByRole("list", { name: "Source diagnostics" }).getByRole("button").first();
 	await diagnostic.focus();
 	await page.keyboard.press("Enter");
 	await expect(editor).toBeFocused();
-	expect(await editor.evaluate((node: HTMLTextAreaElement) => node.selectionEnd - node.selectionStart)).toBeGreaterThan(
-		0,
-	);
-	await editor.fill(original);
+	const [from, to] = await sourceSelection(editor);
+	expect(to - from).toBeGreaterThan(0);
+	await fillSource(editor, original);
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toBeEmpty();
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
-	await editor.fill(original.replace('id="unit-price"', 'id="name"'));
+	await fillSource(editor, original.replace('id="unit-price"', 'id="name"'));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).not.toBeEmpty();
 	await expect(page.getByText(/Unapplied draft — previous successful preview remains active/)).toBeVisible();
 	await expect(page.getByLabel("Customer", { exact: true })).toHaveValue("Ada");
-	await editor.fill(original);
+	await fillSource(editor, original);
 	const download = page.waitForEvent("download");
 	await page.getByRole("button", { name: "Download FSX + initial JSON" }).click();
 	const file = await download;

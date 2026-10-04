@@ -9,6 +9,7 @@ export const productionInventory = [
 	"apps/demos/src/fsx/FsxDiagnostics.tsx",
 	"apps/demos/src/fsx/FsxPage.tsx",
 	"apps/demos/src/fsx/FsxPreview.tsx",
+	"apps/demos/src/fsx/FsxSourceEditor.tsx",
 	"apps/demos/src/fsx/array-controls.ts",
 	"apps/demos/src/fsx/compile.ts",
 	"apps/demos/src/fsx/registry.ts",

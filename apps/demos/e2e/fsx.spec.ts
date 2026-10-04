@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { fillSource, sourceSelection, sourceText } from "./fsx-editor-helpers";
 
 test("FSX navigation, reactive quote, source apply, diagnostics and reset", async ({ page }) => {
 	await page.goto("?mode=demo&demo=basic-contact");
@@ -12,27 +13,29 @@ test("FSX navigation, reactive quote, source apply, diagnostics and reset", asyn
 	await expect(page.locator("output").filter({ hasText: "75" })).toBeVisible();
 	await expect(page.locator("output").filter({ hasText: "Bulk order" })).toBeVisible();
 	const editor = page.getByLabel("FSX source", { exact: true });
-	const source = await editor.inputValue();
-	await editor.fill(source.replace('label="Customer"', 'label="Client"'));
+	const source = await sourceText(editor);
+	await fillSource(editor, source.replace('label="Customer"', 'label="Client"'));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByLabel("Client", { exact: true })).toHaveValue("Ada");
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("6");
-	await editor.fill('<Form id="bad" defaultLanguage="Kalada"><Field id="evil" widget="text" value={secret}/></Form>');
+	await fillSource(
+		editor,
+		'<Form id="bad" defaultLanguage="Kalada"><Field id="evil" widget="text" value={secret}/></Form>',
+	);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toContainText("UTF-16");
 	await page.getByRole("list", { name: "Source diagnostics" }).getByRole("button").first().click();
-	expect(
-		await editor.evaluate((element: HTMLTextAreaElement) => element.selectionEnd - element.selectionStart),
-	).toBeGreaterThan(0);
+	const [from, to] = await sourceSelection(editor);
+	expect(to - from).toBeGreaterThan(0);
 	await expect(page.getByLabel("Client", { exact: true })).toHaveValue("Ada");
-	await editor.fill('<Form id="broken" defaultLanguage="Kalada"><Field');
+	await fillSource(editor, '<Form id="broken" defaultLanguage="Kalada"><Field');
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toContainText("UTF-16");
 	await page.getByLabel("Quantity", { exact: true }).fill("8");
 	await expect(page.locator("output").filter({ hasText: "100" })).toBeVisible();
 	await page.getByRole("button", { name: "Reset example" }).click();
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("2");
-	await expect(editor).toHaveValue(source);
+	await expect.poll(() => sourceText(editor)).toBe(source);
 });
 
 test("FSX initial JSON is data only; invalid Apply retains preview and valid replacement submits", async ({ page }) => {
@@ -90,8 +93,8 @@ for (const invalid of [
 		await page.goto("?mode=fsx&demo=quote");
 		await page.getByLabel(invalid.label, { exact: true }).fill(invalid.value);
 		const editor = page.getByLabel("FSX source", { exact: true });
-		const source = await editor.inputValue();
-		await editor.fill(source.replace('label="Customer"', 'label="Client"'));
+		const source = await sourceText(editor);
+		await fillSource(editor, source.replace('label="Customer"', 'label="Client"'));
 		await page.getByRole("button", { name: "Compile and Apply" }).click();
 		await expect(page.getByLabel("Client", { exact: true })).toHaveValue(invalid.label === "Customer" ? "" : "Ada");
 		await expect(page.getByLabel(invalid.label === "Customer" ? "Client" : "Quantity", { exact: true })).toHaveValue(
@@ -132,7 +135,7 @@ for (const blank of [
 		await page.getByRole("button", { name: "Submit", exact: true }).click();
 		await expect(page.locator("[data-kalada-v1]")).toContainText("denied");
 		const editor = page.getByLabel("FSX source", { exact: true });
-		await editor.fill((await editor.inputValue()).replace('label="', 'label= "'));
+		await fillSource(editor, (await sourceText(editor)).replace('label="', 'label= "'));
 		await page.getByRole("button", { name: "Compile and Apply" }).click();
 		await expect(page.getByRole("list", { name: "Source diagnostics" })).toBeEmpty();
 		await expect(page.getByLabel(blank.after, { exact: true }).first()).toHaveValue("");
@@ -162,9 +165,9 @@ test("FSX computed-preview errors stay contextual; source correction and Reset r
 	page.on("pageerror", (error) => errors.push(error.message));
 	await page.goto("?mode=fsx&demo=quote");
 	const editor = page.getByLabel("FSX source", { exact: true });
-	const safeSource = await editor.inputValue();
+	const safeSource = await sourceText(editor);
 	const brokenSource = safeSource.replace('quantity == null || unitPrice == null ? "Enter both numbers" : ', "");
-	await editor.fill(brokenSource);
+	await fillSource(editor, brokenSource);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await page.getByLabel("Quantity", { exact: true }).fill("");
 	await expect(editor).toBeVisible();
@@ -174,7 +177,7 @@ test("FSX computed-preview errors stay contextual; source correction and Reset r
 	await page.getByLabel("Quantity", { exact: true }).fill("");
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toContainText("PREVIEW_EVALUATION_FAILED");
-	await editor.fill(safeSource);
+	await fillSource(editor, safeSource);
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("");
 	await expect(page.locator("output").filter({ hasText: "Enter both numbers" })).toBeVisible();
@@ -189,12 +192,12 @@ test("FSX null transfers survive repeated source revisions and retire on Reset/p
 	await page.goto("?mode=fsx&demo=quote");
 	await page.getByLabel("Quantity", { exact: true }).fill("");
 	const editor = page.getByLabel("FSX source", { exact: true });
-	await editor.fill((await editor.inputValue()).replace("Customer", "Client"));
+	await fillSource(editor, (await sourceText(editor)).replace("Customer", "Client"));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByLabel("Client", { exact: true })).toHaveValue("Ada");
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("");
 	await page.getByLabel("Unit price", { exact: true }).fill("");
-	await editor.fill((await editor.inputValue()).replace('label="Total"', 'label="Quote total"'));
+	await fillSource(editor, (await sourceText(editor)).replace('label="Total"', 'label="Quote total"'));
 	await page.getByRole("button", { name: "Compile and Apply" }).click();
 	await expect(page.getByRole("list", { name: "Source diagnostics" })).toBeEmpty();
 	await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("");

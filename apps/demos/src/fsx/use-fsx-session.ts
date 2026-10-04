@@ -73,20 +73,35 @@ function useSources(example: FsxExample) {
 	const initialData = JSON.stringify(example.data, null, 2);
 	const [source, setSource] = useState(example.source);
 	const [data, setData] = useState(initialData);
-	return { initialData, source, setSource, data, setData };
+	const draft = useRef({ source, data });
+	return {
+		initialData,
+		source,
+		data,
+		draft,
+		setSource: (value: string) => {
+			draft.current.source = value;
+			setSource(value);
+		},
+		setData: (value: string) => {
+			draft.current.data = value;
+			setData(value);
+		},
+	};
 }
 
 export function useFsxSession(example: FsxExample) {
-	const { initialData, source, setSource, data, setData } = useSources(example);
+	const { initialData, source, setSource, data, setData, draft } = useSources(example);
 	const [applied, setApplied] = useState(() => initial(example, initialData, 1));
 	const [diagnostics, setDiagnostics] = useState<readonly FsxDiagnostic[]>([]);
 	const { host, onHost, owner } = useHost(setDiagnostics);
 	useTransferRetirement(applied.result, owner);
-	const apply = () => {
+	const apply = (currentSource = draft.current.source) => {
+		const currentData = draft.current.data;
 		const result =
-			data === applied.data && host.current
-				? applyFsxFromHost(example, source, host.current)
-				: applyFsx(example, source, data);
+			currentData === applied.data && host.current
+				? applyFsxFromHost(example, currentSource, host.current)
+				: applyFsx(example, currentSource, currentData);
 		const ready = finishApply(result, applied.result, owner);
 		if (!ready.ok) {
 			setDiagnostics(ready.diagnostics);
@@ -94,7 +109,7 @@ export function useFsxSession(example: FsxExample) {
 		}
 		host.current?.dispose();
 		setDiagnostics([]);
-		setApplied({ result: ready, source, data, revision: applied.revision + 1 });
+		setApplied({ result: ready, source: currentSource, data: currentData, revision: applied.revision + 1 });
 	};
 	const reset = () => {
 		retireFsxDocument(applied.result.ok ? applied.result.document : undefined, owner);
