@@ -1,6 +1,6 @@
 {
 	"name": "@formbar/fsx-authoring",
-	"version": "0.1.0-rc.0",
+	"version": "0.1.0-rc.1",
 	"type": "module",
 	"description": "Trusted FSX authoring compiler for canonical Formbar V1 definitions",
 	"license": "MIT",
