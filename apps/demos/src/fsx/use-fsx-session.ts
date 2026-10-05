@@ -3,6 +3,7 @@ import type { FsxDiagnostic } from "@formbar/fsx-authoring";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ApplyResult, acceptFsxDocument, applyFsx, applyFsxFromHost, retireFsxDocument } from "./compile";
 import type { FsxExample } from "./registry";
+import type { SourceDiagnosticReport } from "./source-diagnostics";
 
 function useHost(report: (diagnostics: readonly FsxDiagnostic[]) => void) {
 	const host = useRef<KaladaV1Host | undefined>(undefined);
@@ -90,11 +91,21 @@ function useSources(example: FsxExample) {
 	};
 }
 
-export function useFsxSession(example: FsxExample) {
-	const { initialData, source, setSource, data, setData, draft } = useSources(example);
-	const [applied, setApplied] = useState(() => initial(example, initialData, 1));
+function useDiagnosticState() {
 	const [diagnostics, setDiagnostics] = useState<readonly FsxDiagnostic[]>([]);
-	const { host, onHost, owner } = useHost(setDiagnostics);
+	const [diagnosticReport, setDiagnosticReport] = useState<SourceDiagnosticReport>();
+	const report = useCallback((issues: readonly FsxDiagnostic[], snapshot?: SourceDiagnosticReport) => {
+		setDiagnosticReport(snapshot);
+		setDiagnostics(issues);
+	}, []);
+	return { diagnostics, diagnosticReport, report, clear: () => report([]) };
+}
+
+function useFsxApplication(example: FsxExample, sources: ReturnType<typeof useSources>) {
+	const { initialData, setSource, setData, draft } = sources;
+	const [applied, setApplied] = useState(() => initial(example, initialData, 1));
+	const issues = useDiagnosticState();
+	const { host, onHost, owner } = useHost(issues.report);
 	useTransferRetirement(applied.result, owner);
 	const apply = (currentSource = draft.current.source) => {
 		const currentData = draft.current.data;
@@ -104,11 +115,11 @@ export function useFsxSession(example: FsxExample) {
 				: applyFsx(example, currentSource, currentData);
 		const ready = finishApply(result, applied.result, owner);
 		if (!ready.ok) {
-			setDiagnostics(ready.diagnostics);
+			issues.report(ready.diagnostics, { source: currentSource, data: currentData, diagnostics: ready.diagnostics });
 			return;
 		}
 		host.current?.dispose();
-		setDiagnostics([]);
+		issues.clear();
 		setApplied({ result: ready, source: currentSource, data: currentData, revision: applied.revision + 1 });
 	};
 	const reset = () => {
@@ -116,26 +127,28 @@ export function useFsxSession(example: FsxExample) {
 		host.current?.dispose();
 		setSource(example.source);
 		setData(initialData);
-		setDiagnostics([]);
+		issues.clear();
 		setApplied(initial(example, initialData, applied.revision + 1));
 	};
+	return { applied, ...issues, apply, reset, onHost, owner };
+}
+
+export function useFsxSession(example: FsxExample) {
+	const sources = useSources(example);
+	const { source, data, setSource, setData } = sources;
+	const { clear, report, ...application } = useFsxApplication(example, sources);
 	return {
 		source,
 		setSource: (value: string) => {
-			setDiagnostics([]);
+			clear();
 			setSource(value);
 		},
 		data,
 		setData: (value: string) => {
-			setDiagnostics([]);
+			clear();
 			setData(value);
 		},
-		applied,
-		diagnostics,
-		apply,
-		reset,
-		onHost,
-		owner,
-		dirty: source !== applied.source || data !== applied.data,
+		...application,
+		dirty: source !== application.applied.source || data !== application.applied.data,
 	};
 }

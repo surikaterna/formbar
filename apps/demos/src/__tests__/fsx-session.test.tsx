@@ -72,6 +72,14 @@ it("SSR renders both real presets without installation errors", () => {
 });
 
 it("hydrates two FSX pages with stable unique IDs and no recoverable errors", async () => {
+	// Drawn selections measure ranges; jsdom has no layout (Chromium covers real geometry).
+	const createRange = document.createRange.bind(document);
+	vi.spyOn(document, "createRange").mockImplementation(() =>
+		Object.assign(createRange(), {
+			getClientRects: () => Object.assign([], { item: () => null }),
+			getBoundingClientRect: () => new DOMRect(),
+		}),
+	);
 	const tree = (
 		<StrictMode>
 			<FsxPage demoId="fsx-quote" example={fsxExamples[0]} onSelect={() => {}} onClose={() => {}} />

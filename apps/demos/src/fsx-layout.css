@@ -47,7 +47,7 @@
 /* Split only when the page can fit a readable editor and a comfortable form. */
 @container (min-width: 64rem) {
 	.fsx-workspace:not(.fsx-workspace-demo) {
-		grid-template-columns: minmax(24rem, 2fr) minmax(32rem, 3fr);
+		grid-template-columns: minmax(24rem, 1fr) minmax(32rem, 1fr);
 	}
 }
 
