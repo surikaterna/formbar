@@ -1,5 +1,6 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { EditorView, keymap } from "@codemirror/view";
+import { fsxHighlighting } from "@formbar/fsx-editor";
 import { type EditorSession, createEditorSession } from "@kalada/codemirror/editor";
 import { type RefObject, useEffect, useId, useRef } from "react";
 
@@ -39,6 +40,7 @@ function mountEditor(parent: HTMLElement, id: string, callbacks: RefObject<Props
 		doc: session.getSnapshot().text,
 		extensions: [
 			session.extension,
+			fsxHighlighting(),
 			history(),
 			keymap.of([
 				{ key: "Ctrl-Enter", run: apply, preventDefault: true },

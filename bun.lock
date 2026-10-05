@@ -28,6 +28,7 @@
         "@formbar/declarative": "workspace:*",
         "@formbar/from-schema": "workspace:*",
         "@formbar/fsx-authoring": "workspace:*",
+        "@formbar/fsx-editor": "workspace:*",
         "@formbar/react": "workspace:*",
         "@formbar/react-schema": "workspace:*",
         "@kalada/codemirror": "0.2.0",
@@ -112,12 +113,27 @@
     },
     "packages/fsx-authoring": {
       "name": "@formbar/fsx-authoring",
-      "version": "0.1.0-rc.0",
+      "version": "0.1.0-rc.1",
       "dependencies": {
         "@formbar/declarative": "^1.0.0-rc.1",
         "@formbar/expressions": "^0.23.0-rc.0",
         "@kalada/provider-routing": "0.1.0",
         "@kalada/syntax": "0.1.0",
+      },
+    },
+    "packages/fsx-editor": {
+      "name": "@formbar/fsx-editor",
+      "version": "0.1.0-rc.0",
+      "dependencies": {
+        "@formbar/fsx-authoring": "^0.1.0-rc.1",
+      },
+      "devDependencies": {
+        "@codemirror/state": "6.7.6",
+        "@codemirror/view": "6.43.13",
+      },
+      "peerDependencies": {
+        "@codemirror/state": "^6.7.6",
+        "@codemirror/view": "^6.43.13",
       },
     },
     "packages/react": {
@@ -344,6 +360,8 @@
     "@formbar/from-schema": ["@formbar/from-schema@workspace:packages/from-schema"],
 
     "@formbar/fsx-authoring": ["@formbar/fsx-authoring@workspace:packages/fsx-authoring"],
+
+    "@formbar/fsx-editor": ["@formbar/fsx-editor@workspace:packages/fsx-editor"],
 
     "@formbar/react": ["@formbar/react@workspace:packages/react"],
 

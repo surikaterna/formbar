@@ -147,3 +147,19 @@ React integration and packed real authoring consumers under React 18/19, ESM/CJS
 and strict NodeNext. The browser-target source fixture uses the installed compiler
 without a parser dependency flowing into the declarative runtime. Baseline
 normal-registry tests remain explicitly failed while core 0.1 lacks V1 exports.
+
+## Syntax analysis
+
+`analyzeFsxSyntax(source)` returns `{ complete, spans, guestRegions, diagnostics }`
+without compiler installation metadata or admission. Spans have `kind` (`tag`,
+`attribute`, `punctuation`, `string`) and ordered, nonoverlapping, half-open UTF-16
+`start`/`end` offsets in the original source (including CRLF and astral characters).
+Guest regions describe interiors with `boundary: "confirmed" | "ambiguous"`.
+Only the supported Kalada prefix service can confirm a closing brace; ambiguous
+regions conservatively extend to EOF. Guest interiors are never host-styled.
+
+Recognition shares the compiler parser and stops at the first error. Partial spans
+are trustworthy syntactic recognition, not semantic truth or a recovery promise.
+Limits remain 100,000 source code units, 1,000 elements, depth 32, and bounded
+guest work. `complete` does not imply a compilable or admitted definition.
+This service does not provide live completion or diagnostics UI.

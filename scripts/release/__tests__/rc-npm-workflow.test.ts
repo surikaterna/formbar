@@ -14,6 +14,12 @@ const version = "0.23.0-rc.0";
 const versions = Object.fromEntries(readRcPlan(process.cwd()).map(({ name, version }) => [name.slice(9), version]));
 type Call = { args: string[]; cwd: string; metadata: string[] };
 
+function fixtureMetadata(directory: string) {
+	return [".changeset/pre.json", ...packages.map((name) => `packages/${name}/package.json`)].map((path) =>
+		readFileSync(join(directory, path), "utf8"),
+	);
+}
+
 function prepareFixture(directory: string, scenario: string, changedVersion: string, changedName?: string) {
 	const bin = join(directory, "bin");
 	mkdirSync(bin);
@@ -66,6 +72,7 @@ function runWorkflowShell(scenario: string, changedVersion = versions["react-sch
 	const directory = mkdtempSync(join(tmpdir(), "formbar-manual-rc-"));
 	try {
 		const { bin, state, log } = prepareFixture(directory, scenario, changedVersion, changedName);
+		const before = fixtureMetadata(directory);
 		const preparation = ["prepare", "build-failure", "test-failure"].includes(scenario);
 		const commands = job.steps
 			.slice(preparation ? 4 : 7)
@@ -89,7 +96,12 @@ function runWorkflowShell(scenario: string, changedVersion = versions["react-sch
 			.split("\n")
 			.filter(Boolean)
 			.map((line): Call => JSON.parse(line));
-		return { ...result, calls, publications: calls.filter((call) => call.args[0] === "publish") };
+		return {
+			...result,
+			calls,
+			metadataUnchanged: JSON.stringify(before) === JSON.stringify(fixtureMetadata(directory)),
+			publications: calls.filter((call) => call.args[0] === "publish"),
+		};
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
@@ -143,15 +155,16 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 	it("publishes direct directories in dependency order, preserving public metadata and normal output", () => {
 		const result = runWorkflowShell("absent");
 		expect(result.status, result.stderr).toBe(0);
+		expect(result.metadataUnchanged).toBe(true);
 		expect(result.publications.map((call) => call.cwd)).toEqual(packages);
 		for (const call of result.publications)
 			expect(call.args).toEqual(["publish", "--tag", "rc", "--access", "public", "--provenance"]);
 		for (const call of result.calls) expect(call.metadata).toEqual(["workflow_dispatch", "1245476636", "9478205"]);
-		expect(result.calls.slice(0, 8).map((call) => call.args)).toEqual(
+		expect(result.calls.slice(0, 9).map((call) => call.args)).toEqual(
 			packages.map((name) => ["view", `@formbar/${name}`, "dist-tags", "--json"]),
 		);
-		expect(result.calls.slice(8, 24).map((call) => call.args[0])).toEqual(packages.flatMap(() => ["view", "publish"]));
-		expect(result.calls.slice(24).map((call) => call.args)).toEqual(
+		expect(result.calls.slice(9, 27).map((call) => call.args[0])).toEqual(packages.flatMap(() => ["view", "publish"]));
+		expect(result.calls.slice(27).map((call) => call.args)).toEqual(
 			packages.flatMap((name) => [
 				["view", `@formbar/${name}@${versions[name]}`, "name", "version", "--json"],
 				["view", `@formbar/${name}`, "dist-tags", "--json"],
@@ -175,12 +188,15 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(result.status).toBe(19);
 		expect(result.calls.every((call) => ["install", "run"].includes(call.args[0]))).toBe(true);
 	});
-	it.each(["latest-error", "latest-malformed"])("requires a valid latest snapshot: %s", (scenario) => {
-		const result = runWorkflowShell(scenario);
-		expect(result.status).not.toBe(0);
-		expect(result.calls).toHaveLength(1);
-		expect(result.publications).toEqual([]);
-	});
+	it.each(["latest-error", "latest-malformed", "unexpected-absence"])(
+		"requires a valid latest snapshot: %s",
+		(scenario) => {
+			const result = runWorkflowShell(scenario);
+			expect(result.status).not.toBe(0);
+			expect(result.calls).toHaveLength(1);
+			expect(result.publications).toEqual([]);
+		},
+	);
 
 	it.each(["0.23.0", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
 		"denies version %s before registry access",
@@ -196,7 +212,7 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(result.calls).toEqual([]);
 	});
 	it.each(["0.23.0", "0.23.0-rc", "0.23.0-rc.01", "00.23.0-rc.0", "0.23.0-rc.0+build"])(
-		"denies eight equal but invalid versions %s",
+		"denies nine equal but invalid versions %s",
 		(candidate) => {
 			const result = runWorkflowShell("all-invalid", candidate);
 			expect(result.status).not.toBe(0);
@@ -207,8 +223,8 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		const result = runWorkflowShell("existing");
 		expect(result.status, result.stderr).toBe(0);
 		expect(result.publications).toEqual([]);
-		expect(result.stdout.match(/Skipping immutable existing/g)).toHaveLength(8);
-		expect(result.calls).toHaveLength(32);
+		expect(result.stdout.match(/Skipping immutable existing/g)).toHaveLength(9);
+		expect(result.calls).toHaveLength(36);
 	});
 	it.each([
 		"E403",
@@ -223,7 +239,7 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		const result = runWorkflowShell(scenario);
 		expect(result.status).not.toBe(0);
 		expect(result.publications).toEqual([]);
-		expect(result.calls).toHaveLength(9);
+		expect(result.calls).toHaveLength(10);
 	});
 	it("does not retry a failed PUT or attempt later packages", () => {
 		const result = runWorkflowShell("publish-failure");
@@ -242,12 +258,28 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(result.status).toBe(17);
 		expect(result.publications.map(({ cwd }) => cwd)).toEqual(packages.slice(0, 4));
 	});
+	it("admits absent latest only for the two enrolled FSX packages", () => {
+		const result = runWorkflowShell("empty-fsx-tags");
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.publications.map(({ cwd }) => cwd)).toEqual(packages);
+	});
+	it("rejects editor authentication failure before any publication", () => {
+		const result = runWorkflowShell("editor-auth");
+		expect(result.status).not.toBe(0);
+		expect(result.calls).toHaveLength(5);
+		expect(result.publications).toEqual([]);
+	});
+	it("stops at failed editor bootstrap without fallback or publishing later packages", () => {
+		const result = runWorkflowShell("editor-bootstrap-failure");
+		expect(result.status).toBe(17);
+		expect(result.publications.map(({ cwd }) => cwd)).toEqual(packages.slice(0, 5));
+	});
 	it.each(["wrong-rc", "moved-latest", "wrong-post-name", "wrong-post-version"])(
 		"fails postflight %s without repair",
 		(scenario) => {
 			const result = runWorkflowShell(scenario);
 			expect(result.status).not.toBe(0);
-			expect(result.publications).toHaveLength(8);
+			expect(result.publications).toHaveLength(9);
 			expect(result.calls.every((call) => ["view", "publish"].includes(call.args[0]))).toBe(true);
 		},
 	);

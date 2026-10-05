@@ -18,6 +18,7 @@
 		{ "path": "packages/core" },
 		{ "path": "packages/declarative" },
 		{ "path": "packages/fsx-authoring" },
+		{ "path": "packages/fsx-editor" },
 		{ "path": "packages/from-schema" },
 		{ "path": "packages/react" },
 		{ "path": "packages/arbiter" },

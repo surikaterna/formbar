@@ -21,6 +21,7 @@
 		"@formbar/declarative": "workspace:*",
 		"@formbar/from-schema": "workspace:*",
 		"@formbar/fsx-authoring": "workspace:*",
+		"@formbar/fsx-editor": "workspace:*",
 		"@formbar/react": "workspace:*",
 		"@formbar/react-schema": "workspace:*",
 		"@kalada/core": "0.6.0",

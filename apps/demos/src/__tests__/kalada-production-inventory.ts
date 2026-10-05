@@ -24,6 +24,8 @@ export const productionInventory = [
 	"packages/fsx-authoring/src/index.ts",
 	"packages/fsx-authoring/src/lower.ts",
 	"packages/fsx-authoring/src/parser.ts",
+	"packages/fsx-authoring/src/syntax.ts",
+	"packages/fsx-editor/src/index.ts",
 	"packages/fsx-authoring/src/types.ts",
 	"apps/demos/src/demos/07-conditional-fields.ts",
 	"apps/demos/src/demos/08-array-items.ts",
