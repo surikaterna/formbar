@@ -2,7 +2,7 @@
 import type { KaladaV1Host } from "@formbar/declarative";
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { catalogue, catalogueIds } from "../catalogue";
 import { getPlaygroundCompatibility } from "../playground/examples";
@@ -21,14 +21,51 @@ vi.mock("../renderers/use-demo-installation", async (original) => {
 	};
 });
 
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+const fsxTextbox = '[role="textbox"][aria-label="FSX source"]';
+const errors: ErrorEvent[] = [];
+const onError = (event: ErrorEvent) => errors.push(event);
+let restoreRange: () => void;
+
+function installRangeGeometry() {
+	const methods = ["getClientRects", "getBoundingClientRect"] as const;
+	const originals = methods.map((method) => Object.getOwnPropertyDescriptor(Range.prototype, method));
+	// jsdom has no layout; allow CodeMirror's scheduled measurements to run without browser geometry.
+	const rect = new DOMRect(0, 0, 8, 16);
+	Object.defineProperty(Range.prototype, "getClientRects", {
+		configurable: true,
+		value: () => Object.assign([rect], { item: (index: number) => (index === 0 ? rect : null) }),
+	});
+	Object.defineProperty(Range.prototype, "getBoundingClientRect", { configurable: true, value: () => rect });
+	return () => {
+		methods.forEach((method, index) => {
+			const original = originals[index];
+			if (original) Object.defineProperty(Range.prototype, method, original);
+			else Reflect.deleteProperty(Range.prototype, method);
+		});
+	};
+}
+
+beforeEach(() => {
+	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+	vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
+	restoreRange = installRangeGeometry();
+	errors.length = 0;
+	window.addEventListener("error", onError);
+});
+
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
 afterEach(async () => {
 	await act(async () => root?.unmount());
+	root = undefined;
 	container?.remove();
 	hosts.length = 0;
 	window.localStorage.clear();
+	window.removeEventListener("error", onError);
+	restoreRange();
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+	expect(errors).toEqual([]);
 });
 
 async function mount(url: string) {
@@ -43,6 +80,7 @@ async function mount(url: string) {
 			</StrictMode>,
 		),
 	);
+	await act(async () => vi.advanceTimersByTimeAsync(100));
 }
 
 async function click(text: string) {
@@ -126,13 +164,20 @@ it("canonicalizes legacy URLs and popstate across FSX, JSON presets and demo mod
 	expect(window.location.search).toBe("?mode=playground&demo=fsx-quote");
 	for (const [query, editor] of [
 		["mode=playground&demo=custom-renderers&preset=authored-overrides", "#source-schema"],
-		["mode=fsx&demo=line-items", '[aria-label="FSX sources"] textarea'],
+		["mode=fsx&demo=line-items", fsxTextbox],
 		["mode=demo&demo=fsx-line-items", '[aria-current="page"]'],
 	]) {
 		await act(async () => {
 			window.history.pushState(null, "", `/formbar/?${query}`);
 			window.dispatchEvent(new PopStateEvent("popstate"));
 		});
+		await act(async () => vi.advanceTimersByTimeAsync(100));
+		if (editor === fsxTextbox) {
+			expect(container.querySelector('[aria-label="FSX sources"] textarea')).not.toBeNull();
+		}
 		expect(container.querySelector(editor)).not.toBeNull();
+		if (editor === fsxTextbox) {
+			expect(container.querySelector(editor)?.textContent).toContain('<Form id="line-items"');
+		}
 	}
 });
