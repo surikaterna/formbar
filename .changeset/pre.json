@@ -20,6 +20,7 @@
 		"final-retained-attempt-gate",
 		"fsx-admission-identity-safety",
 		"fsx-authoring-candidate",
+		"fsx-id-diagnostic-locations",
 		"fsx-scoped-primitive-writers",
 		"original-bound-attempt-receipt",
 		"owned-disposal-settlement",
