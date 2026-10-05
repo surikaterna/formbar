@@ -18,29 +18,38 @@ if (["install", "run"].includes(args[0])) {
 	console.error("normal npm publish stderr");
 	if (state.scenario === "publish-failure" && basename(process.cwd()) === "core") process.exit(17);
 	if (state.scenario === "fsx-bootstrap-failure" && basename(process.cwd()) === "fsx-authoring") process.exit(17);
+	if (state.scenario === "editor-bootstrap-failure" && basename(process.cwd()) === "fsx-editor") process.exit(17);
 	state.published.push(`@formbar/${basename(process.cwd())}`);
 	writeFileSync(process.env.TEST_STATE, JSON.stringify(state));
 } else if (args[2] === "dist-tags") {
 	const firstRead = !state.tagReads.includes(name);
 	state.tagReads.push(name);
 	writeFileSync(process.env.TEST_STATE, JSON.stringify(state));
-	if (firstRead && state.scenario === "latest-error") {
-		output({ error: { code: "E403" } });
+	if (firstRead && ["latest-error", "unexpected-absence"].includes(state.scenario)) {
+		output({ error: { code: state.scenario === "unexpected-absence" ? "E404" : "E403" } });
 		process.exit(1);
 	}
 	if (firstRead && state.scenario === "latest-malformed") {
 		output(null);
 		process.exit(0);
 	}
-	if (firstRead && name === "@formbar/fsx-authoring" && state.scenario !== "existing") {
-		output({ error: { code: state.scenario === "fsx-auth" ? "E403" : "E404" } });
+	if (
+		firstRead &&
+		["@formbar/fsx-authoring", "@formbar/fsx-editor"].includes(name) &&
+		state.scenario !== "existing" &&
+		state.scenario !== "empty-fsx-tags"
+	) {
+		const denied =
+			(name === "@formbar/fsx-authoring" && state.scenario === "fsx-auth") ||
+			(name === "@formbar/fsx-editor" && state.scenario === "editor-auth");
+		output({ error: { code: denied ? "E403" : "E404" } });
 		process.exit(1);
 	}
 	output({
 		rc: !firstRead && state.scenario === "wrong-rc" ? "0.23.0-rc.1" : version,
 		...(!firstRead && state.scenario === "moved-latest"
 			? { latest: version }
-			: name === "@formbar/fsx-authoring"
+			: ["@formbar/fsx-authoring", "@formbar/fsx-editor"].includes(name)
 				? {}
 				: { latest: "0.22.0" }),
 	});

@@ -15,6 +15,7 @@ const names = [
 	"core",
 	"declarative",
 	"fsx-authoring",
+	"fsx-editor",
 	"from-schema",
 	"react",
 	"arbiter",
@@ -30,6 +31,7 @@ const specifiers = [
 	"@formbar/core/internal/scoped-sync",
 	"@formbar/declarative",
 	"@formbar/fsx-authoring",
+	"@formbar/fsx-editor",
 	"@formbar/declarative/internal/scoped-sync",
 	"@formbar/from-schema",
 	"@formbar/react",
@@ -193,6 +195,8 @@ try {
 		])
 			compile(directory, fixture, moduleKind, resolution, extension);
 		compile(directory, "upstream.cts", "NodeNext", "NodeNext", "cts");
+		compile(directory, "fsx-highlighting.mts", "NodeNext", "NodeNext", "mts");
+		compile(directory, "fsx-highlighting.cts", "NodeNext", "NodeNext", "cts");
 		runtime(directory);
 		for (const format of ["mjs", "cjs"]) {
 			const fixture = `reference-codec.${format}`;

@@ -7,6 +7,7 @@ export const rcEdges = {
 	core: ["expressions"],
 	declarative: ["core", "expressions"],
 	"fsx-authoring": ["declarative", "expressions"],
+	"fsx-editor": ["fsx-authoring"],
 	"from-schema": ["core", "declarative", "expressions"],
 	react: ["core", "expressions"],
 	arbiter: ["core", "expressions"],
@@ -32,7 +33,7 @@ export function checkProductionDeclarations(manifests) {
 
 export function checkRcManifests(manifests) {
 	const byName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
-	if (manifests.length !== 8 || byName.size !== 8) throw new Error("incomplete eight-package RC plan");
+	if (manifests.length !== 9 || byName.size !== 9) throw new Error("incomplete nine-package RC plan");
 	for (const name of rcPackages) {
 		const manifest = byName.get(`@formbar/${name}`);
 		if (

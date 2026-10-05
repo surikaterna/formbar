@@ -15,13 +15,13 @@ const fixture = () => ({
 });
 
 describe("explicit workspace manifest/lock metadata parity", () => {
-	it("compares all ten workspaces including root, private demos and the eight publishable packages", () => {
+	it("compares all eleven workspaces including root, private demos and the nine publishable packages", () => {
 		const { manifests, lock } = fixture();
 		expect(Object.keys(manifests).sort()).toEqual(
 			["", "apps/demos", ...rcPackages.map((name) => `packages/${name}`)].sort(),
 		);
 		expect(compareWorkspaceMetadata(manifests, lock)).toEqual([]);
-		expect(auditWorkspaceLock(root)).toEqual({ workspaces: 10, mismatches: [] });
+		expect(auditWorkspaceLock(root)).toEqual({ workspaces: 11, mismatches: [] });
 	});
 	it.each([
 		["packages/from-schema", "@formbar/declarative"],

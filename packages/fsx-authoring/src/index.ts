@@ -4,6 +4,8 @@ import { appendPath } from "./expressions.js";
 import { FsxLowerer } from "./lower.js";
 import { FsxParser } from "./parser.js";
 import type { FsxCompileOptions, FsxCompileResult, SourceEntry } from "./types.js";
+export { analyzeFsxSyntax } from "./syntax.js";
+export type { FsxSyntaxAnalysis, FsxSyntaxSpan, FsxSyntaxClass, FsxGuestRegion } from "./syntax.js";
 export type {
 	FsxCompileOptions,
 	FsxCompileResult,

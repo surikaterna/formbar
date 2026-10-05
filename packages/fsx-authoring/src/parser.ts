@@ -1,11 +1,15 @@
 import { fail } from "./errors.js";
 import { guestStop } from "./guest.js";
+import type { FsxSyntaxClass, SyntaxObserver } from "./syntax.js";
 import type { Attribute, Element } from "./types.js";
 
 export class FsxParser {
 	private offset = 0;
 	private nodes = 0;
-	constructor(private readonly text: string) {}
+	constructor(
+		private readonly text: string,
+		private readonly observer?: SyntaxObserver,
+	) {}
 	parse(): Element {
 		if (this.text.length > 100000) fail("SOURCE_LIMIT", "root");
 		this.space();
@@ -22,17 +26,19 @@ export class FsxParser {
 	}
 	private consume(marker: string, path: string): void {
 		if (!this.text.startsWith(marker, this.offset)) this.error("MALFORMED_FSX", path);
+		this.observer?.span("punctuation", this.offset, this.offset + marker.length);
 		this.offset += marker.length;
 	}
-	private name(path: string): string {
+	private name(path: string, kind: FsxSyntaxClass = "tag"): string {
 		const match = /^[A-Za-z][A-Za-z0-9_-]*/u.exec(this.text.slice(this.offset));
 		if (!match) this.error("EXPECTED_NAME", path);
+		this.observer?.span(kind, this.offset, this.offset + match[0].length);
 		this.offset += match[0].length;
 		return match[0];
 	}
 	private attribute(path: string, element: string): Attribute {
 		const start = this.offset;
-		const name = this.name(path);
+		const name = this.name(path, "attribute");
 		const declarationPath =
 			name === "value" && ["Field", "Repeater"].includes(element)
 				? `${path}.binding`
@@ -44,7 +50,8 @@ export class FsxParser {
 		this.space();
 		const valueStart = this.offset;
 		if (this.text[this.offset] === "{") {
-			const end = guestStop(this.text, this.offset, declarationPath);
+			this.observer?.span("punctuation", this.offset, this.offset + 1);
+			const end = guestStop(this.text, this.offset, declarationPath, this.observer);
 			this.offset = end + 1;
 			return {
 				name,
@@ -56,6 +63,7 @@ export class FsxParser {
 		const quoted = /^"(?:[^"\\]|\\.)*"/u.exec(this.text.slice(this.offset));
 		if (!quoted) this.error("EXPECTED_LITERAL_OR_GUEST", `${path}.${name}`);
 		this.offset += quoted[0].length;
+		this.observer?.span("string", valueStart, this.offset);
 		try {
 			const value: unknown = JSON.parse(quoted[0]);
 			if (typeof value !== "string") this.error("INVALID_LITERAL", path);
@@ -81,6 +89,15 @@ export class FsxParser {
 		}
 		return attributes;
 	}
+	private closeElement(name: string, path: string): void {
+		const close = this.offset;
+		if (!this.text.startsWith(`</${name}`, close)) this.error("MALFORMED_FSX", path);
+		this.observer?.span("punctuation", close, close + 2);
+		this.observer?.span("tag", close + 2, close + 2 + name.length);
+		this.offset += name.length + 2;
+		this.space();
+		this.consume(">", path);
+	}
 	private element(path: string, depth: number, authoringPath = path): Element {
 		if (++this.nodes > 1000 || depth > 32) this.error("STRUCTURE_LIMIT", path);
 		const start = this.offset;
@@ -89,7 +106,7 @@ export class FsxParser {
 		this.space();
 		const attributes = this.attributes(name === "Alias" ? authoringPath : path, name);
 		if (this.text.startsWith("/>", this.offset)) {
-			this.offset += 2;
+			this.consume("/>", path);
 			return { name, authoringPath, attributes, children: [], range: { start, end: this.offset } };
 		}
 		this.consume(">", path);
@@ -108,9 +125,7 @@ export class FsxParser {
 			emitted += declarationCount(child);
 			this.space();
 		}
-		this.consume(`</${name}`, path);
-		this.space();
-		this.consume(">", path);
+		this.closeElement(name, path);
 		return { name, authoringPath, attributes, children, range: { start, end: this.offset } };
 	}
 }

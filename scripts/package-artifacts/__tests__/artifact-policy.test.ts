@@ -23,7 +23,7 @@ const standardFiles = ["LICENSE", "README.md", "package.json"];
 const activePreFixture = {
 	mode: "pre",
 	tag: "rc",
-	initialVersions: { ...initialVersions, "@formbar/fsx-authoring": "0.0.0" },
+	initialVersions: { ...initialVersions, "@formbar/fsx-authoring": "0.0.0", "@formbar/fsx-editor": "0.0.0" },
 	changesets: consumed,
 };
 
@@ -158,8 +158,8 @@ describe("package artifact policy", () => {
 		);
 		expect(() => validateRcDependencies(policy, manifest("0.14.3", "^0.22.2"), versions)).not.toThrow();
 	});
-	it("binds the eight RC manifest graph to the active workspace plan", () => {
-		const root = temporaryDirectory("eight-rc-plan");
+	it("binds the nine RC manifest graph to the active workspace plan", () => {
+		const root = temporaryDirectory("nine-rc-plan");
 		mkdirSync(resolve(root, ".changeset"));
 		const pre = activePreFixture;
 		const prePath = resolve(root, ".changeset/pre.json");
@@ -177,10 +177,10 @@ describe("package artifact policy", () => {
 			writeFileSync(resolve(root, `packages/${manifest.name.slice(9)}/package.json`), JSON.stringify(manifest));
 		}
 		expect(() => validateRcPlan(root, manifests)).not.toThrow();
-		expect(() => validateRcPlan(root, manifests.slice(1))).toThrow(/incomplete eight-package/);
+		expect(() => validateRcPlan(root, manifests.slice(1))).toThrow(/incomplete nine-package/);
 		expect(() =>
 			validateRcPlan(root, [...manifests, { name: "@formbar/extra", version: rcVersion } as PackageManifest]),
-		).toThrow(/incomplete eight-package/);
+		).toThrow(/incomplete nine-package/);
 		for (const changed of [
 			{ ...manifests[0], version: "0.14.3" },
 			{ ...manifests[1], dependencies: { "@formbar/expressions": "^0.14.3" } },

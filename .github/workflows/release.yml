@@ -77,9 +77,9 @@ jobs:
           node scripts/release/rc-workspace-plan.mjs > "$snapshot/plan"
           while IFS=$'\t' read -r package version; do
             if npm view "@formbar/$package" dist-tags --json > "$snapshot/$package.latest"; then
-              jq -e --arg package "$package" 'type == "object" and (if has("latest") then (.latest | type == "string" and length > 0) else $package == "fsx-authoring" end)' "$snapshot/$package.latest"
+              jq -e --arg package "$package" 'type == "object" and (if has("latest") then (.latest | type == "string" and length > 0) else ($package == "fsx-authoring" or $package == "fsx-editor") end)' "$snapshot/$package.latest"
             else
-              [[ "$package" == fsx-authoring ]]
+              [[ "$package" == fsx-authoring || "$package" == fsx-editor ]]
               jq -e '.error.code == "E404"' "$snapshot/$package.latest"
               printf '{}\n' > "$snapshot/$package.latest"
             fi

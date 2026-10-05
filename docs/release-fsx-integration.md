@@ -4,6 +4,13 @@ Latest status: the normal-production QA repair and final green gate evidence are
 recorded in [release-fsx-qa.md](release-fsx-qa.md). Earlier failures below are
 retained as historical reproduction evidence, not the current QA result.
 
+The highlighting proposal now enrolls public `@formbar/fsx-editor` as the ninth
+RC package, after authoring. Authoring is `0.1.0-rc.1`, editor is `0.1.0-rc.0`
+with authoring floor `^0.1.0-rc.1`; the seven other versions remain unchanged.
+Earlier eight-package QA counts below describe their recorded revisions.
+See [the active manual RC procedure](npm-trusted-publishing.md) for enrollment
+and unresolved first-publication authentication; no publication is authorized here.
+
 ## Source and merge
 
 - Worktree: `/home/sprawl/projects/formbar/trees/release-fsx-integration`.
@@ -55,9 +62,9 @@ install scripts. #317 is not green until those production gates pass.
 ## Active publishing and audit
 
 The manual RC workflow stays owner/main/repository gated, sequential, RC-only,
-public/provenance-enabled, and never changes `latest`. It covers exactly eight
+public/provenance-enabled, and never changes `latest`. It covers exactly nine
 packages with per-package versions, compatible internal RC floors, and declared
-Kalada ownership. New FSX absence is accepted only through structured `E404`;
+Kalada ownership. New authoring/editor absence is accepted only through structured `E404`;
 both first publication and repeat RC-only runs must preserve absent `latest`.
 Existing exact versions are immutable skips; malformed/auth/network errors stop.
 

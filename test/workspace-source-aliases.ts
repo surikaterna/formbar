@@ -1,5 +1,6 @@
 export const workspaceSourceModules = Object.freeze({
 	"@formbar/fsx-authoring": new URL("../packages/fsx-authoring/src/index.ts", import.meta.url).href,
+	"@formbar/fsx-editor": new URL("../packages/fsx-editor/src/index.ts", import.meta.url).href,
 	"@formbar/expressions": new URL("../packages/expressions/src/index.ts", import.meta.url).href,
 	"@formbar/arbiter": new URL("../packages/arbiter/src/index.ts", import.meta.url).href,
 	"@formbar/core/path": new URL("../packages/core/src/path.entry.ts", import.meta.url).href,
