@@ -67,6 +67,18 @@ async function selectAstralSource(container: HTMLElement, editor: { current: Fsx
 	expect(view?.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe("😀");
 }
 
+function diagnosticProps(text: string, editor: ReturnType<typeof createRef<FsxSourceHandle>>) {
+	return {
+		value: text,
+		data: "{}",
+		diagnosticReport: { source: text, data: "{}", diagnostics: [] },
+		onChange: () => {},
+		onApply: () => {},
+		onFocus: () => {},
+		editor,
+	};
+}
+
 it.each([16, 100, 1000])(
 	"StrictMode disposes both sessions/views and maps CRLF/astral source ranges after %ims of measurement",
 	async (delay) => {
@@ -80,7 +92,7 @@ it.each([16, 100, 1000])(
 			await act(async () =>
 				root.render(
 					<StrictMode>
-						<FsxSourceEditor value={text} onChange={() => {}} onApply={() => {}} onFocus={() => {}} editor={editor} />
+						<FsxSourceEditor {...diagnosticProps(text, editor)} />
 					</StrictMode>,
 				),
 			);

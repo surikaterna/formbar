@@ -85,6 +85,8 @@ function SourcePanel({ session, example }: Omit<WorkspaceProps, "demo">) {
 		<>
 			<FsxSourceEditor
 				value={session.source}
+				data={session.data}
+				diagnosticReport={session.diagnosticReport}
 				onChange={session.setSource}
 				onApply={(text) => session.apply(text)}
 				editor={editor}
@@ -93,16 +95,24 @@ function SourcePanel({ session, example }: Omit<WorkspaceProps, "demo">) {
 			<TextEditor
 				label="Initial JSON data"
 				value={session.data}
-				onChange={session.setData}
+				onChange={(value) => {
+					editor.current?.clearDiagnostics();
+					session.setData(value);
+				}}
 				onFocus={() => setActive("data")}
 			/>
-			<SourceActions session={session} example={example} active={active} />
+			<SourceActions
+				session={session}
+				example={example}
+				active={active}
+				clearDiagnostics={() => editor.current?.clearDiagnostics()}
+			/>
 			<p aria-live="polite">
 				Preview: applied revision {session.applied.revision}.{" "}
 				{session.dirty ? "Unapplied draft — previous successful preview remains active." : "Source applied."}{" "}
 				Source-only Apply preserves live data; edited initial JSON replaces it.
 			</p>
-			<FsxDiagnostics diagnostics={session.diagnostics} editor={editor} />
+			<FsxDiagnostics diagnostics={session.diagnostics} editor={editor} report={session.diagnosticReport} />
 		</>
 	);
 }
@@ -111,13 +121,17 @@ function SourceActions({
 	session,
 	example,
 	active,
-}: Omit<WorkspaceProps, "demo"> & { readonly active: "source" | "data" }) {
+	clearDiagnostics,
+}: Omit<WorkspaceProps, "demo"> & { readonly active: "source" | "data"; readonly clearDiagnostics: () => void }) {
 	const [status, setStatus] = useState("");
 	return (
 		<>
 			<PlaygroundToolbar
 				onApply={() => session.apply()}
-				onReset={session.reset}
+				onReset={() => {
+					clearDiagnostics();
+					session.reset();
+				}}
 				applyLabel="Compile and Apply"
 				onCopy={() => copySource(session[active], setStatus)}
 				onDownload={() =>

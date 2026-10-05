@@ -33,6 +33,16 @@ than transferring data or authority between formats.
 
 ## Editing and lifecycle
 
+The source editor follows the demo's fixed dark appearance under both light and
+dark system preferences. Its app-owned CodeMirror theme draws a bright focused
+caret and contrasting selection, with blue host tag identifiers, purple attribute
+identifiers and green quoted host strings. Embedded Kalada interiors remain plain
+foreground text: this is host highlighting, not guest lexical highlighting.
+The source viewport is 28rem tall on desktop and 20–28rem on smaller screens,
+with line wrapping and internal scrolling. Wide playgrounds split editor/preview
+space evenly while retaining the preview's 32rem minimum; narrower containers
+stack them. These presentation choices do not change the reusable editor packages.
+
 Edit FSX source and initial JSON, then **Compile and Apply**. Source-only Apply
 preserves the current preview data. Changing the initial JSON explicitly replaces
 that data. Source-only Apply captures a detached, bounded draft from the current
@@ -85,9 +95,27 @@ without evaluating the broken view, and both Reset controls remain available.
 
 An unapplied draft is labeled separately from the applied revision. Failed Apply
 shows compiler diagnostics (declaration paths and original half-open UTF-16
-ranges where available) and keeps the last successful preview active. Clicking
-a ranged diagnostic selects its source. Editing the draft clears old diagnostic
-ranges. Failed source never produces a partial form.
+ranges where available) and keeps the last successful preview active. Primary FSX
+errors also get a red underline (a point marker for empty ranges), a lint gutter
+marker and a plain-text hover message. This displays the existing failed Apply
+result, never a live compiler/provider. Source and initial-JSON bytes must match
+the failed Apply snapshot and the mounted editor must have that exact source.
+Clicking a valid ranged diagnostic selects its source using the same CRLF-to-editor
+UTF-16 conversion as lint. Source transactions (including undo/redo) clear lint
+immediately, before React callbacks render; JSON edits, reset, successful Apply
+and unmount also clear it. Related locations remain list-only. Missing, invalid,
+split-CRLF/surrogate ranges and JSON/preview locations never underline unrelated
+FSX text. Failed source never produces a partial form.
+
+The app owns the diagnostic gutter hover separately from ordinary CodeMirror
+range hover. Every diagnostic replacement clears its active tooltip and cancels
+pending hover work; delayed hover also checks marker lifetime and report generation.
+Keyboard focus on a gutter marker shows the same plain-text message. Disposing
+the view cancels its pending timer, without dependency patches or live compilation.
+Gutter content remains visible while the pointer or focus is on either the marker
+or tooltip, with a short grace period for crossing the gap. Escape dismisses it
+without moving the pointer; only a new hover/focus interaction can reopen it.
+Invalidation clears content immediately even during transfer or tooltip interaction.
 
 Successful Apply/reset creates a new installation and retires old callbacks.
 Preset changes retire the previous preview. Existing demo installation retirement
