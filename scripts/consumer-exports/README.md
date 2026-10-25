@@ -1,8 +1,8 @@
 # #345 packed public opt-in RC fixtures
 
-Run `mise exec bun@1.2.21 -- bun install --frozen-lockfile`, then
-`mise exec bun@1.2.21 -- bun run build`, then
-`mise exec bun@1.2.21 -- bun run check:consumer-exports`. The harness packs
+Run `mise exec bun@1.4.4 -- bun install --frozen-lockfile`, then
+`mise exec bun@1.4.4 -- bun run build`, then
+`mise exec bun@1.4.4 -- bun run check:consumer-exports`. The harness packs
 seven native tarballs, verifies installed files are not workspace links, and
 installs them separately with React 18.3.1 or 19.2.0, matching React DOM,
 types, TypeScript 5.7.3, and jsdom 26.1.0. Each React major has an isolated

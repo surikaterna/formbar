@@ -14,7 +14,7 @@ proposals; they never publish.
 2. When those technical gates pass, `spralle` starts a **new** manual run of
    `release.yml` on `main` in `surikaterna/formbar`. Never rerun historical failed
    runs (including 36723897550). No SHA/GO input or deployment environment is used.
-3. The job checks out source, sets up Bun **1.2.21**, Node **22.23.2** and npm
+3. The job checks out source, sets up Bun **1.4.4**, Node **22.23.4** and npm
    **11.20.0**, provisions the required offline test tools, then performs frozen
    install → sequential package build → full tests. All nine named manifests
    must have well-formed `-rc.N` versions and a closed, compatible dependency graph.

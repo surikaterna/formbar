@@ -18,7 +18,7 @@ const commit = "a".repeat(40);
 const version = "0.23.0-rc.0";
 const context: PublishContext = {
 	commit,
-	node: "22.23.2",
+	node: "22.23.4",
 	npm: "11.20.0",
 	oidc: true,
 	approved: true,

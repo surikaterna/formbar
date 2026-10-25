@@ -20,10 +20,10 @@ Known values are collected in memory from parent credential-bearing token/auth/p
 
 ## Actual pinned offline CLI evidence
 
-Reproduced by `rc-npm-real-diagnostics.test.ts` with verified Node **22.23.2**, npm package **11.20.0**, scrubbed env `{HOME,TMPDIR,PATH:"",NO_COLOR:"1"}`, temporary cwd/home, offline, logs disabled, `/dev/null` userconfig. No captured raw fixture is committed. Run with explicit pinned paths (unset paths skip these four opt-in probes, not the adversarial tests):
+`rc-npm-real-diagnostics.test.ts` now requires Node **22.23.4** and npm package **11.20.0**, with scrubbed env `{HOME,TMPDIR,PATH:"",NO_COLOR:"1"}`, temporary cwd/home, offline, logs disabled, and `/dev/null` userconfig. Earlier recorded diagnostics used Node22.23.2; this security update does not claim they were rerun. No captured raw fixture is committed. Run with explicit pinned paths (unset paths skip these four opt-in probes, not the adversarial tests):
 
 ```sh
-NPM_DIAGNOSTIC_NODE=/path/to/node22.23.2/bin/node NPM_DIAGNOSTIC_ROOT=/path/to/npm11.20.0 mise exec bun@1.2.21 -- bun run test -- scripts/release/__tests__/rc-npm-real-diagnostics.test.ts
+NPM_DIAGNOSTIC_NODE=/path/to/node22.23.4/bin/node NPM_DIAGNOSTIC_ROOT=/path/to/npm11.20.0 mise exec bun@1.4.4 -- bun run test -- scripts/release/__tests__/rc-npm-real-diagnostics.test.ts
 ```
 
 Safe probe arguments: `node npm/bin/npm-cli.js config not-a-command --offline --logs-max=0 --userconfig=/dev/null --globalconfig=<temporary absent file>`, repeated with probe-only `--json`; collision probes use `--globalconfig=/dev/null`, with and without probe-only `--json`.

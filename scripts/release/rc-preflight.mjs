@@ -1,4 +1,14 @@
-var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
+var __esm = (fn, res, err) => () => {
+  if (fn)
+    try {
+      res = fn(fn = 0);
+    } catch (e) {
+      err = [e];
+    }
+  if (err)
+    throw err[0];
+  return res;
+};
 
 // scripts/release/rc-reviewed-plan.ts
 import { createHash } from "node:crypto";
@@ -260,7 +270,7 @@ import { resolve } from "node:path";
 function json(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
-function loadRcSource(root, sha3, tree) {
+function loadRcSource(root, sha, tree) {
   const manifests = {};
   const changelogs = {};
   for (const name of rcPackages) {
@@ -274,7 +284,7 @@ function loadRcSource(root, sha3, tree) {
   }
   const pre = json(resolve(root, ".changeset/pre.json"));
   const source = {
-    commit: sha3,
+    commit: sha,
     tree,
     pre,
     manifests,

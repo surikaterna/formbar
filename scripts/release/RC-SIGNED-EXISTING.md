@@ -24,7 +24,7 @@ The prepacked bytes must be independently produced from the exact reviewed
 version tree with a pinned toolchain before this conditional path is used.
 
 The optional test `rc-signed-live.test.ts` uses an isolated single top-level
-exact `@changesets/cli@2.29.7` install, Node **22.23.2** and npm **11.20.0**.
+exact `@changesets/cli@2.29.7` install, Node **22.23.4** and npm **11.20.0**.
 Supply absolute paths `RC_SIGNED_NODE`, `RC_SIGNED_NPM_ROOT` (npm's package
 directory), `RC_SIGNED_INSTALL` (isolated installed project). The scratch CLI
 and target must be installed *outside* this repository, with `--save-exact

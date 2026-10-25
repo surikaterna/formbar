@@ -10,12 +10,12 @@ exact internal `^0.23.0-rc.0` edges in `rc-reviewed-plan.ts` and pre.json has
 the 23 explicitly enumerated consumed IDs including `reference-codec`.
 
 From a **separate clean disposable checkout** at that exact head, install via
-`mise exec bun@1.2.21 -- bun install --frozen-lockfile`, then build with
-`mise exec bun@1.2.21 -- bun run build`. From a separate clean feature worktree
+`mise exec bun@1.4.4 -- bun install --frozen-lockfile`, then build with
+`mise exec bun@1.4.4 -- bun run build`. From a separate clean feature worktree
 containing this script, execute:
 
 ```sh
-mise exec node@22.23.2 npm@11.20.0 -- node scripts/release/rc-fake-tarball-proof.mjs \
+mise exec node@22.23.4 npm@11.20.0 -- node scripts/release/rc-fake-tarball-proof.mjs \
   /tmp/opencode/382-pr298-6a1dfb \
   6a1dfb495acc767736ac38915199bc0edb529709 \
   682382105ff0658083fbe229ad38a1d1957a14c4 \
@@ -25,7 +25,7 @@ mise exec node@22.23.2 npm@11.20.0 -- node scripts/release/rc-fake-tarball-proof
 The program checks live PR identity and clean Git checkout before and after
 packing, and before each CLI invocation. Two native `npm pack --pack-destination
 <isolated-dir> --json` invocations per package must yield identical bytes.
-Node 22.23.2/npm 11.20.0 CLI publishes each explicit tarball with `--tag rc
+Node 22.23.4/npm 11.20.0 CLI publishes each explicit tarball with `--tag rc
 --access public --provenance` **only** to an HTTP server bound to 127.0.0.1.
 The child process has a fresh HOME/TMPDIR/cache, `/dev/null` userconfig,
 no inherited tokens, and a socket boundary denying non-loopback connections.

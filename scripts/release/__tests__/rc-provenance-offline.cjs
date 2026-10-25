@@ -5,7 +5,7 @@ const { readFileSync } = require("node:fs");
 const Module = require("node:module");
 const { join } = require("node:path");
 
-assert.equal(process.version, "v22.23.2");
+assert.equal(process.version, "v22.23.4");
 const root = process.argv[2];
 assert.equal(JSON.parse(readFileSync(join(root, "package.json"))).version, "11.20.0");
 assert.equal(JSON.parse(readFileSync(join(root, "node_modules/libnpmpublish/package.json"))).version, "11.2.1");

@@ -122,7 +122,7 @@ describe("#397 archived preflight boundary (not an active release gate)", () => 
 	it("retains the reproducible archived bundle", () => {
 		const ci = YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"));
 		const setup = ci.jobs.ci.steps.find((step: { name: string }) => step.name === "Setup Bun");
-		expect(setup.with["bun-version"]).toBe("1.2.21");
+		expect(setup.with["bun-version"]).toBe("1.4.4");
 		const bundle = readFileSync(join(root, "scripts/release/rc-preflight.mjs"));
 		expect(readFileSync(join(root, "scripts/release/RC-PREFLIGHT.md"), "utf8")).toContain(`\`${sha256(bundle)}\``);
 		const dir = mkdtempSync(join(tmpdir(), "formbar-preflight-rebuild-"));

@@ -33,8 +33,8 @@ it.skipIf(!node || !npm).each([
 	[false, true],
 	[true, false],
 	[true, true],
-])("#437 actual Node22.23.2/npm11.20.0 offline collision=%s json=%s", (collision, json) => {
-	expect(spawnSync(node as string, ["--version"], { encoding: "utf8" }).stdout.trim()).toBe("v22.23.2");
+])("#437 actual Node22.23.4/npm11.20.0 offline collision=%s json=%s", (collision, json) => {
+	expect(spawnSync(node as string, ["--version"], { encoding: "utf8" }).stdout.trim()).toBe("v22.23.4");
 	expect(JSON.parse(readFileSync(join(npm as string, "package.json"), "utf8")).version).toBe("11.20.0");
 	const dir = mkdtempSync(join(tmpdir(), "rc-npm-offline-"));
 	try {

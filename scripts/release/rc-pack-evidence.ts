@@ -55,7 +55,7 @@ export function observeLocalPacks(
 	tree: string,
 	capture?: (bytes: readonly PackageAudit[]) => void,
 ) {
-	if (run("node", ["--version"], root) !== "v22.23.2" || run("npm", ["--version"], root) !== "11.20.0")
+	if (run("node", ["--version"], root) !== "v22.23.4" || run("npm", ["--version"], root) !== "11.20.0")
 		throw new Error("Node/npm versions not pinned");
 	checkSnapshot(root, sha, tree);
 	loadRcSource(root, sha, tree);
@@ -73,7 +73,7 @@ export function observeLocalPacks(
 		return {
 			commit: sha,
 			tree,
-			node: "v22.23.2",
+			node: "v22.23.4",
 			npm: "11.20.0",
 			command,
 			lifecycle,

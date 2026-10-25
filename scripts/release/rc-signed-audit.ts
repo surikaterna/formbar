@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import type { AuditProof } from "./rc-signed-existing";
 
 const exec = promisify(execFile);
-const expectedNode = "v22.23.2";
+const expectedNode = "v22.23.4";
 const expectedNpm = "11.20.0";
 
 async function installedOnly(cwd: string, name: string, version: string) {

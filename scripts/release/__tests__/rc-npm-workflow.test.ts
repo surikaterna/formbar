@@ -136,8 +136,8 @@ describe("#442 executable manual RC workflow (fake npm, no network or OIDC)", ()
 		expect(job.steps[0]).toEqual({ name: "Checkout", uses: "actions/checkout@v5", with: { "fetch-depth": 0 } });
 		expect(job.steps.slice(0, 3)).toMatchObject([
 			{ uses: "actions/checkout@v5" },
-			{ uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.2.21" } },
-			{ uses: "actions/setup-node@v4", with: { "node-version": "22.23.2" } },
+			{ uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.4.4" } },
+			{ uses: "actions/setup-node@v4", with: { "node-version": "22.23.4" } },
 		]);
 		expect(job.steps[3].run).toContain("npm@11.20.0");
 		expect(job.steps[3].run).toContain("RC_NODE_BINARY=%s\\nRC_NPM_ROOT=%s");

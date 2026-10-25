@@ -37,7 +37,7 @@ function toolchain(): void {
 		!emptyPrivateConfig(process.env.npm_config_userconfig) ||
 		!emptyPrivateConfig(process.env.npm_config_globalconfig) ||
 		process.env.npm_config_userconfig === process.env.npm_config_globalconfig ||
-		run("node") !== "v22.23.2" ||
+		run("node") !== "v22.23.4" ||
 		run("npm") !== "11.20.0" ||
 		process.env.npm_config_offline !== "true" ||
 		Object.entries(process.env).some(

@@ -28,7 +28,7 @@ function setup() {
 	for (const key of ["NPM_TOKEN", "NODE_AUTH_TOKEN", "npm_config_auth", "npm_config__authToken"])
 		vi.stubEnv(key, undefined);
 	mocks.refresh.mockResolvedValue({ root: "/checkout", sha: "a".repeat(40), tree: "b".repeat(40), runId: 12345 });
-	mocks.cli.mockImplementation((name: string) => (name === "node" ? "v22.23.2\n" : "11.20.0\n"));
+	mocks.cli.mockImplementation((name: string) => (name === "node" ? "v22.23.4\n" : "11.20.0\n"));
 	mocks.audit.mockImplementation(() =>
 		rcPackages.map((name, index) => ({ name: `@formbar/${name}`, bytes: Buffer.from(bytes[index]) })),
 	);
@@ -75,7 +75,7 @@ describe("#389 disabled native seven-candidate byte witness (pack process mocked
 				name === "node"
 					? failure === "wrong-node"
 						? "v21.0.0"
-						: "v22.23.2"
+						: "v22.23.4"
 					: failure === "wrong-npm"
 						? "10.9.8"
 						: "11.20.0",

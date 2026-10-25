@@ -28,7 +28,7 @@ function tools() {
 	const npm = process.env.RC_NPM_ROOT;
 	if (!node || !npm || !isAbsolute(node) || !isAbsolute(npm))
 		throw new Error("required explicit offline tool pins missing");
-	expect(execFileSync(node, ["--version"], { encoding: "utf8" })).toBe("v22.23.2\n");
+	expect(execFileSync(node, ["--version"], { encoding: "utf8" })).toBe("v22.23.4\n");
 	expect(JSON.parse(readFileSync(join(npm, "package.json"), "utf8")).version).toBe("11.20.0");
 	expect(
 		createHash("sha256")

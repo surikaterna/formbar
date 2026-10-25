@@ -21,9 +21,10 @@ https://github.com/npm/cli/blob/v11.20.0/workspaces/libnpmpublish/lib/provenance
 
 Required local fixture tools (explicit absolute paths; missing tools fail, not skip):
 
-- Node 22.23.2: `/home/sprawl/.local/share/mise/installs/node/22.23.2/bin/node`
-  SHA-256 `3517c2df0b2f8cd7f422b4b8450ef81c6889f08eb03e281d6de9079b15e6a327`
-  (local Linux binary; other platforms have different binary hashes).
+- Node 22.23.4: set `RC_NODE_BINARY` to its installed absolute binary path.
+  Verify the distribution archive against the platform-specific entry in the
+  official [22.23.4 SHASUMS256.txt](https://nodejs.org/dist/v22.23.4/SHASUMS256.txt);
+  archive digests are not hashes of the extracted executable.
 - npm 11.20.0 root: `/home/sprawl/.local/share/mise/installs/npm/11.20.0/package`
 - `bin/npm-cli.js` SHA-256:
   `8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7`.
@@ -43,7 +44,7 @@ This is predicate evidence only, NOT cryptographic verification, registry
 acceptance, private publisher-policy evidence, or permission to publish.
 
 CI provisions the same exact Node/npm versions and executes this required test
-in full Vitest, after frozen Bun 1.2.21 install and package build. Tool provisioning
+in full Vitest, after frozen Bun 1.4.4 install and package build. Tool provisioning
 may download tools; the generator fixture itself is offline with no credentials.
 
 ## Reproduce and quality gates
@@ -51,19 +52,19 @@ may download tools; the generator fixture itself is offline with no credentials.
 In the #439 worktree, frozen install and build must precede Vitest:
 
 ```sh
-mise exec bun@1.2.21 -- bun install --frozen-lockfile
-mise exec bun@1.2.21 -- bun run build
-export RC_NODE_BINARY=/home/sprawl/.local/share/mise/installs/node/22.23.2/bin/node
+mise exec bun@1.4.4 -- bun install --frozen-lockfile
+mise exec bun@1.4.4 -- bun run build
+export RC_NODE_BINARY=/home/sprawl/.local/share/mise/installs/node/22.23.4/bin/node
 export RC_NPM_ROOT=/home/sprawl/.local/share/mise/installs/npm/11.20.0/package
-mise exec bun@1.2.21 node@22.23.2 -- bunx vitest run scripts/release/__tests__/rc-protected-providers.test.ts scripts/release/__tests__/live-evidence.test.ts scripts/release/__tests__/rc-run-authority.test.ts scripts/release/__tests__/rc-protected.test.ts scripts/release/__tests__/rc-provenance-offline.test.ts scripts/release/__tests__/rc-workflow.test.ts scripts/release/__tests__/rc-no-environment.test.ts
-mise exec bun@1.2.21 node@22.23.2 -- bun run test
-mise exec bun@1.2.21 -- bun run lint
-mise exec bun@1.2.21 -- bun run typecheck:release-scripts
+mise exec bun@1.4.4 node@22.23.4 -- bunx vitest run scripts/release/__tests__/rc-protected-providers.test.ts scripts/release/__tests__/live-evidence.test.ts scripts/release/__tests__/rc-run-authority.test.ts scripts/release/__tests__/rc-protected.test.ts scripts/release/__tests__/rc-provenance-offline.test.ts scripts/release/__tests__/rc-workflow.test.ts scripts/release/__tests__/rc-no-environment.test.ts
+mise exec bun@1.4.4 node@22.23.4 -- bun run test
+mise exec bun@1.4.4 -- bun run lint
+mise exec bun@1.4.4 -- bun run typecheck:release-scripts
 for package in core declarative from-schema react react-schema; do
-  mise exec bun@1.2.21 -- bunx tsc --noEmit -p "packages/$package/tsconfig.json"
+  mise exec bun@1.4.4 -- bunx tsc --noEmit -p "packages/$package/tsconfig.json"
 done
-TMPDIR="$(mktemp -d /home/sprawl/formbar-439-consumers.XXXXXXXX)" mise exec bun@1.2.21 node@22.23.2 npm@11.20.0 -- bun run check:consumer-exports
-TMPDIR="$(mktemp -d /home/sprawl/formbar-439-artifacts.XXXXXXXX)" mise exec bun@1.2.21 node@22.23.2 npm@11.20.0 -- bun run check:package-artifacts
+TMPDIR="$(mktemp -d /home/sprawl/formbar-439-consumers.XXXXXXXX)" mise exec bun@1.4.4 node@22.23.4 npm@11.20.0 -- bun run check:consumer-exports
+TMPDIR="$(mktemp -d /home/sprawl/formbar-439-artifacts.XXXXXXXX)" mise exec bun@1.4.4 node@22.23.4 npm@11.20.0 -- bun run check:package-artifacts
 mise exec actionlint@1.7.12 -- actionlint .github/workflows/release.yml .github/workflows/ci.yml
 git diff --check
 ```

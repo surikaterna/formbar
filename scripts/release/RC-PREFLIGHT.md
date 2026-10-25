@@ -28,16 +28,16 @@ attempt. The runner does not verify that external proof; missing or stale proof
 means STOP. Explicit nonempty/malformed bypass and caller bypass still deny.
 Postflight admin readback is required; #250 remains RELEASE HOLD, not a GO.
 
-Bun 1.2.21 reproduces the bundle byte-for-byte (Bun 1.2.0 does not). Build:
+Bun 1.4.4 reproduces the current bundle byte-for-byte. Build:
 
 ```sh
-mise exec bun@1.2.21 -- bun build scripts/release/rc-preflight-entry.ts --target=node --format=esm --bundle --outfile=scripts/release/rc-preflight.mjs
+mise exec bun@1.4.4 -- bun build scripts/release/rc-preflight-entry.ts --target=node --format=esm --bundle --outfile=scripts/release/rc-preflight.mjs
 sha256sum scripts/release/rc-preflight.mjs
-mise exec bun@1.2.21 -- bunx vitest run scripts/release/__tests__/rc-workflow.test.ts
+mise exec bun@1.4.4 -- bunx vitest run scripts/release/__tests__/rc-workflow.test.ts
 ```
 
-Expected bundle SHA-256, also pinned in the workflow:
-`77e644259c1fa716923946593658ccee83b8d91e5dea3c33ee6a98e36a39c15e`.
+Expected archived bundle SHA-256:
+`4af4c78e4f73f3d1be9035a8183ec2cb4fd4b66df1c20b31556474303726aed2`.
 CI rebuilds and compares bundle bytes. Source sections in bundle order:
 
 ```text

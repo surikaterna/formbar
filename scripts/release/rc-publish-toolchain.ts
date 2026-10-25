@@ -12,6 +12,6 @@ export async function assertPinnedPublishTools(nodeBinary: string, npmRoot: stri
 		version?: string;
 	};
 	const version = await exec(nodeBinary, ["--version"], { timeout: 5_000, maxBuffer: 1024 });
-	if (version.stdout.trim() !== "v22.23.2" || npm.name !== "npm" || npm.version !== "11.20.0")
+	if (version.stdout.trim() !== "v22.23.4" || npm.name !== "npm" || npm.version !== "11.20.0")
 		throw new Error("pinned Node/npm publish toolchain required");
 }

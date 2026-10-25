@@ -21,7 +21,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.21
+          bun-version: 1.4.4
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Build packages
@@ -52,15 +52,15 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.21
+          bun-version: 1.4.4
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 22.23.4
       - name: Install npm and provision offline test tools
         run: |
           npm install --global --ignore-scripts --no-audit --no-fund npm@11.20.0
-          [[ "$(node --version)" == v22.23.2 && "$(npm --version)" == 11.20.0 ]]
+          [[ "$(node --version)" == v22.23.4 && "$(npm --version)" == 11.20.0 ]]
           printf 'RC_NODE_BINARY=%s\nRC_NPM_ROOT=%s\n' "$(command -v node)" "$(npm root -g)/npm" >> "$GITHUB_ENV"
       - name: Install dependencies
         run: bun install --frozen-lockfile

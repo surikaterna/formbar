@@ -33,7 +33,7 @@ export interface PublishContext {
 }
 
 function assertContext(context: PublishContext): void {
-	if (!/^[a-f0-9]{40}$/.test(context.commit) || context.node !== "22.23.2" || context.npm !== "11.20.0")
+	if (!/^[a-f0-9]{40}$/.test(context.commit) || context.node !== "22.23.4" || context.npm !== "11.20.0")
 		throw new Error("unsupported source or toolchain");
 	if (!context.oidc || !context.approved || Object.values(context.credentials).some(Boolean))
 		throw new Error("OIDC approval required; bearer credentials forbidden");

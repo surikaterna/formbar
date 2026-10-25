@@ -29,7 +29,7 @@ function preflight(root, commit, tree, base) {
 	assert.equal(run("git", ["rev-parse", "HEAD"], root), commit);
 	assert.equal(run("git", ["rev-parse", "HEAD^{tree}"], root), tree);
 	assert.equal(run("git", ["status", "--porcelain"], root), "");
-	assert.equal(run("node", ["--version"], root), "v22.23.2");
+	assert.equal(run("node", ["--version"], root), "v22.23.4");
 	assert.equal(run("npm", ["--version"], root), "11.20.0");
 	const pr = JSON.parse(run("gh", ["pr", "view", "298", "--json", "headRefOid,baseRefOid,state"], root));
 	assert.deepEqual(pr, { headRefOid: commit, baseRefOid: base, state: "OPEN" });
